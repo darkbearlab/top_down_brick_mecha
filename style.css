@@ -50,7 +50,7 @@ html, body {
   background: rgba(8,10,14,.55); border: 1px solid rgba(255,140,60,.35); border-radius: 10px;
 }
 #target .label { font-size: 11px; letter-spacing: 3px; color: #ffa060; margin-bottom: 6px; }
-#target.hidden, #passive.hidden, #pause.hidden { display: none; }
+#target.hidden, #passive.hidden, #help.hidden, #hud.hidden { display: none; }
 #passive { position: absolute; right: 16px; top: 14px; font-size: 13px; font-weight: 800; color: #ffd060; }
 
 #toast {
@@ -59,11 +59,50 @@ html, body {
 }
 #toast.show { animation: toast 1.2s ease-out forwards; }
 @keyframes toast { 0% { opacity: 0; transform: scale(1.5); } 12% { opacity: 1; transform: scale(1); } 70% { opacity: 1; } 100% { opacity: 0; } }
-#pause {
-  position: fixed; inset: 0; z-index: 8; display: flex; flex-direction: column; align-items: center; justify-content: center;
-  background: rgba(0,0,0,.5); font-size: 40px; font-weight: 900; letter-spacing: 8px;
+/* 主選單、對戰設定：畫面右邊，左邊留給機體 */
+#menu, #duel { position: fixed; inset: 0; z-index: 9; display: flex; justify-content: flex-end; pointer-events: none; }
+#menu.hidden, #duel.hidden, #panel.hidden { display: none; }
+.mpanel {
+  pointer-events: auto; width: min(560px, 50vw); height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; justify-content: center;
+  padding: 24px 32px 24px 56px; background: linear-gradient(90deg, rgba(8,10,14,0), rgba(8,10,14,.88) 16%);
 }
-#pause small { font-size: 14px; letter-spacing: 2px; opacity: .7; margin-top: 8px; }
+.mpanel.wide { justify-content: flex-start; }
+.mpanel h1 { font-size: 46px; letter-spacing: 6px; font-weight: 900; line-height: 1; }
+.mpanel h1 span { display: block; color: #7ff0ff; font-size: 30px; letter-spacing: 14px; margin-top: 4px; }
+.mpanel .sub { opacity: .6; font-size: 13px; margin-bottom: 14px; }
+.mpanel h2 { font-size: 15px; letter-spacing: 4px; color: #7ff0ff; margin-top: 8px; }
+.btn {
+  display: flex; flex-direction: column; gap: 2px; text-align: left; padding: 12px 16px; border-radius: 9px; cursor: pointer;
+  border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #e8ecf2; font: 800 16px system-ui, sans-serif;
+}
+.btn small { font-weight: 500; font-size: 12px; opacity: .65; }
+.btn:hover { background: rgba(255,255,255,.1); }
+.btn.primary { border-color: #7ff0ff; background: rgba(127,240,255,.14); }
+.mpanel .row { display: flex; gap: 10px; margin-top: 10px; }
+.mpanel .row .btn { flex: 1; text-align: center; align-items: center; }
+#dCards { display: grid; grid-template-columns: 1fr 1fr; gap: 8px; }
+.card {
+  text-align: left; padding: 10px 12px; border-radius: 9px; border: 1px solid rgba(255,255,255,.12); background: rgba(255,255,255,.04);
+  color: #e8ecf2; cursor: pointer; display: flex; flex-direction: column; gap: 5px; font: inherit;
+}
+.card b { font-size: 15px; }
+.card small { font-size: 12px; opacity: .65; }
+.card div { display: flex; flex-wrap: wrap; gap: 4px; font-size: 11px; align-items: center; }
+.card.on { border-color: #ffa060; background: rgba(255,160,96,.12); }
+.wt { padding: 0 5px; border-radius: 4px; border: 1px solid var(--c); color: var(--c); font-size: 11px; font-weight: 800; }
+#dDiff { display: flex; gap: 8px; }
+#dDiff button { flex: 1; padding: 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.05); color: #e8ecf2; font: 800 14px system-ui; cursor: pointer; }
+#dDiff button.on { border-color: #ffa060; background: rgba(255,160,96,.14); }
+
+/* 暫停、結果、說明 */
+#panel { position: fixed; inset: 0; z-index: 10; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.5); }
+.pbox { width: min(520px, 90vw); padding: 24px; border-radius: 14px; background: rgba(12,14,20,.95); border: 1px solid rgba(255,255,255,.12); display: flex; flex-direction: column; gap: 14px; }
+.pbox h2 { font-size: 30px; letter-spacing: 8px; text-align: center; }
+#pBody { text-align: center; opacity: .8; font-size: 14px; }
+#pBody .help { text-align: left; font-size: 13px; line-height: 1.8; }
+#pBody .help b { display: block; color: #7ff0ff; margin-top: 6px; }
+#pButtons { display: flex; flex-direction: column; gap: 8px; }
+#pButtons .btn { text-align: center; align-items: center; }
 
 /* 整備 */
 #garage { position: fixed; inset: 0; z-index: 9; display: flex; justify-content: flex-end; pointer-events: none; }

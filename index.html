@@ -13,7 +13,7 @@
 <body>
 <div id="game"></div>
 
-<div id="hud">
+<div id="hud" class="hidden">
   <div id="help">
     <b>試玩場</b>
     WASD 移動・滑鼠瞄準・左鍵 / 右鍵 左右手・Q / E 左右背・Space / Shift 推進衝刺<br>
@@ -36,7 +36,26 @@
   <div id="passive" class="hidden">敵機停火中（T）</div>
 </div>
 <div id="toast"></div>
-<div id="pause" class="hidden">暫停<small>Esc 繼續</small></div>
+<div id="menu" class="hidden">
+  <div class="mpanel">
+    <h1>BRICK<span>MECHA</span></h1>
+    <p class="sub">俯視角方塊機甲・組裝・捉對廝殺</p>
+    <button class="btn primary" id="mDuel">對戰<small>一對一・選對手和難度</small></button>
+    <button class="btn" id="mSandbox">試玩場<small>練習用・敵機一開始停火（T 切換）</small></button>
+    <button class="btn" id="mGarage">整備<small>組裝機體：頭、軀幹、腳、四個武器、裝甲</small></button>
+    <button class="btn" id="mHelp">操作說明<small>鍵盤滑鼠 / 手把・屬性剋制・部位</small></button>
+  </div>
+</div>
+<div id="duel" class="hidden">
+  <div class="mpanel wide">
+    <h2>選擇對手</h2>
+    <div id="dCards"></div>
+    <h2>難度</h2>
+    <div id="dDiff"></div>
+    <div class="row"><button class="btn" id="dBack">返回</button><button class="btn primary" id="dStart">開始對戰</button></div>
+  </div>
+</div>
+<div id="panel" class="hidden"><div class="pbox"><h2 id="pTitle"></h2><div id="pBody"></div><div id="pButtons"></div></div></div>
 <div id="garage" class="hidden">
   <div class="gpanel">
     <div class="ghead"><b>整備</b><span>改了馬上套用到機體・外框顏色 = 裝甲種類</span><button id="gClose">出擊（G）</button></div>

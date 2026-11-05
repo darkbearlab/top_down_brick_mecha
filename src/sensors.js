@@ -68,6 +68,8 @@ function blip(x, z) {
   blips.push({ m, life: 1.1 });
 }
 
+export function setSensorsVisible(v) { fanG.visible = v; for (const [, m] of lockMarks) m.g.visible = v; }
+
 export function headStats(p) {
   const H = p.spec.head;
   return p.parts.head.broken ? { vision: 60, range: 8, radar: 0, lockTime: 9, lockCount: 0, lockRange: 0, intel: false } : H;

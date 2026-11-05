@@ -111,7 +111,7 @@ function spawnShot(m, d, x, y, z, dx, dz, speed) {
   const len = beam ? 1.1 : d === WEAPONS.sniper ? 1.6 : (d.size ?? 0.1) * (enemy ? 2.5 : 6);
   const g = shotMesh(color, d.size ?? 0.1, len);
   g.position.set(x, y, z); g.rotation.y = Math.atan2(dx, dz);
-  shots.push({ kind: 'bullet', g, owner: m, team: m.team, x, y, z, dx, dz, speed, life: d.life * d.speed / speed, dmg: d.dmg, kb: d.kb, type: d.type, trail: d.trail, heavy: d.heavy });
+  shots.push({ kind: 'bullet', g, owner: m, team: m.team, x, y, z, dx, dz, speed, life: d.life * d.speed / speed, dmg: d.dmg * (m.dmgMul ?? 1), kb: d.kb, type: d.type, trail: d.trail, heavy: d.heavy });
 }
 function spawnMissile(m, d, x, y, z, v, target, point) {
   const g = new THREE.Group();
@@ -123,7 +123,7 @@ function spawnMissile(m, d, x, y, z, v, target, point) {
   g.position.set(x, y, z);
   scene.add(g);
   shots.push({ kind: d.kind, g, owner: m, team: m.team, x, y, z, vx: v.vx, vy: v.vy, vz: v.vz, speed: Math.hypot(v.vx, v.vz) || 1, life: d.life, age: 0,
-    dmg: d.dmg, kb: 1.2, type: d.type, target, point, d, splash: d.splash });
+    dmg: d.dmg * (m.dmgMul ?? 1), kb: 1.2, type: d.type, target, point, d, splash: d.splash });
 }
 
 // ---------- 光束劍 ----------
@@ -160,7 +160,7 @@ function updateSwing(m, dt) {
       if (dist > d.reach + o.r || Math.abs(da) > d.arc / 2 + 0.2) continue;
       s.done.add(o);
       const nx = ox / dist, nz = oz / dist;
-      const r = hitMech(o, d.dmg, nx, nz, d.kb, 'energy');
+      const r = hitMech(o, d.dmg * (m.dmgMul ?? 1), nx, nz, d.kb, 'energy');
       hitSparks(o.x - nx * o.r, 1.2, o.z - nz * o.r, -nx, -nz, 2.2, r && r.eff < 1);
       sparks(o.x - nx * o.r, 1.2, o.z - nz * o.r, 0x60e0ff, 14, nx, nz);
       sfx.saberHit();
