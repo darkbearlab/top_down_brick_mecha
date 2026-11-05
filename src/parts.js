@@ -101,6 +101,27 @@ export const ENEMY_PRESETS = [
     armor: { head: 'ceramic', torso: 'composite', arms: 'composite', legs: 'ceramic' } },
 ];
 
+// 隨機組一台（觀戰用）：至少兩把武器，總重盡量不超過腳的負重
+const pickOf = obj => { const k = Object.keys(obj); return k[Math.floor(Math.random() * k.length)]; };
+export function randomLoadout() {
+  const armW = Object.keys(WEAPONS).filter(k => WEAPONS[k].mount === 'arm'), backW = Object.keys(WEAPONS).filter(k => WEAPONS[k].mount === 'back');
+  const r = a => a[Math.floor(Math.random() * a.length)];
+  for (let tries = 0; tries < 30; tries++) {
+    const lo = {
+      head: pickOf(HEADS), core: pickOf(CORES), legs: pickOf(LEGS),
+      armL: Math.random() < 0.9 ? r(armW) : null, armR: Math.random() < 0.9 ? r(armW) : null,
+      backL: Math.random() < 0.6 ? r(backW) : null, backR: Math.random() < 0.5 ? r(backW) : null,
+      armor: { head: pickOf(ARMORS), torso: pickOf(ARMORS), arms: pickOf(ARMORS), legs: pickOf(ARMORS) },
+    };
+    const n = SLOTS.filter(s => lo[s]).length;
+    if (n < 2 || computeSpec(lo).loadK > 1.05) continue;
+    const main = WEAPONS[lo.armR ?? lo.armL ?? lo.backL ?? lo.backR].name;
+    lo.name = `${LEGS[lo.legs].name}・${main}`;
+    return lo;
+  }
+  return structuredClone(ENEMY_PRESETS[0]);
+}
+
 // ---------- 由零件算出整台機體的數值 ----------
 // 超重不禁止，只是變慢：總重超過腳的負重 → 極速、加速下降；手臂超重 → 上半身轉速、命中下降；背部超重 → 能量回復變慢
 export function computeSpec(lo) {

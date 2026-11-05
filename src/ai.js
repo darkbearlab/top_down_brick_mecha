@@ -23,11 +23,12 @@ export const AI = { passive: false, count: 2, diff: DIFFS.normal, sandbox: false
 const DROP_TIME = 1.1, DROP_H = 16;
 const RING_GEO = new THREE.RingGeometry(0.8, 0.95, 36);
 
-export function spawnEnemy(player, preset, at = null) {
+// player = 要打的對象（觀戰模式是另一台電腦機體）；opts.team / opts.colors 換隊伍
+export function spawnEnemy(player, preset, at = null, opts = {}) {
   const P = preset ?? ENEMY_PRESETS[Math.floor(Math.random() * ENEMY_PRESETS.length)];
   const p = at ?? randomOpenSpot(player.x, player.z, 10);
   const D = AI.diff;
-  const e = makeMech({ team: 'enemy', colors: ENEMY_COLORS, loadout: P, x: p.x, z: p.z, yaw: Math.atan2(player.x - p.x, player.z - p.z), hpMul: D.hp });
+  const e = makeMech({ team: opts.team ?? 'enemy', colors: opts.colors ?? ENEMY_COLORS, loadout: P, x: p.x, z: p.z, yaw: Math.atan2(player.x - p.x, player.z - p.z), hpMul: D.hp });
   e.dmgMul = D.dmg;
   e.seed = Math.random() * 10;
   e.guns = makeGuns(P);
@@ -119,7 +120,7 @@ export function updateEnemy(e, dt, player) {
   A.reposition -= dt;
   let boost = false, bx = mx, bz = mz;
   for (const s of shots) {
-    if (s.team === 'enemy' || !(s.heavy || s.kind !== 'bullet' || s.dmg > 20)) continue;
+    if (s.team === e.team || !(s.heavy || s.kind !== 'bullet' || s.dmg > 20)) continue;
     const sdx = s.dx ?? s.vx / s.speed, sdz = s.dz ?? s.vz / s.speed;
     const ox = e.x - s.x, oz = e.z - s.z, t = ox * sdx + oz * sdz;
     if (t < 0 || t > 6) continue;

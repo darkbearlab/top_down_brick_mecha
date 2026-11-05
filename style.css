@@ -136,3 +136,20 @@ html, body {
 #gStats u.warn { background: #ff7a40; }
 #gStats .line b { color: #7ff0ff; }
 #gStats .note { font-weight: 700; }
+
+/* 觀戰 */
+#watch { position: fixed; inset: 0; z-index: 5; pointer-events: none; }
+#watch.hidden { display: none; }
+.wtop { position: absolute; left: 0; right: 0; top: 12px; text-align: center; text-shadow: 0 1px 4px rgba(0,0,0,.8); }
+#wRound { font-size: 12px; letter-spacing: 4px; opacity: .7; }
+#wScore { font-size: 30px; font-weight: 900; letter-spacing: 6px; }
+#wScore .blue { color: #6aaaff; } #wScore .red { color: #ff7a40; }
+#wNext { font-size: 12px; color: #ffd060; min-height: 16px; }
+.wside { position: absolute; bottom: 16px; display: flex; gap: 12px; align-items: flex-end; padding: 10px 14px; border-radius: 10px; background: rgba(8,10,14,.55); }
+.wside.blue { left: 16px; border: 1px solid rgba(106,170,255,.45); }
+.wside.red { right: 16px; border: 1px solid rgba(255,122,64,.45); text-align: right; }
+.wside b { font-size: 15px; }
+.wside.blue b { color: #6aaaff; } .wside.red b { color: #ff7a40; }
+.wguns { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; max-width: 220px; }
+.wside.red .wguns { justify-content: flex-end; }
+.whint { position: absolute; left: 0; right: 0; bottom: 8px; text-align: center; font-size: 11px; opacity: .45; }
