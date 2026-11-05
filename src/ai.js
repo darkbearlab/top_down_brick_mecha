@@ -7,7 +7,7 @@ import { G, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { randomOpenSpot, rayBlock } from './arena.js';
 import { ENEMY_COLORS, damagePart, makeMech, removeMech, tryBoost } from './mech.js';
 import { ENEMY_MOD, GUNS, makeGuns, shots, updateGun } from './weapons.js';
-import { burst, smoke } from './fx.js';
+import { burst, hitSparks, smoke } from './fx.js';
 import { sfx } from './audio.js';
 
 export const enemies = [];
@@ -45,6 +45,7 @@ function updateDrop(e, dt, player) {
   e.model.root.position.y = 0;
   burst(e.x, 0.3, e.z, [0x6a6e78, 0x4a4e58], 10, 5);
   smoke(e.x, 0.3, e.z, 8, 1.5, 0x55585f);
+  for (const a of [0, 1.6, 3.2, 4.8]) hitSparks(e.x, 0.2, e.z, Math.sin(a), Math.cos(a), 0.8);
   sfx.land();
   const d = Math.hypot(player.x - e.x, player.z - e.z);
   addTrauma(Math.max(0.1, 0.6 - d * 0.04));

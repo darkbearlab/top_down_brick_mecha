@@ -7,7 +7,7 @@ import * as THREE from 'three';
 import { VoxelSet, buildVoxelMesh } from './voxel.js';
 import { G, addTrauma, angleDiff, approachAngle, scene } from './core.js';
 import { collideBlocks, surfaceAt } from './arena.js';
-import { burst, flame, smoke, sparks, voxelBurst } from './fx.js';
+import { burnAt, burst, explosion, fire, flame, hitSparks, smoke, sparks, voxelBurst } from './fx.js';
 import { sfx } from './audio.js';
 
 export const V = 1 / 16;
@@ -180,7 +180,7 @@ function crash(m, over, nx, nz) {
   const dmg = over * 6;
   damagePart(m, 'legs', dmg * 0.6, nx, nz);
   if (m.alive) damagePart(m, 'torso', dmg * 0.4, nx, nz);
-  sparks(m.x - nx * m.r, 1, m.z - nz * m.r, 0xffd080, 10);
+  hitSparks(m.x - nx * m.r, 1, m.z - nz * m.r, nx, nz, 1.2 + over * 0.15);
   burst(m.x - nx * m.r, 0.8, m.z - nz * m.r, [0x7a8090, 0x4a505c], 4, 3);
   sfx.crash();
   if (m.team === 'player') addTrauma(Math.min(0.6, 0.2 + over * 0.06));
@@ -228,8 +228,7 @@ function breakPart(m, name, dx, dz) {
   const p = m.parts[name];
   voxelBurst(p.g, name === 'legs' ? 30 : 45, 5, m.x, m.z, dx * 3, dz * 3);
   tmpV.set(0, 0, 0); p.g.getWorldPosition(tmpV);
-  sparks(tmpV.x, 1.4, tmpV.z, 0xffb040, 16);
-  smoke(tmpV.x, 1.4, tmpV.z, 4, 1.2);
+  explosion(tmpV.x, partY(name, tmpV.y), tmpV.z, 0.45);
   sfx.partBreak();
   G.hitStop = Math.max(G.hitStop, 0.05);
   addTrauma(m.team === 'player' ? 0.45 : 0.25);
@@ -244,9 +243,10 @@ function destroyMech(m, dx, dz) {
   m.alive = false;
   for (const k in m.parts) if (m.parts[k].g.visible) voxelBurst(m.parts[k].g, 40, 7, m.x, m.z, dx * 3, dz * 3);
   for (const l of m.model.legs) voxelBurst(l, 20, 5, m.x, m.z);
-  burst(m.x, 1, m.z, [0x2a2a2e, 0xff8a30, m.colors.main], 14, 7);
-  sparks(m.x, 1.2, m.z, 0xffc060, 30, 0, 0, 1.6);
-  smoke(m.x, 1, m.z, 10, 2);
+  burst(m.x, 1, m.z, [0x2a2a2e, 0x1a1a1e, m.colors.main], 14, 7);
+  explosion(m.x, 1.1, m.z, 1.25);
+  setTimeout(() => explosion(m.x + (Math.random() - 0.5) * 0.8, 0.8, m.z + (Math.random() - 0.5) * 0.8, 0.6), 160);
+  burnAt(m.x, 0.25, m.z, 5, 1.1);
   scene.remove(m.model.root);
   sfx.explode();
   G.hitStop = Math.max(G.hitStop, 0.1);
@@ -280,7 +280,8 @@ export function collideMechs() {
       const aFast = Math.hypot(a.vx, a.vz) >= Math.hypot(b.vx, b.vz);
       damagePart(a, 'torso', dmg * (aFast ? 0.4 : 1), nx, nz);
       damagePart(b, 'torso', dmg * (aFast ? 1 : 0.4), -nx, -nz);
-      sparks((a.x + b.x) / 2, 1.1, (a.z + b.z) / 2, 0xffe0a0, 18);
+      hitSparks((a.x + b.x) / 2, 1.1, (a.z + b.z) / 2, -nx, -nz, 2);
+      hitSparks((a.x + b.x) / 2, 1.1, (a.z + b.z) / 2, nx, nz, 2);
       sfx.crash();
       addTrauma(0.4);
       G.hitStop = Math.max(G.hitStop, 0.06);
@@ -302,14 +303,23 @@ export function poseMech(m, dt) {
   for (const k in m.parts) {
     const p = m.parts[k];
     if (p.flash > 0) { p.flash -= dt; p.mat.emissive.setHex(p.flash > 0 ? 0x808080 : 0x000000); }
-    // 半血以下冒煙，壞掉的冒黑煙
-    const low = p.broken || p.hp < p.max * 0.5;
-    if (!low) continue;
+    // 半血以下冒煙；1/4 以下開始冒小火；壞掉的斷口一直燒、偶爾噴火花
+    const k01 = p.hp / p.max;
+    if (!p.broken && k01 >= 0.5) continue;
+    p.g.getWorldPosition(tmpV);
+    const y = partY(k, tmpV.y);
+    if (p.broken || k01 < 0.25) {
+      p.fireAcc = (p.fireAcc ?? 0) + dt * (p.broken ? 22 : 7);
+      while (p.fireAcc >= 1) { p.fireAcc--; fire(tmpV.x, y, tmpV.z, p.broken ? 0.75 : 0.45); }
+      if (p.broken && Math.random() < dt * 1.5) sparks(tmpV.x, y, tmpV.z, 0xffb040, 4, 0, 0, 0.6);
+    }
     p.smokeT -= dt * (p.broken ? 2.5 : 1.2);
     if (p.smokeT > 0) continue;
     p.smokeT = 0.35 + Math.random() * 0.3;
-    p.g.getWorldPosition(tmpV);
-    smoke(tmpV.x, (k === 'legs' ? 0.7 : 1.5), tmpV.z, 1, 0.8, p.broken ? 0x1e1f22 : undefined);
-    if (p.broken && Math.random() < 0.4) sparks(tmpV.x, 1.3, tmpV.z, 0xffb040, 3);
+    smoke(tmpV.x, y + 0.2, tmpV.z, 1, 0.8, p.broken ? 0x1e1f22 : undefined);
   }
+}
+// 各部位冒火 / 爆炸的高度（零件群組原點在髖部高度）
+function partY(name, y) {
+  return name === 'legs' ? 0.55 : name === 'head' ? y + 0.8 : name === 'torso' ? y + 0.5 : y + 0.45;
 }

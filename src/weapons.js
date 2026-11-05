@@ -6,7 +6,7 @@ import * as THREE from 'three';
 import { UNIT_BOX, addMat, addTrauma, scene } from './core.js';
 import { rayBlock } from './arena.js';
 import { facing, hitMech, mechs, muzzleOf } from './mech.js';
-import { muzzleFlash, sparks } from './fx.js';
+import { explosion, hitSparks, muzzleFlash, smoke } from './fx.js';
 import { sfx } from './audio.js';
 
 export const GUNS = {
@@ -63,7 +63,7 @@ function fire(m, side, d) {
   muzzleFlash(mz.x, mz.y, mz.z, enemy ? 0xff6040 : d.color, d.size * 4);
   // 後座力：往射擊反方向推自己（慣性的一部分）
   m.vx -= dx * d.recoil; m.vz -= dz * d.recoil;
-  if (d === GUNS.cannon) { sfx.cannon(); if (!enemy) addTrauma(0.25); } else (enemy ? sfx.enemyShot() : sfx.autocannon());
+  if (d === GUNS.cannon) { sfx.cannon(); smoke(mz.x + dx * 0.3, mz.y, mz.z + dz * 0.3, 3, 0.8, 0x8a8c92); if (!enemy) addTrauma(0.25); } else (enemy ? sfx.enemyShot() : sfx.autocannon());
 }
 
 export function updateShots(dt) {
@@ -85,14 +85,17 @@ export function updateShots(dt) {
     const wall = rayBlock(s.x, s.z, s.dx, s.dz, ht);
     if (wall < ht) {
       s.x += s.dx * wall; s.z += s.dz * wall;
-      sparks(s.x, s.y, s.z, 0xffd080, 5, -s.dx, -s.dz);
+      hitSparks(s.x, s.y, s.z, -s.dx, -s.dz, s.kb > 2 ? 1.6 : 0.6);
+      smoke(s.x, s.y, s.z, s.kb > 2 ? 3 : 1, 0.7, 0x6a6c72);
+      if (s.kb > 2) explosion(s.x, s.y, s.z, 0.25);
       kill(i); continue;
     }
     s.x += s.dx * ht; s.z += s.dz * ht;
     if (hit) {
       const r = hitMech(hit, s.dmg, s.dx, s.dz, s.kb);
       const armor = r && r.mul < 1;
-      sparks(s.x, s.y, s.z, armor ? 0xd8e4ff : 0xffb040, armor ? 6 : 9, -s.dx, -s.dz);
+      hitSparks(s.x, s.y, s.z, -s.dx, -s.dz, s.kb > 2 ? 2 : 1, armor);
+      if (s.kb > 2) explosion(s.x, s.y, s.z, 0.32);
       armor ? sfx.armorHit() : sfx.hit();
       if (hit.team === 'player') addTrauma(0.15 + s.kb * 0.04);
       kill(i); continue;
