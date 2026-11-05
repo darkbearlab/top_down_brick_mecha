@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { G, addTrauma, angleDiff, approachAngle, scene } from './core.js';
 import { collideBlocks, surfaceAt } from './arena.js';
-import { burnAt, burst, explosion, fire, flame, hitSparks, smoke, sparks, voxelBurst } from './fx.js';
+import { burnAt, burst, explosion, fire, flame, hitSparks, smoke, sparks, spawnPuff, voxelBurst } from './fx.js';
 import { sfx } from './audio.js';
 import { EFFECT, WEAPONS, computeSpec } from './parts.js';
 import { buildMechModel } from './model.js';
@@ -21,6 +21,8 @@ const ARMOR_OF = { head: 'head', torso: 'torso', armL: 'arms', armR: 'arms', bac
 export const GRIP = 30, AIR_DRAG = 0.1;
 export const BOOST_COST = 30, BOOST_DV = 9, BOOST_TIME = 0.22, BOOST_PUSH = 18, BOOST_CD = 0.35, ENERGY_REGEN = 28, ENERGY_DELAY = 0.6;
 export const CRASH_SPEED = 6;
+// 厚重感：剎車比起步快（腳踩住地）、超速時用整個抓地力剎住；撞到東西不反彈，卡住一下要慢慢拔出來
+const BRAKE_K = 2.2, STICK_SPEED = 2.5;
 
 export const PLAYER_COLORS = { accent: 0x2aa8c8, glow: 0x7ff0ff };
 export const ENEMY_COLORS = { accent: 0xe07a2a, glow: 0xff5040 };
@@ -39,7 +41,7 @@ export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, h
   const m = {
     team, colors, loadout, spec, model: M, parts, x, z, vx: 0, vz: 0, r: loadout.legs === 'tread' ? 0.95 : 0.85,
     legYaw: yaw, torsoYaw: yaw, walk: 0, lean: { x: 0, z: 0 }, lastV: { x: 0, z: 0 }, bob: 0,
-    energy: 100, energyT: 0, boostT: 0, boostCd: 0, boostDir: { x: 0, z: 0 },
+    energy: 100, energyT: 0, boostT: 0, boostCd: 0, boostDir: { x: 0, z: 0 }, stuckT: 0, stuckMax: 0, stuckN: { x: 0, z: 0 },
     alive: true, surf: null, guns: null, onDeath: null, swing: null,
   };
   mechs.push(m);
@@ -61,7 +63,10 @@ export function tryBoost(m, mx, mz) {
   let d = ml > 0.2 ? { x: mx / ml, z: mz / ml } : f;
   if (m.loadout.legs === 'tread') { const lf = { x: Math.sin(m.legYaw), z: Math.cos(m.legYaw) }; const s = d.x * lf.x + d.z * lf.z >= 0 ? 1 : -1; d = { x: lf.x * s, z: lf.z * s }; }
   const k = m.spec.boost * (m.parts.legs.broken ? 0.75 : 1);
-  m.vx += d.x * BOOST_DV * k; m.vz += d.z * BOOST_DV * k;
+  // 噴射只往一個方向：原本的速度只留沿著噴射方向的分量（往反方向跑的會被抵銷），橫向的全部吃掉
+  const along = Math.max(0, m.vx * d.x + m.vz * d.z);
+  m.vx = d.x * (along + BOOST_DV * k); m.vz = d.z * (along + BOOST_DV * k);
+  m.stuckT = 0;
   m.boostDir = d; m.boostK = k; m.boostT = BOOST_TIME; m.boostCd = BOOST_TIME + BOOST_CD;
   m.energy -= BOOST_COST; m.energyT = ENERGY_DELAY;
   sfx.boost();
@@ -91,28 +96,45 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
     const lf = { x: Math.sin(m.legYaw), z: Math.cos(m.legYaw) };
     const dot = ml > 0.1 ? (mx * lf.x + mz * lf.z) / ml : 0;
     const back = dot < -0.3;
-    if (ml > 0.1) m.legYaw = approachAngle(m.legYaw, Math.atan2(back ? -mx : mx, back ? -mz : mz), S.legTurn * lk * dt);
+    if (ml > 0.1 && m.boostT <= 0) m.legYaw = approachAngle(m.legYaw, Math.atan2(back ? -mx : mx, back ? -mz : mz), S.legTurn * lk * dt);
     const sp = ml * vmax * (back ? -0.6 : Math.max(0, dot));
     tx = lf.x * sp; tz = lf.z * sp;
-  } else if (ml > 0.1) m.legYaw = approachAngle(m.legYaw, Math.atan2(mx, mz), S.legTurn * lk * dt);
+  } else if (ml > 0.1 && m.boostT <= 0) m.legYaw = approachAngle(m.legYaw, Math.atan2(mx, mz), S.legTurn * lk * dt);
 
   if (m.boostT > 0) {
+    // 噴射中不吃任何方向指令：速度鎖在噴射方向上
     m.boostT -= dt;
-    m.vx += m.boostDir.x * BOOST_PUSH * m.boostK * dt; m.vz += m.boostDir.z * BOOST_PUSH * m.boostK * dt;
+    const sp = Math.max(0, m.vx * m.boostDir.x + m.vz * m.boostDir.z) + BOOST_PUSH * m.boostK * dt;
+    m.vx = m.boostDir.x * sp; m.vz = m.boostDir.z * sp;
     const back = { x: -m.boostDir.x, z: -m.boostDir.z }, f = facing(m);
     for (let i = 0; i < 2; i++) flame(m.x - f.x * 0.4 + (Math.random() - 0.5) * 0.4, m.model.hipY + 0.5, m.z - f.z * 0.4 + (Math.random() - 0.5) * 0.4, back.x, back.z);
   } else {
-    const mu = s.mu * (L.slide ?? 1) * (L.grip ?? 1);
-    const acc = Math.min(S.acc * lk, mu * GRIP);
-    const dvx = tx - m.vx, dvz = tz - m.vz, dl = Math.hypot(dvx, dvz), cap = acc * dt;
-    const k = dl > cap ? cap / dl : 1;
+    const mu = s.mu * (L.slide ?? 1) * (L.grip ?? 1), gripMax = mu * GRIP;
+    const dvx = tx - m.vx, dvz = tz - m.vz, dl = Math.hypot(dvx, dvz);
+    const v = Math.hypot(m.vx, m.vz), hover = L.type === 'hover';
+    // 起步慢（重）、剎車和轉向快（腳踩住地）；超速（噴射完、被撞飛）直接用整個抓地力剎住，懸浮例外
+    const brake = v > 0.3 && dl > 1e-4 ? Math.max(0, -(dvx * m.vx + dvz * m.vz) / (dl * v)) : 0;
+    let acc = S.acc * lk * (1 + (hover ? 0.3 : BRAKE_K - 1) * brake);
+    if (!hover && v > vmax * 1.05) acc = Math.max(acc, gripMax * lk);
+    acc = Math.min(acc, gripMax);
+    // 撞進東西裡：剛撞到時幾乎動不了，慢慢拔出來
+    if (m.stuckT > 0) { m.stuckT -= dt; acc *= 0.12 + 0.88 * (1 - m.stuckT / m.stuckMax) ** 2; }
+    const cap = acc * dt, k = dl > cap ? cap / dl : 1;
     m.vx += dvx * k; m.vz += dvz * k;
+    // 硬剎車揚起地上的灰
+    if (!hover && v > vmax * 1.2 && Math.random() < 0.5) skidDust(m);
   }
   const drag = Math.exp(-(AIR_DRAG + (L.noMud ? 0 : s.drag)) * dt);
   m.vx *= drag; m.vz *= drag;
 
   m.x += m.vx * dt; m.z += m.vz * dt;
-  const hit = collideBlocks(m, m.r, 0.3);
+  const hit = collideBlocks(m, m.r, 0);
+  if (hit.hit > STICK_SPEED) {
+    // 不反彈，連沿著牆滑的速度也被磨掉一大半
+    const vt = m.vx * -hit.nz + m.vz * hit.nx, keep = Math.max(0.15, 1 - hit.hit * 0.08);
+    m.vx = -hit.nz * vt * keep; m.vz = hit.nx * vt * keep;
+    stick(m, hit.hit, hit.nx, hit.nz);
+  }
   if (hit.hit > CRASH_SPEED) crash(m, hit.hit - CRASH_SPEED, hit.nx, hit.nz);
 
   m.torsoYaw = approachAngle(m.torsoYaw, aimYaw, S.turn * (m.parts.head.broken ? 0.7 : 1) * dt);
@@ -127,6 +149,20 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   const kL = 1 - Math.exp(-8 * dt);
   m.lean.x += (Math.max(-0.2, Math.min(0.2, -fwdA * 0.012)) - m.lean.x) * kL;
   m.lean.z += (Math.max(-0.2, Math.min(0.2, sideA * 0.012)) - m.lean.z) * kL;
+}
+
+// 卡住：撞得越重卡越久；畫面上機體陷進去一點、震一下
+export function stick(m, speed, nx, nz) {
+  const t = Math.min(0.7, 0.08 + (speed - STICK_SPEED) * 0.035);
+  m.boostT = 0;   // 撞到東西噴射就斷了
+  if (t > m.stuckT) { m.stuckT = m.stuckMax = t; m.stuckN = { x: nx, z: nz }; m.stuckHit = Math.min(1, speed / 14); }
+  if (speed > 4) burst(m.x - nx * m.r, 0.5, m.z - nz * m.r, [0x8a8478, 0x5a5650], 3, 1.5);
+  if (m.team === 'player') addTrauma(Math.min(0.35, speed * 0.025));
+}
+function skidDust(m) {
+  const a = Math.random() * Math.PI * 2;
+  spawnPuff({ x: m.x + Math.cos(a) * 0.4, y: 0.12, z: m.z + Math.sin(a) * 0.4, vx: -m.vx * 0.15, vy: 0.3, vz: -m.vz * 0.15,
+    life: 0.5 + Math.random() * 0.3, s: 0.22 + Math.random() * 0.12, c0: 0x8a8478, c1: 0x5a5650, drag: 3 });
 }
 
 function crash(m, over, nx, nz) {
@@ -230,8 +266,9 @@ export function collideMechs() {
     a.x -= nx * ov * ka; a.z -= nz * ov * ka; b.x += nx * ov * kb; b.z += nz * ov * kb;
     const rel = (a.vx - b.vx) * nx + (a.vz - b.vz) * nz;
     if (rel <= 0) continue;
-    const imp = 1.35 * rel;
+    const imp = 1.05 * rel;   // 幾乎完全不反彈：撞上去就黏在一起推
     a.vx -= imp * ka * nx; a.vz -= imp * ka * nz; b.vx += imp * kb * nx; b.vz += imp * kb * nz;
+    if (rel > STICK_SPEED) { stick(a, rel * ka * 2, -nx, -nz); stick(b, rel * kb * 2, nx, nz); }
     if (rel > 5) {
       const dmg = (rel - 5) * 9;
       damagePart(a, 'torso', dmg * ka * 1.6, nx, nz);
@@ -251,6 +288,13 @@ export function poseMech(m, dt) {
   const M = m.model, L = m.spec.legs;
   const hover = L.type === 'hover' ? Math.sin(m.bob * 3) * 0.04 + 0.06 : 0;
   M.root.position.set(m.x, hover, m.z);
+  // 卡住時整台往撞到的方向陷進去一點、微微顫動（像在用力拔出來）
+  if (m.stuckT > 0) {
+    const k = m.stuckT / m.stuckMax, dent = 0.14 * m.stuckHit * k, sh = 0.025 * k * Math.sin(m.bob * 70);
+    M.root.position.x += -m.stuckN.x * dent + m.stuckN.z * sh;
+    M.root.position.z += -m.stuckN.z * dent - m.stuckN.x * sh;
+    M.root.position.y -= 0.05 * m.stuckHit * k;
+  }
   M.legsG.rotation.y = m.legYaw;
   const sw = Math.sin(m.walk) * 0.45;
   if (M.legs.length === 2) { M.legs[0].rotation.x = sw; M.legs[1].rotation.x = -sw; }
