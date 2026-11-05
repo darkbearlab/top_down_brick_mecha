@@ -1,6 +1,6 @@
 // ---------- 輸入：鍵盤滑鼠 / 手把（雙搖桿） ----------
-// 鍵盤滑鼠：WASD 移動、滑鼠瞄準、左鍵 = 左臂、右鍵 = 右臂、Space / Shift = 推進衝刺
-// 手把：左搖桿移動、右搖桿瞄準、LT = 左臂、RT = 右臂、A / LB / RB = 推進衝刺、Start = 暫停
+// 鍵盤滑鼠：WASD 移動、滑鼠瞄準、左鍵 = 左手、右鍵 = 右手、Q = 左背、E = 右背、Space / Shift = 推進衝刺、G = 整備
+// 手把：左搖桿移動、右搖桿瞄準、LT / RT = 左右手、LB / RB = 左右背、A = 推進衝刺、Start = 暫停、Back = 整備
 // 輸出都是「螢幕方向」：x 往右、y 往下（= 世界的 +x、+z）
 const DEAD = 0.2;
 
@@ -9,8 +9,8 @@ export const input = {
   move: { x: 0, y: 0 },
   mouse: { x: innerWidth / 2, y: innerHeight / 2, seen: false },
   padAim: { x: 0, y: -1, active: false },
-  fireL: false, fireR: false,
-  boostPressed: false, pausePressed: false, resetPressed: false, passivePressed: false,
+  fireL: false, fireR: false, fireQ: false, fireE: false,
+  boostPressed: false, pausePressed: false, resetPressed: false, passivePressed: false, garagePressed: false,
 };
 const keys = new Set();
 let mouseL = false, mouseR = false, padPrev = [];
@@ -35,6 +35,7 @@ addEventListener('keydown', e => {
   if (e.code === 'Escape' || e.code === 'KeyP') input.pausePressed = true;
   if (e.code === 'KeyR') input.resetPressed = true;
   if (e.code === 'KeyT') input.passivePressed = true;
+  if (e.code === 'KeyG') input.garagePressed = true;
   if (e.code === 'Space') e.preventDefault();
 });
 addEventListener('keyup', e => keys.delete(e.code));
@@ -45,14 +46,15 @@ const dz = v => Math.abs(v) < DEAD ? 0 : (v - Math.sign(v) * DEAD) / (1 - DEAD);
 export function updateInput() {
   // 手把
   const pad = [...(navigator.getGamepads?.() ?? [])].find(p => p && p.connected);
-  let px = 0, py = 0, ax = 0, ay = 0, padFireL = false, padFireR = false;
+  let px = 0, py = 0, ax = 0, ay = 0, padFireL = false, padFireR = false, padQ = false, padE = false;
   if (pad) {
     px = dz(pad.axes[0] ?? 0); py = dz(pad.axes[1] ?? 0);
     ax = pad.axes[2] ?? 0; ay = pad.axes[3] ?? 0;
     const b = i => !!pad.buttons[i]?.pressed;
     const down = i => b(i) && !padPrev[i];
-    padFireL = b(6); padFireR = b(7);
-    if (down(0) || down(4) || down(5)) input.boostPressed = true;
+    padFireL = b(6); padFireR = b(7); padQ = b(4); padE = b(5);
+    if (down(0)) input.boostPressed = true;
+    if (down(8)) input.garagePressed = true;
     if (down(9)) input.pausePressed = true;
     if (down(3)) input.resetPressed = true;
     padPrev = pad.buttons.map(x => x.pressed);
@@ -64,7 +66,7 @@ export function updateInput() {
     const am = Math.hypot(ax, ay);
     input.padAim.active = am > 0.35;
     if (am > 0.35) { input.padAim.x = ax / am; input.padAim.y = ay / am; }
-    input.fireL = padFireL; input.fireR = padFireR;
+    input.fireL = padFireL; input.fireR = padFireR; input.fireQ = padQ; input.fireE = padE;
   } else {
     let x = 0, y = 0;
     if (keys.has('KeyA') || keys.has('ArrowLeft')) x -= 1;
@@ -73,10 +75,10 @@ export function updateInput() {
     if (keys.has('KeyS') || keys.has('ArrowDown')) y += 1;
     const d = Math.hypot(x, y) || 1;
     input.move.x = x / d; input.move.y = y / d;
-    input.fireL = mouseL; input.fireR = mouseR;
+    input.fireL = mouseL; input.fireR = mouseR; input.fireQ = keys.has('KeyQ'); input.fireE = keys.has('KeyE');
   }
 }
 // 單次事件：每幀最後清掉
 export function clearPressed() {
-  input.boostPressed = input.pausePressed = input.resetPressed = input.passivePressed = false;
+  input.boostPressed = input.pausePressed = input.resetPressed = input.passivePressed = input.garagePressed = false;
 }

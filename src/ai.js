@@ -1,13 +1,15 @@
 // ---------- 試玩場的敵機 ----------
-// 跟玩家同一套物理：保持中距離繞著玩家走、偶爾推進換位置、看到砲彈飛過來會往旁邊噴開
-// 機砲一陣一陣打、加農砲隔幾秒一發；手臂被打掉就少一把武器、腿壞了就追不上
-// 被打爆後過幾秒，新的一台從天上降落（落地前地上有紅圈，站在下面會被砸到）
+// 每台隨機挑一套配裝（parts.js ENEMY_PRESETS），用跟玩家同一套物理和武器
+// 距離依武器決定：有劍 / 霰彈就貼近、有狙擊就拉遠、其他保持中距離繞圈
+// 看到玩家的加農砲 / 飛彈飛過來會往旁邊噴開；狙擊開槍前會先亮紅色雷射預告
+// 被打爆後過幾秒，新的一台從天上降落（地上先出現紅圈，站在下面會被砸）
 import * as THREE from 'three';
 import { G, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { randomOpenSpot, rayBlock } from './arena.js';
-import { ENEMY_COLORS, damagePart, makeMech, removeMech, tryBoost } from './mech.js';
-import { ENEMY_MOD, GUNS, makeGuns, shots, updateGun } from './weapons.js';
-import { burst, hitSparks, smoke } from './fx.js';
+import { ENEMY_COLORS, damagePart, facing, makeMech, muzzleOf, removeMech, slotBroken, tryBoost } from './mech.js';
+import { makeGuns, shots, updateGuns } from './weapons.js';
+import { ENEMY_PRESETS, SLOTS } from './parts.js';
+import { burst, hitSparks, makeLaser, setLaser, smoke } from './fx.js';
 import { sfx } from './audio.js';
 
 export const enemies = [];
@@ -15,23 +17,32 @@ export const AI = { passive: false, count: 2 };
 const DROP_TIME = 1.1, DROP_H = 16;
 const RING_GEO = new THREE.RingGeometry(0.8, 0.95, 36);
 
-export function spawnEnemy(player) {
+export function spawnEnemy(player, preset) {
+  const P = preset ?? ENEMY_PRESETS[Math.floor(Math.random() * ENEMY_PRESETS.length)];
   const p = randomOpenSpot(player.x, player.z, 10);
-  const e = makeMech({ team: 'enemy', colors: ENEMY_COLORS, x: p.x, z: p.z, yaw: Math.atan2(player.x - p.x, player.z - p.z), hpMul: 0.85 });
-  e.guns = makeGuns();
-  e.ai = { strafe: Math.random() < 0.5 ? -1 : 1, t: 1, burst: 0, rest: 1 + Math.random(), cannon: 1.5 + Math.random() * 1.5, reposition: 3 + Math.random() * 3 };
+  const e = makeMech({ team: 'enemy', colors: ENEMY_COLORS, loadout: P, x: p.x, z: p.z, yaw: Math.atan2(player.x - p.x, player.z - p.z), hpMul: 0.85 });
+  e.guns = makeGuns(P);
+  e.preset = P;
+  const ws = SLOTS.map(s => P[s]).filter(Boolean);
+  e.ai = {
+    strafe: Math.random() < 0.5 ? -1 : 1, t: 1, burst: 0, rest: 1 + Math.random(), reposition: 3 + Math.random() * 3, lockT: 0, snipeT: 0,
+    want: ws.includes('saber') || ws.includes('shotgun') ? 3 : ws.includes('sniper') ? 13 : 8,
+  };
+  e.laser = makeLaser(0xff3020);
   const ring = new THREE.Mesh(RING_GEO, addMat(0xff4030, 0.8));
   ring.rotation.x = -Math.PI / 2;
   ring.position.set(p.x, 0.04, p.z);
   scene.add(ring);
   e.drop = { t: 0, ring };
   e.model.root.position.y = DROP_H;
-  e.onDeath = () => setTimeout(() => { removeMech(e); enemies.splice(enemies.indexOf(e), 1); }, 2500);   // 殘骸留一下，過 2.5 秒才補新的一台
+  e.onDeath = () => {
+    e.laser.g.visible = false;
+    setTimeout(() => { removeMech(e); enemies.splice(enemies.indexOf(e), 1); }, 2500);   // 殘骸留一下才補新的
+  };
   enemies.push(e);
   return e;
 }
 
-// 降落：從天上掉下來，落地砸一下
 function updateDrop(e, dt, player) {
   const D = e.drop;
   D.t += dt;
@@ -57,6 +68,9 @@ function updateDrop(e, dt, player) {
   return false;
 }
 
+// 這把武器打得到多遠
+const reachOf = d => d.kind === 'saber' ? d.reach + 1.2 : d.kind === 'bullet' || d.kind === 'beam' ? d.speed * d.life : 18;   // 敵人子彈慢，但飛得一樣久 → 射程一樣
+
 export function updateEnemy(e, dt, player) {
   if (!e.alive) return;
   if (e.drop) { if (updateDrop(e, dt, player)) return; }
@@ -70,10 +84,9 @@ export function updateEnemy(e, dt, player) {
   if (A.t <= 0) { A.t = 2 + Math.random() * 2.5; if (Math.random() < 0.5) A.strafe *= -1; }
   let mx, mz;
   if (!player.alive) { mx = 0; mz = 0; }
-  else if (dist > 12 || !los) { mx = nx; mz = nz; }
-  else if (dist < 6.5) { mx = -nx; mz = -nz; }
+  else if (dist > A.want + 4 || !los) { mx = nx; mz = nz; }
+  else if (dist < A.want - 2) { mx = -nx; mz = -nz; }
   else { mx = -nz * A.strafe + nx * 0.15; mz = nx * A.strafe + nz * 0.15; }
-  // 前面有方塊就轉開
   const ml = Math.hypot(mx, mz);
   if (ml > 0.1) {
     for (const turn of [0, 0.8, -0.8, 1.6, -1.6]) {
@@ -82,36 +95,59 @@ export function updateEnemy(e, dt, player) {
     }
   }
 
-  // 推進：看到玩家的砲彈飛過來往旁邊噴；偶爾推進換位置
+  // 推進：重的子彈 / 飛彈飛過來往旁邊噴；偶爾推進換位置；近戰型推進衝過去
   A.reposition -= dt;
   let boost = false, bx = mx, bz = mz;
   for (const s of shots) {
-    if (s.owner.team === 'enemy') continue;
-    const ox = e.x - s.x, oz = e.z - s.z, t = ox * s.dx + oz * s.dz;
+    if (s.team === 'enemy' || !(s.heavy || s.kind !== 'bullet' || s.dmg > 20)) continue;
+    const sdx = s.dx ?? s.vx / s.speed, sdz = s.dz ?? s.vz / s.speed;
+    const ox = e.x - s.x, oz = e.z - s.z, t = ox * sdx + oz * sdz;
     if (t < 0 || t > 6) continue;
-    const px = ox - s.dx * t, pz = oz - s.dz * t;
-    if (px * px + pz * pz < 1.4 && s.dmg > 20 && Math.random() < dt * 6) {
-      boost = true; const side = px * -s.dz + pz * s.dx > 0 ? 1 : -1;
-      bx = -s.dz * side; bz = s.dx * side;
+    const px = ox - sdx * t, pz = oz - sdz * t;
+    if (px * px + pz * pz < 1.6 && Math.random() < dt * 6) {
+      boost = true; const side = px * -sdz + pz * sdx > 0 ? 1 : -1;
+      bx = -sdz * side; bz = sdx * side;
     }
   }
-  if (A.reposition <= 0 && player.alive) { A.reposition = 4 + Math.random() * 4; boost = true; }
+  if (A.reposition <= 0 && player.alive) { A.reposition = 4 + Math.random() * 4; boost = true; if (A.want <= 3 && dist > 4) { bx = nx; bz = nz; } }
   if (boost && e.energy > 55) tryBoost(e, bx, bz);
   e.drive = { mx, mz };
 
-  // 瞄準：稍微預判玩家的移動
-  const lead = dist / (GUNS.autocannon.speed * ENEMY_MOD.speedMul) * 0.5;
+  // 瞄準：稍微預判
+  const lead = dist / 18 * 0.5;
   e.aimYaw = Math.atan2(player.x + player.vx * lead - e.x, player.z + player.vz * lead - e.z);
-  const onTarget = Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.12 && los && player.alive && !AI.passive && dist < 18;
+  const canShoot = los && player.alive && !AI.passive;
+  const onTarget = Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.14 && canShoot;
+  // 鎖定玩家（給飛彈用）：在範圍內、看得到就慢慢鎖上
+  const H = e.spec.head;
+  A.lockT = canShoot && dist < H.lockRange && !e.parts.head.broken ? A.lockT + dt : Math.max(0, A.lockT - dt * 2);
+  const locks = A.lockT >= H.lockTime ? [player] : [];
 
-  // 機砲：打 0.7 秒、停 1～2 秒；加農砲：2.5～4 秒一發
-  let fireL = false, fireR = false;
-  if (A.burst > 0) { A.burst -= dt; fireL = onTarget; }
-  else { A.rest -= dt; if (A.rest <= 0 && onTarget) { A.burst = 0.7; A.rest = 1 + Math.random(); } }
-  A.cannon -= dt;
-  if (A.cannon <= 0 && onTarget) { fireR = true; A.cannon = 2.5 + Math.random() * 1.5; }
-  updateGun(e, 'L', fireL, dt);
-  updateGun(e, 'R', fireR, dt);
+  // 手臂：連射武器一陣一陣打；狙擊先亮雷射；劍貼近才揮；飛彈有鎖定才射
+  const trig = { armL: false, armR: false, backL: false, backR: false };
+  if (A.burst > 0) A.burst -= dt;
+  else { A.rest -= dt; if (A.rest <= 0 && onTarget) { A.burst = 0.8; A.rest = 1 + Math.random() * 1.2; } }
+  let laserSlot = null;
+  for (const slot of SLOTS) {
+    const g = e.guns[slot];
+    if (!g || slotBroken(e, slot)) continue;
+    const d = g.def, inRange = dist < reachOf(d);
+    if (d.kind === 'saber') trig[slot] = inRange && canShoot && Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.4;
+    else if (d.kind === 'missile' || d.kind === 'split') trig[slot] = locks.length > 0 && Math.random() < dt * 0.8;
+    else if (d.kind === 'vmissile') trig[slot] = locks.length > 0 && dist > 5 && Math.random() < dt * 0.6;
+    else if (d.speed > 50) {
+      // 狙擊：瞄 0.8 秒（紅色雷射）才開槍
+      if (onTarget && inRange && g.cd <= 0 && g.reloadT <= 0) { A.snipeT += dt; laserSlot = slot; if (A.snipeT >= 0.8) { trig[slot] = true; A.snipeT = 0; } }
+      else A.snipeT = Math.max(0, A.snipeT - dt);
+    } else if (d.interval >= 1) trig[slot] = onTarget && inRange && Math.random() < dt * 0.7;
+    else trig[slot] = A.burst > 0 && onTarget && inRange;
+  }
+  updateGuns(e, trig, dt, locks, { x: player.x, z: player.z });
+  if (laserSlot) {
+    const mz = muzzleOf(e, laserSlot), f = facing(e);
+    const len = Math.min(rayBlock(mz.x, mz.z, f.x, f.z, 30), dist);
+    setLaser(e.laser, mz.x, mz.z, f.x, f.z, len, mz.y, 0.3 + A.snipeT * 0.8, 0.04 + A.snipeT * 0.05);
+  } else e.laser.g.visible = false;
 }
 
 export function keepEnemies(player) {

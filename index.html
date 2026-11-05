@@ -16,26 +16,33 @@
 <div id="hud">
   <div id="help">
     <b>試玩場</b>
-    WASD 移動・滑鼠瞄準・左鍵 左臂機砲・右鍵 右臂加農砲・Space / Shift 推進衝刺<br>
-    R 修復機體・T 敵機停火 / 開火・Esc 暫停・手把：左右搖桿、LT / RT 開火、A 衝刺
+    WASD 移動・滑鼠瞄準・左鍵 / 右鍵 左右手・Q / E 左右背・Space / Shift 推進衝刺<br>
+    G 整備（組裝機體）・R 修復機體・T 敵機停火 / 開火・Esc 暫停<br>
+    手把：左右搖桿、LT / RT 左右手、LB / RB 左右背、A 衝刺、Back 整備
   </div>
   <div id="status">
-    <div class="doll" id="dollP"><div class="head"></div><div class="mid"><div class="armL"></div><div class="torso"></div><div class="armR"></div></div><div class="legs"></div></div>
+    <div class="doll" id="dollP"><div class="row"><div data-p="backL"></div><div data-p="head" class="head"></div><div data-p="backR"></div></div><div class="row"><div data-p="armL" class="arm"></div><div data-p="torso" class="torso"></div><div data-p="armR" class="arm"></div></div><div data-p="legs" class="legs"></div></div>
     <div class="col">
-      <div class="gun" id="gunL"></div>
-      <div class="gun" id="gunR"></div>
+      <div id="guns"></div>
       <div class="bar"><div id="energy"></div></div>
-      <div class="move"><span id="surf"></span>　速度 <b id="speed"></b></div>
+      <div class="move"><span id="surf"></span>　速度 <b id="speed"></b>　<span id="lockInfo"></span></div>
+      <div id="warn"></div>
     </div>
   </div>
   <div id="target" class="hidden">
-    <div class="label">目標</div>
-    <div class="doll" id="dollE"><div class="head"></div><div class="mid"><div class="armR"></div><div class="torso"></div><div class="armL"></div></div><div class="legs"></div></div>
+    <div class="label" id="tName">目標</div>
+    <div class="doll" id="dollE"><div class="row"><div data-p="backR"></div><div data-p="head" class="head"></div><div data-p="backL"></div></div><div class="row"><div data-p="armR" class="arm"></div><div data-p="torso" class="torso"></div><div data-p="armL" class="arm"></div></div><div data-p="legs" class="legs"></div></div>
   </div>
   <div id="passive" class="hidden">敵機停火中（T）</div>
 </div>
 <div id="toast"></div>
 <div id="pause" class="hidden">暫停<small>Esc 繼續</small></div>
+<div id="garage" class="hidden">
+  <div class="gpanel">
+    <div class="ghead"><b>整備</b><span>改了馬上套用到機體・外框顏色 = 裝甲種類</span><button id="gClose">出擊（G）</button></div>
+    <div class="gbody"><div id="gCats"></div><div id="gOpts"></div><div id="gStats"></div></div>
+  </div>
+</div>
 
 <script type="module" src="src/main.js"></script>
 </body>

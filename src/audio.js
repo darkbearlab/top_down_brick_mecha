@@ -55,5 +55,13 @@ export const sfx = {
   land() { tone('triangle', 80, 25, 0.5, 0.35); noise(0.45, 0.6, 300, 0.5); },
   reload() { tone('square', 600, 300, 0.05, 0.08); noise(0.04, 0.15, 3000, 2); },
   reloadDone() { tone('square', 300, 800, 0.07, 0.1); noise(0.05, 0.2, 2200, 2); },
+  beam() { tone('sine', 1800, 300, 0.18, 0.12); tone('square', 900, 200, 0.12, 0.05); },
+  sniper() { tone('sawtooth', 900, 60, 0.3, 0.22); noise(0.25, 0.6, 1800, 0.6); },
+  shotgun() { tone('square', 300, 60, 0.15, 0.2); noise(0.18, 0.7, 1200, 0.5); },
+  missile() { noise(0.35, 0.3, 1600, 0.7); tone('sawtooth', 200, 600, 0.25, 0.05); },
+  blast() { tone('triangle', 140, 30, 0.4, 0.3); noise(0.4, 0.6, 500, 0.5); },
+  saber() { tone('sine', 300, 900, 0.18, 0.12); noise(0.16, 0.25, 3000, 2); },
+  saberHit() { tone('square', 1200, 200, 0.12, 0.14); noise(0.1, 0.4, 2500, 1); },
+  lock() { tone('square', 1500, 1500, 0.04, 0.05); },
   click() { tone('triangle', 700, 900, 0.05, 0.1); },
 };
