@@ -1,0 +1,42 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<meta name="theme-color" content="#0b0d12">
+<title>Brick Mecha</title>
+<link rel="stylesheet" href="style.css">
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+</head>
+<body>
+<div id="game"></div>
+
+<div id="hud">
+  <div id="help">
+    <b>試玩場</b>
+    WASD 移動・滑鼠瞄準・左鍵 左臂機砲・右鍵 右臂加農砲・Space / Shift 推進衝刺<br>
+    R 修復機體・T 敵機停火 / 開火・Esc 暫停・手把：左右搖桿、LT / RT 開火、A 衝刺
+  </div>
+  <div id="status">
+    <div class="doll" id="dollP"><div class="head"></div><div class="mid"><div class="armL"></div><div class="torso"></div><div class="armR"></div></div><div class="legs"></div></div>
+    <div class="col">
+      <div class="gun" id="gunL"></div>
+      <div class="gun" id="gunR"></div>
+      <div class="bar"><div id="energy"></div></div>
+      <div class="move"><span id="surf"></span>　速度 <b id="speed"></b></div>
+    </div>
+  </div>
+  <div id="target" class="hidden">
+    <div class="label">目標</div>
+    <div class="doll" id="dollE"><div class="head"></div><div class="mid"><div class="armR"></div><div class="torso"></div><div class="armL"></div></div><div class="legs"></div></div>
+  </div>
+  <div id="passive" class="hidden">敵機停火中（T）</div>
+</div>
+<div id="toast"></div>
+<div id="pause" class="hidden">暫停<small>Esc 繼續</small></div>
+
+<script type="module" src="src/main.js"></script>
+</body>
+</html>
