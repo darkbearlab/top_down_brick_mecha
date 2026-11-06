@@ -65,7 +65,8 @@ function resetWorld(map = null) {
   clearPickups();
   clearProps();
   resetBuildings();
-  $('boss').classList.add('hidden'); $('prompt').classList.add('hidden');
+  $('boss').classList.add('hidden'); $('prompt').classList.add('hidden'); $('warning').classList.add('hidden'); $('bossIntro').classList.add('hidden');
+  if (bossIntro.t > 0) { bossIntro.t = 0; document.body.classList.remove('killcam'); }
   $('endless').classList.add('hidden');
   sensors.progress.clear(); sensors.locks = [];
   MODE.endT = 0; MODE.result = null; MODE.clock = 0;
@@ -508,7 +509,7 @@ function updateExplore(dt) {
       });
       if (trig) {
         S.awake = S.found = true; for (const e of live) e.dormant = false;
-        const Z = EX.zones[S.zone], call = Z.reinforce && !S.called && EN.t - (Z.lastCall ?? -99) > 45 && !EX.boss && EX.portal.state !== 'open';   // 傳送門啟動後不再叫增援
+        const Z = EX.zones[S.zone], call = Z.reinforce && !S.called && EN.t - (Z.lastCall ?? -99) > 45 && (EX.portal.state === 'idle' || EX.portal.state === 'ready');   // 傳送門啟動後不再叫增援
         // 增援據點：小隊第一次被驚動，5 秒後從兩三個方向來增援（用這個區域的駐軍兵種）；同一個區域 45 秒內只叫一次
         if (call) { S.called = true; Z.lastCall = EN.t; EX.pending.push({ t: 5, groups: 2 + (S.depth >= 4 ? 1 : 0), n: 2, depth: S.depth, pool: Z.squads.flatMap(k => SQUADS[k].units) }); }
       }
@@ -527,6 +528,7 @@ function updateExplore(dt) {
   const P = EX.portal;
   if (visibleAt(P.x, P.z)) EX.portalKnown = true;
   if (P.state === 'idle' && EX.cleared >= EX.need) { setPortal(P, 'ready'); EX.portalKnown = true; toast('傳送門可以啟動了（已標在小地圖上）'); sfx.lock(); }
+  updateBossIntro(dt);
   // 互動
   const near = player.alive ? nearProp(player.x, player.z) : null;
   EX.near = near;
@@ -608,18 +610,42 @@ function rebuild(lo, fresh, repair) {
 }
 // ---------- 頭目 ----------
 // 完整的機體（隨機組裝），耐久好幾倍；在傳送門附近空降。打倒 → 傳送門打開、掉一個強化模組和一把武器
+// 登場演出：全畫面警告（上下兩條跑馬燈、中間大字、紅色閃爍、警報聲）WARN_T 秒 → 頭目從天而降 → 著陸瞬間定格特寫 INTRO_T 秒（時間停住、鏡頭拉近、黑邊、名牌）
+const WARN_T = 3.2, INTRO_T = 1.8;
+const bossIntro = { t: 0, x: 0, z: 0 };
 function startBoss(p) {
   setPortal(p, 'boss');
+  EX.pending = [];   // 頭目是完整機體、不比玩家差：啟動後所有增援都關掉（已經在場上的留著，不再新增）
+  EX.warnT = WARN_T; EX.beepT = 0;
+  $('warning').classList.remove('hidden');
+}
+function spawnBoss(p) {
+  $('warning').classList.add('hidden');
   let at = null;
   for (let t = 0; t < 40 && !at; t++) { const a = Math.random() * Math.PI * 2, x = p.x + Math.cos(a) * 10, z = p.z + Math.sin(a) * 10; if (openAround(x, z)) at = { x, z }; }
   const P = randomLoadout(), D = EN.stage >= 3 ? DIFFS.hard : DIFFS.normal;
   const e = spawnEnemy(player, P, at ?? { x: p.x, z: p.z + 6 }, { diff: { ...D, hp: D.hp * (2.2 + 0.4 * EN.stage), dmg: D.dmg * (0.75 + 0.15 * EN.stage) } });
   e.boss = true;
-  EX.boss = e;
-  EX.pending = [];   // 頭目是完整機體、不比玩家差：啟動後所有增援都關掉（已經在場上的留著，不再新增）
+  EX.boss = e; EX.bossLanding = true;
   $('bossName').textContent = `頭目・${P.name}`;
-  $('boss').classList.remove('hidden');
-  toast(`頭目出現：${P.name}`); sfx.lock();
+  $('biName').textContent = P.name;
+  $('biGuns').innerHTML = SLOTS.map(s => P[s]).filter(Boolean).map(id => `<span class="wt" style="--c:${DMG_TYPES[WEAPONS[id].type].css}">${WEAPONS[id].name}</span>`).join('') + `<span class="wt" style="--c:#8a96a6">${LEGS[P.legs].name}</span>`;
+}
+// 每幀：警告倒數、警報聲；頭目一著陸就定格
+function updateBossIntro(dt) {
+  if (EX.warnT > 0) {
+    if ((EX.beepT -= dt) <= 0) { EX.beepT = 0.8; sfx.alarm(); }
+    if ((EX.warnT -= dt) <= 0) spawnBoss(EX.portal);
+  }
+  const b = EX.boss;
+  if (EX.bossLanding && b && !b.drop) {
+    EX.bossLanding = false;
+    bossIntro.t = INTRO_T; bossIntro.x = b.x; bossIntro.z = b.z;
+    document.body.classList.add('killcam');
+    $('bossIntro').classList.remove('hidden');
+    $('boss').classList.remove('hidden');
+    sfx.land(); G.trauma = Math.min(1, G.trauma + 0.6);
+  }
 }
 function exLoot(e) {
   const x = e.x, z = e.z;
@@ -951,6 +977,8 @@ function frame(t) {
   if (playing && MODE.name === 'sandbox' && input.resetPressed && !garage.open) { spawnPlayer(player.x, player.z, player.torsoYaw); toast('機體修復'); }
 
   let dt = !playing || G.paused || garage.open || window.__dbg.paused ? 0 : raw;
+  // 頭目著陸定格：時間停住（鏡頭照樣動）
+  if (bossIntro.t > 0 && !G.paused) { if ((bossIntro.t -= raw) <= 0) { document.body.classList.remove('killcam'); $('bossIntro').classList.add('hidden'); } dt = 0; }
   if (dt > 0 && G.hitStop > 0) { G.hitStop -= raw; dt = 0; }
   // 慢動作：被擊墜時很慢（SLOW_K），最後 0.4 秒慢慢回到正常速度
   if (dt > 0 && G.slowMo > 0) { G.slowMo -= raw; const k = killCam.t > 0 ? SLOW_K : 0.35; dt *= G.slowMo < 0.4 ? k + (1 - k) * (1 - G.slowMo / 0.4) : k; }
@@ -1063,8 +1091,8 @@ function frame(t) {
     lx = lz = 0;
   }
   // 擊墜特寫：鏡頭飛到被打爆的那台、拉近
-  const kc = killCam.t > 0 && playing;
-  if (kc) { fx = killCam.x; fz = killCam.z - 0.4; lx = lz = 0; }
+  const kc = (killCam.t > 0 || bossIntro.t > 0) && playing;
+  if (kc) { const K = bossIntro.t > 0 ? bossIntro : killCam; fx = K.x; fz = K.z - 0.4; lx = lz = 0; }
   killK += ((kc ? 1 : 0) - killK) * (1 - Math.exp(-(kc ? 7 : 2.5) * raw));
   const ck = 1 - Math.exp(-(kc ? 8 : watching ? 2.5 : 5) * raw);
   camTarget.x += (fx + lx - camTarget.x) * ck;

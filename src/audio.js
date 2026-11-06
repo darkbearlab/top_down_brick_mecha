@@ -65,5 +65,6 @@ export const sfx = {
   lock() { tone('square', 1500, 1500, 0.04, 0.05); },
   deploy() { tone('square', 220, 520, 0.12, 0.08); noise(0.14, 0.22, 1600, 1.5); },
   stow() { tone('square', 480, 200, 0.1, 0.07); noise(0.1, 0.18, 1400, 1.5); },
+  alarm() { tone('square', 880, 880, 0.16, 0.07); setTimeout(() => tone('square', 660, 660, 0.2, 0.07), 180); },
   click() { tone('triangle', 700, 900, 0.05, 0.1); },
 };
