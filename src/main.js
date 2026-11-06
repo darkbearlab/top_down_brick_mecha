@@ -418,6 +418,21 @@ function updateHud() {
   $('passive').classList.toggle('hidden', !(AI.passive && MODE.name === 'sandbox'));
 }
 
+// ---------- 鏡頭看得到的範圍 ----------
+// 從上一幀的鏡頭打四條射線到地面（畫面左右邊緣、上下邊緣往內一點），量出從畫面中心往四個方向看得到多遠；除以鏡頭距離 = 每單位距離的範圍
+let lockZoom = 1, lastCd = 30;
+const camLook = new THREE.Vector3(), extRay = new THREE.Raycaster(), groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), extV = new THREE.Vector3();
+function viewExtents() {
+  const out = {};
+  // 上下留比較多：下方有狀態欄、上方有提示
+  for (const [k, x, y] of [['r', 0.9, 0], ['l', -0.9, 0], ['t', 0, 0.82], ['b', 0, -0.72]]) {
+    extRay.setFromCamera({ x, y }, camera);
+    if (!extRay.ray.intersectPlane(groundPlane, extV)) { out[k] = 0.3; continue; }
+    out[k] = (k === 'r' || k === 'l' ? Math.abs(extV.x - camLook.x) : Math.abs(extV.z - camLook.z)) / lastCd;
+  }
+  return out;
+}
+
 // ---------- 主迴圈 ----------
 const TICK = location.search.includes('tick');
 const nextFrame = TICK ? cb => setTimeout(() => cb(performance.now()), 16) : requestAnimationFrame;
@@ -495,16 +510,35 @@ function frame(t) {
     setLaser(guide, ox, oz, f.x, f.z, len, 1.4, 0.3, 0.03);
   } else guide.g.visible = false;
 
-  // 鏡頭：跟著玩家、往瞄準方向偏（扣掉鏡頭已經偏掉的量）；整備時拉近、讓機體在畫面左邊；主選單拉近看機體
+  // 鏡頭：跟著玩家、往瞄準方向偏；整備時拉近、讓機體在畫面左邊；主選單拉近看機體
+  // 偏多少：瞄準方向上「整個鎖定距離」都要在畫面裡（鎖定得到的敵人一定看得到）；滑鼠拉遠時至少照原本的手感偏（最多 5 格）
+  // 偏到玩家快出畫面還裝不下（長距鎖定頭 34 格）就把鏡頭拉遠
   garageK += ((garage.open || !playing ? 1 : 0) - garageK) * (1 - Math.exp(-6 * raw));
   const REST_Z = -1.2 * (1 - garageK);
-  let lx = 0, lz = 0;
-  if (playing && player.alive && !garage.open) {
-    const ax = aimPoint.x - player.x - (camTarget.x - player.x), az = aimPoint.z - player.z - (camTarget.z - (player.z + REST_Z));
-    const d = Math.hypot(ax, az), k = d > 0.01 ? Math.min(d * 0.3, 5) / d : 0;
-    lx = ax * k; lz = az * k;
+  let lx = 0, lz = 0, zoomWant = 1;
+  if (playing && !watching && player.alive && !garage.open) {
+    const H = sensors.head, R = player.parts.head.broken ? 9 : Math.max(10, H?.lockRange ?? 18), M = 2.5;
+    // 偏移方向看「游標在畫面上相對畫面中心」（手把看右搖桿），不看瞄準角度：
+    // 瞄準角度又跟玩家在畫面上的位置有關，用它會跟鏡頭偏移互相拉扯、卡在錯的方向
+    let dx, dz, gate = 1;
+    if (input.source === 'pad') { dx = input.padAim.x; dz = input.padAim.y; }
+    else {
+      const nx = input.mouse.x / innerWidth * 2 - 1, ny = input.mouse.y / innerHeight * 2 - 1, nl = Math.hypot(nx, ny) || 1;
+      dx = nx / nl; dz = ny / nl;
+      gate = Math.min(1, Math.max(0, (nl - 0.02) / 0.05));  // 游標幾乎在正中間：方向不穩，不偏（稍微離開一點就全偏）
+    }
+    const E = viewExtents();
+    // 從畫面中心往 (ux, uz) 方向，地上看得到多遠（鏡頭距離 s 時）
+    const reach = (ux, uz, s) => Math.min(ux > 1e-3 ? E.r * s / ux : ux < -1e-3 ? E.l * s / -ux : 1e9, uz < -1e-3 ? E.t * s / -uz : uz > 1e-3 ? E.b * s / uz : 1e9);
+    zoomWant = Math.max(1, (R + 2 * M) / (reach(dx, dz, camDist) + reach(-dx, -dz, camDist)));
+    const s0 = camDist * lockZoom, fwd = reach(dx, dz, s0), back = reach(-dx, -dz, s0);
+    const need = Math.max(0, R + M - fwd), room = Math.max(0, back - M);
+    const mouse = Math.min(Math.hypot(aimPoint.x - player.x, aimPoint.z - player.z) * 0.3, 5);
+    const off = Math.min(Math.max(need, mouse), room) * gate;
+    lx = dx * off; lz = dz * off;
   }
-  const dist = camDist * (1 - garageK * 0.45);
+  lockZoom += (zoomWant - lockZoom) * (1 - Math.exp(-2.5 * raw));
+  const dist = camDist * (1 - garageK * 0.45) * lockZoom;
   if (garageK > 0.001) {
     // 整備 / 選單面板在右邊：鏡頭往右移，讓機體落在左邊空出來的那塊中間
     const visW = 2 * dist * Math.tan(camera.fov * Math.PI / 360) * camera.aspect;
@@ -539,6 +573,7 @@ function frame(t) {
   const cd = dist * (watching ? watchK : 1) * (1 - 0.42 * killK);
   camera.position.set(camTarget.x + ox, Math.sin(CAM_PITCH) * cd, camTarget.z + Math.cos(CAM_PITCH) * cd + oz);
   camera.lookAt(camTarget.x + ox, 0, camTarget.z + oz);
+  lastCd = cd; camLook.set(camTarget.x + ox, 0, camTarget.z + oz);
   sun.position.set(camTarget.x - 8, 22, camTarget.z + 6);
   sun.target.position.set(camTarget.x, 0, camTarget.z);
 
