@@ -72,7 +72,7 @@ function fire(m, slot, d, locks, aim) {
     }
     muzzleFlash(mz.x, mz.y, mz.z, d.kind === 'beam' ? DMG_TYPES.energy.hex : enemy ? 0xff6040 : 0xffd070, (d.size ?? 0.1) * 4.5);
     m.vx -= f.x * d.recoil; m.vz -= f.z * d.recoil;
-    if (d.heavy) { sfx.cannon(); smoke(mz.x + f.x * 0.3, mz.y, mz.z + f.z * 0.3, 3, 0.8, 0x8a8c92); if (!enemy) addTrauma(0.25); }
+    if (d.heavy) { sfx.cannon(); smoke(mz.x + f.x * 0.3, mz.y, mz.z + f.z * 0.3, 6, 1.2, 0x8a8c92); muzzleFlash(mz.x, mz.y, mz.z, 0xffc060, 1.6); if (!enemy) addTrauma(0.4); }
     else if (d.kind === 'beam') sfx.beam();
     else if (d === WEAPONS.sniper) { sfx.sniper(); if (!enemy) addTrauma(0.15); }
     else if (d === WEAPONS.shotgun) { sfx.shotgun(); if (!enemy) addTrauma(0.12); }
@@ -114,7 +114,7 @@ function spawnShot(m, d, x, y, z, dx, dz, speed) {
   const len = beam ? 1.1 : d === WEAPONS.sniper ? 1.6 : (d.size ?? 0.1) * (enemy ? 2.5 : 6);
   const g = shotMesh(color, d.size ?? 0.1, len);
   g.position.set(x, y, z); g.rotation.y = Math.atan2(dx, dz);
-  shots.push({ kind: 'bullet', g, owner: m, team: m.team, x, y, z, dx, dz, speed, life: d.life * d.speed / speed, dmg: d.dmg * (m.dmgMul ?? 1), kb: d.kb, type: d.type, trail: d.trail, heavy: d.heavy });
+  shots.push({ kind: 'bullet', g, owner: m, team: m.team, x, y, z, dx, dz, speed, life: d.life * d.speed / speed, dmg: d.dmg * (m.dmgMul ?? 1), kb: d.kb, type: d.type, trail: d.trail, heavy: d.heavy, splash: d.splash });
 }
 function spawnMissile(m, d, x, y, z, v, target, point) {
   const g = new THREE.Group();
@@ -193,16 +193,19 @@ function impact(s, o, nx, nz, dmg, forced) {
   if (o.team === 'player') addTrauma(0.12 + s.kb * 0.04);
   return r;
 }
-// 飛彈爆炸：直接命中的那台另外算，範圍內其他機體吃 40%（打軀幹）
+// 爆風：直接命中的那台另外算，範圍內其他機體吃 40%（打軀幹）；加農砲的砲彈爆得更大、推得更遠、外圈較弱
 function blast(s, x, y, z, direct) {
-  explosion(x, y, z, 0.38);
+  const shell = s.kind === 'bullet';
+  explosion(x, y, z, shell ? 0.95 : 0.38);
+  if (shell) { addTrauma(0.2); smoke(x, y, z, 6, 1.6, 0x55585f); }
   sfx.blast();
   blastBuildings(x, y, z, s.dmg, s.splash);
   for (const o of mechs) {
     if (!o.alive || o.drop || o.team === s.team || o === direct) continue;
     const dx = o.x - x, dz = o.z - z, dist = Math.hypot(dx, dz);
     if (dist > s.splash + o.r) continue;
-    hitMech(o, s.dmg * 0.4, dx / (dist || 1), dz / (dist || 1), 0.6, s.type, 'torso');
+    const fall = shell ? 1 - 0.5 * Math.max(0, dist - o.r) / s.splash : 1;   // 砲彈爆風越外圈越弱；飛彈維持原樣
+    hitMech(o, s.dmg * 0.4 * fall, dx / (dist || 1), dz / (dist || 1), shell ? 3 : 0.6, s.type, 'torso');
   }
 }
 
@@ -232,19 +235,20 @@ function stepBullet(s, i, dt) {
   if (wall < ht) {
     s.x += s.dx * wall; s.z += s.dz * wall;
     hitSparks(s.x, s.y, s.z, -s.dx, -s.dz, s.heavy ? 1.6 : 0.6);
-    if (s.heavy) blastBuildings(s.x, s.y, s.z, s.dmg * 1.5, 0.7);
+    if (s.splash) blast(s, s.x, s.y, s.z, null);          // 加農砲：打到牆也是一團爆風
+    else if (s.heavy) blastBuildings(s.x, s.y, s.z, s.dmg * 1.5, 0.7);
     else damageBuilding(s.x, s.y, s.z, s.dmg, s.dx, s.dz);
     smoke(s.x, s.y, s.z, s.heavy ? 3 : 1, 0.7, 0x6a6c72);
-    if (s.heavy) explosion(s.x, s.y, s.z, 0.25);
     kill(i); return;
   }
   s.x += s.dx * ht; s.z += s.dz * ht;
   if (hit) {
     impact(s, hit, s.dx, s.dz, s.dmg);
-    if (s.heavy) explosion(s.x, s.y, s.z, 0.32);
+    if (s.splash) blast(s, s.x, s.y, s.z, hit);
+    else if (s.heavy) explosion(s.x, s.y, s.z, 0.32);
     kill(i); return;
   }
-  if (s.life <= 0) { kill(i); return; }
+  if (s.life <= 0) { if (s.splash) blast(s, s.x, Math.max(0.3, s.y), s.z, null); kill(i); return; }   // 射程盡頭落地爆炸
   s.g.position.set(s.x, s.y, s.z);
 }
 
