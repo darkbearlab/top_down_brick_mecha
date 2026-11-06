@@ -108,6 +108,13 @@ export function updateEnemy(e, dt, player) {
   let mx, mz;
   if (!player.alive) { mx = 0; mz = 0; }
   else if (dist > A.want + 4 || !los) { mx = nx; mz = nz; }
+  else if (A.lineBlockedT > 0.4) {
+    // 看得到但槍口被轉角擋住（槍口在身體側邊）：往被擋的反方向橫移、同時靠近一點，讓出射線
+    // 左邊掛點在機體本地 +x = 世界 (nz, -nx)；往被擋那一邊的反方向移
+    const s2 = A.blockSide === 'L' ? -1 : 1;
+    const lx = nz, lz = -nx;
+    mx = lx * s2 * 0.9 + nx * 0.4; mz = lz * s2 * 0.9 + nz * 0.4;
+  }
   else if (dist < A.want - 2) { mx = -nx; mz = -nz; }
   else { mx = -nz * A.strafe + nx * 0.15; mz = nx * A.strafe + nz * 0.15; }
   ({ mx, mz } = steer(e, mx, mz));
@@ -145,7 +152,7 @@ export function updateEnemy(e, dt, player) {
   const onTarget = Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.14 && canShoot;
   // 鎖定玩家（給飛彈用）：在範圍內、看得到就慢慢鎖上
   const H = e.spec.head;
-  updateReadyChoice(e, dt, dist, canShoot);
+  updateReadyChoice(e, dt, dist, canShoot, player);
   A.lockT = canShoot && wantsLock(e) && dist < H.lockRange && !e.parts.head.broken ? A.lockT + dt : Math.max(0, A.lockT - dt * 2);
   const locks = A.lockT >= H.lockTime * AI.diff.lock ? [player] : [];
 
@@ -153,15 +160,19 @@ export function updateEnemy(e, dt, player) {
   const trig = { L: false, R: false };
   if (A.burst > 0) A.burst -= dt;
   else { A.rest -= dt; if (A.rest <= 0 && onTarget) { A.burst = 0.8; A.rest = (1 + Math.random() * 1.2) * AI.diff.rest; } }
-  let laserSlot = null;
+  let laserSlot = null, anyClear = false, blockedSide = null;
   for (const side of ['L', 'R']) {
     const slot = activeSlot(e, side), g = e.guns[slot];
     if (!g || slotBroken(e, slot) || e.deployT[side] > 0) continue;
-    const d = g.def, inRange = dist < reachOf(d);
+    const d = g.def;
+    // 這把的射線會不會馬上被擋住（轉角游擊時槍口常常在牆後）
+    const clear = !canShoot || lineClear(e, slot, d, player);
+    if (canShoot) { if (clear) anyClear = true; else blockedSide = side; }
+    const inRange = clear && dist < reachOf(d);
     let t = false;
     if (d.kind === 'saber') t = inRange && canShoot && Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.4;
-    else if (d.kind === 'missile' || d.kind === 'split') t = locks.length > 0 && Math.random() < dt * 1.6 / AI.diff.rest;
-    else if (d.kind === 'vmissile') t = locks.length > 0 && dist > 5 && Math.random() < dt * 1.2 / AI.diff.rest;
+    else if (d.kind === 'missile' || d.kind === 'split') t = clear && locks.length > 0 && Math.random() < dt * 1.6 / AI.diff.rest;
+    else if (d.kind === 'vmissile') t = clear && locks.length > 0 && dist > 5 && Math.random() < dt * 1.2 / AI.diff.rest;
     else if (d.speed > 50) {
       // 狙擊：瞄 0.8 秒（紅色雷射）才開槍
       if (onTarget && inRange && g.cd <= 0 && g.reloadT <= 0) { A.snipeT += dt; laserSlot = slot; if (A.snipeT >= 0.8) { t = true; A.snipeT = 0; } }
@@ -170,6 +181,9 @@ export function updateEnemy(e, dt, player) {
     else t = A.burst > 0 && onTarget && inRange;
     trig[side] = t;
   }
+  // 連續一陣子所有武器都被擋 → 移動時去讓出射線
+  A.lineBlockedT = canShoot && !anyClear && blockedSide ? (A.lineBlockedT ?? 0) + dt : 0;
+  if (blockedSide) A.blockSide = blockedSide;
   updateGuns(e, trig, dt, locks, { x: player.x, z: player.z });
   if (laserSlot) {
     const mz = muzzleOf(e, laserSlot), f = facing(e);
@@ -181,13 +195,22 @@ export function updateEnemy(e, dt, player) {
 // ---------- 背部武器要不要架起來 ----------
 // 用得上（飛彈：看得到、在鎖定距離內；加農砲：看得到、打得到）才架；架著一陣子後多半收回來用手臂
 // 手上是劍而且已經貼近：一定用劍
-function backUseful(d, dist, canShoot, head) {
-  if (!canShoot) return false;
+// 射線檢查：從槍口沿著上半身正前方，到目標的距離內有沒有方塊
+//   子彈 / 光束：整段要通；直射 / 分裂飛彈：轉得慢，前面 5 格要空；垂直飛彈越過掩體、劍是近戰，不用管
+function lineClear(e, slot, d, tgt) {
+  if (d.kind === 'saber' || d.kind === 'vmissile') return true;
+  const mz = muzzleOf(e, slot), f = facing(e);
+  const md = Math.hypot(tgt.x - mz.x, tgt.z - mz.z);
+  const need = d.kind === 'missile' || d.kind === 'split' ? Math.min(md - 0.5, 5) : md - tgt.r;
+  return need <= 0 || rayBlock(mz.x, mz.z, f.x, f.z, need) >= need;
+}
+function backUseful(e, slot, d, dist, canShoot, head, tgt) {
+  if (!canShoot || !lineClear(e, slot, d, tgt)) return false;
   if (d.kind === 'missile' || d.kind === 'split') return dist < head.lockRange;
   if (d.kind === 'vmissile') return dist > 5 && dist < head.lockRange;
   return dist < reachOf(d);
 }
-function updateReadyChoice(e, dt, dist, canShoot) {
+function updateReadyChoice(e, dt, dist, canShoot, tgt) {
   const A = e.ai;
   for (const side of ['L', 'R']) {
     const back = e.guns['back' + side], arm = e.guns['arm' + side];
@@ -196,7 +219,7 @@ function updateReadyChoice(e, dt, dist, canShoot) {
     const melee = arm.def.kind === 'saber' && dist < 5;
     if (e.ready[side] && melee) { toggleReady(e, side); A.hold[side] = 1.5; continue; }
     if ((A.hold[side] -= dt) > 0) continue;
-    const useful = back.reloadT <= 0 && backUseful(back.def, dist, canShoot, e.spec.head);
+    const useful = back.reloadT <= 0 && backUseful(e, 'back' + side, back.def, dist, canShoot, e.spec.head, tgt);
     if (!e.ready[side]) {
       if (useful && !melee && Math.random() < 0.6) { toggleReady(e, side); A.hold[side] = 2.5 + Math.random() * 2; }
       else A.hold[side] = 0.6 + Math.random() * 0.8;

@@ -285,12 +285,12 @@ function stepMissile(s, i, dt) {
     }
     s.speed = Math.min(d.maxSpeed ?? 20, s.speed + (d.accel ?? 10) * dt);
     s.vx = Math.sin(dir) * s.speed; s.vz = Math.cos(dir) * s.speed;
-    // 分裂：飛 0.55 秒或接近目標時裂成好幾顆
-    if (s.kind === 'split' && (s.age > 0.55 || (tgt && Math.hypot(tgt.x - s.x, tgt.z - s.z) < 4.5))) {
+    // 分裂：飛 0.45 秒或接近目標時裂成好幾顆
+    if (s.kind === 'split' && (s.age > 0.45 || (tgt && Math.hypot(tgt.x - s.x, tgt.z - s.z) < 4.5))) {
       explosion(s.x, s.y, s.z, 0.15);
       for (let k = 0; k < d.bomblets; k++) {
         const a = dir + (k / (d.bomblets - 1) - 0.5) * 1.3;
-        spawnMissile(s.owner, { ...d, kind: 'missile', size: 0.08, turn: 2.2, accel: 14, maxSpeed: 19, life: 1.2 }, s.x, s.y, s.z, { vx: Math.sin(a) * 9, vy: 0, vz: Math.cos(a) * 9 }, tgt, null);
+        spawnMissile(s.owner, { ...d, kind: 'missile', size: 0.08, turn: 1.6, accel: 22, maxSpeed: 28, life: 0.95 }, s.x, s.y, s.z, { vx: Math.sin(a) * 14, vy: 0, vz: Math.cos(a) * 14 }, tgt, null);
       }
       kill(i); return;
     }
