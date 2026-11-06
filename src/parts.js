@@ -131,6 +131,34 @@ export function randomGrunt(pool = GRUNTS) {
   const a = Object.keys(ARMORS)[Math.floor(Math.random() * 3)];
   return { ...pool[k], id: k, armor: { head: a, torso: a, arms: a, legs: a } };
 }
+// 指定種類的雜魚（key 後面加 * = 精英，從 GRUNTS 拿；不然從 GRUNTS_LOW）；裝甲隨機
+export function gruntOf(key) {
+  const elite = key.endsWith('*'), k = elite ? key.slice(0, -1) : key, pool = elite ? GRUNTS : GRUNTS_LOW;
+  const a = Object.keys(ARMORS)[Math.floor(Math.random() * 3)];
+  return { ...pool[k], id: k, elite, armor: { head: a, torso: a, arms: a, legs: a } };
+}
+// ---------- 遭遇小隊（探索模式） ----------
+// 每隊 3～4 台，組合針對不同的裝備：
+//   巡邏隊：基本款；突擊隊 / 火箭伏擊：貼臉衝過來（考驗後退射擊、失衡、霰彈）；
+//   砲擊陣地 / 狙擊組：遠距離壓制（考驗掩體和機動、長射程武器）；飛彈小隊：鎖定（考驗打頭、繞掩體）；
+//   重裝隊 / 砲車隊：帶一台精英（考驗高單發傷害、屬性剋制）
+// themes：在哪種地形比較常出現（街區轉角多 → 近戰；荒野視線長 → 遠程）；minDepth：離出發區至少幾個隘口才會出現
+export const SQUADS = {
+  patrol: { name: '巡邏隊', units: ['scout', 'scout', 'trooper'], themes: { city: 2, open: 2, ruins: 2, plaza: 2 } },
+  rush: { name: '突擊隊', units: ['brawler', 'brawler', 'stick', 'stick'], themes: { city: 3, ruins: 2, plaza: 1 } },
+  ambush: { name: '火箭伏擊', units: ['bazooka', 'bazooka', 'brawler'], themes: { city: 2, ruins: 2 } },
+  mortar: { name: '砲擊陣地', units: ['mortar', 'mortar', 'scout'], themes: { open: 3, plaza: 2, ruins: 1 } },
+  snipers: { name: '狙擊組', units: ['marksman', 'marksman', 'trooper'], themes: { open: 3, plaza: 1, ruins: 1 } },
+  missile: { name: '飛彈小隊', units: ['launcher', 'launcher', 'marksman'], themes: { open: 2, plaza: 2, city: 1 } },
+  heavy: { name: '重裝隊', units: ['heavy*', 'scout', 'scout'], themes: { city: 2, open: 1, plaza: 1 }, minDepth: 1 },
+  gunline: { name: '砲車隊', units: ['gun*', 'trooper', 'trooper'], themes: { open: 2, plaza: 2 }, minDepth: 1 },
+  elite: { name: '精英小隊', units: ['rocket*', 'blade*', 'rifle*'], themes: { city: 1, open: 1, ruins: 1, plaza: 1 }, minDepth: 3 },
+};
+export function pickSquad(theme, depth, rand = Math.random) {
+  const ok = Object.entries(SQUADS).filter(([, S]) => (S.minDepth ?? 0) <= depth && S.themes[theme]);
+  let r = rand() * ok.reduce((a, [, S]) => a + S.themes[theme], 0);
+  return (ok.find(([, S]) => (r -= S.themes[theme]) < 0) ?? ok[0])[0];
+}
 // 連射多久會打光（秒）：總彈藥 ÷ 一次幾發 × 射擊間隔；能量武器 Infinity
 export const fireTime = W => W.ammo ? W.ammo / (W.salvo ?? 1) * W.interval : Infinity;
 export const SLOTS = ['armL', 'armR', 'backL', 'backR'];

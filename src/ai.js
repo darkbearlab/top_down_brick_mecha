@@ -45,12 +45,16 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
     want: has('saber') || has('shotgun') ? 3 : has('sniper') ? 13 : 8,
   };
   e.laser = makeLaser(0xff3020);
-  const ring = new THREE.Mesh(RING_GEO, addMat(0xff4030, 0.8));
-  ring.rotation.x = -Math.PI / 2;
-  ring.position.set(p.x, 0.04, p.z);
-  scene.add(ring);
-  e.drop = { t: 0, ring };
-  e.model.root.position.y = DROP_H;
+  // noDrop：直接站在地上（探索模式的遭遇小隊），不然從天上降落
+  if (opts.noDrop) { e.drive = { mx: 0, mz: 0 }; e.aimYaw = e.torsoYaw; }
+  else {
+    const ring = new THREE.Mesh(RING_GEO, addMat(0xff4030, 0.8));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.set(p.x, 0.04, p.z);
+    scene.add(ring);
+    e.drop = { t: 0, ring };
+    e.model.root.position.y = DROP_H;
+  }
   e.onDeath = () => {
     e.laser.g.visible = false;
     AI.onEnemyDeath?.(e);
@@ -101,6 +105,14 @@ const reachOf = d => d.kind === 'saber' ? d.reach + 1.2 : d.kind === 'bullet' ||
 export function updateEnemy(e, dt, player) {
   if (!e.alive) return;
   if (e.drop) { if (updateDrop(e, dt, player)) return; }
+  // 待命（探索模式還沒發現玩家的小隊）：站著不動、偶爾轉頭看看
+  if (e.dormant) {
+    e.drive = { mx: 0, mz: 0 };
+    if (Math.random() < dt * 0.25) e.aimYaw = e.torsoYaw + (Math.random() - 0.5) * 2;
+    e.laser.g.visible = false;
+    updateGuns(e, { L: false, R: false }, dt, [], null);
+    return;
+  }
   const A = e.ai, DF = e.diff ?? AI.diff;
   const dx = player.x - e.x, dz = player.z - e.z, dist = Math.hypot(dx, dz) || 1;
   const nx = dx / dist, nz = dz / dist;

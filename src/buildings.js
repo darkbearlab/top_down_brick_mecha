@@ -4,7 +4,8 @@
 //   一格的耐久扣到 0 或方塊剩不到 30% → 那一格倒塌：上面的方塊全部垮下來，變成一堆瓦礫（可以走過去、子彈也能飛過）
 // 受損嚴重的格子會冒煙、起火；倒塌時一大團灰塵、火光
 // 碰撞 / 子彈還是以「格」為單位（arena.js 的 '#'）；倒塌後那格變成 'r'（瓦礫地面）
-// resetBuildings() 把整個場地的建築蓋回來（每局開始）
+// resetBuildings() 把整個場地的建築蓋回來（每局開始）；setLayout() 換一套建築（換地圖時）
+// 方塊依位置分到 16 × 16 格的區塊，每個區塊一個 InstancedMesh：鏡頭外的區塊整塊不畫（大地圖靠這個撐住）
 import * as THREE from 'three';
 import { UNIT_BOX, scene } from './core.js';
 import { H, W, grid, tileC, tileR, toWorldX, toWorldZ } from './arena.js';
@@ -22,7 +23,7 @@ const HALF = [
   [18, 36, 2, 2, 1, 2], [27, 5, 2, 2, 3, 2], [5, 12, 2, 3, 2, 0], [5, 38, 2, 2, 2, 1], [26, 30, 3, 2, 2, 1],
   [13, 25, 2, 2, 2, 0], [22, 41, 2, 1, 1, 2],
 ];
-const LAYOUT = [
+export const ARENA_LAYOUT = [
   ...HALF, ...HALF.map(([c, r, w, h, f, si]) => [W - c - w, H - r - h, w, h, f, (si + 1) % 3]),
   [31, 22, 2, 4, 3, 1],
 ];
@@ -33,12 +34,15 @@ const STYLES = [
   { wall: 0xa47a5c, wall2: 0x946c50, band: 0x5a4234, glass: 0x24282e, lit: 0xe0a050, roof: 0x4e3e34 },
 ];
 
-let mesh = null, vox = [], tiles = new Map();
+const CHUNK = 16;
+let LAYOUT = ARENA_LAYOUT, chunks = new Map(), vox = [], tiles = new Map();
+export function setLayout(list) { LAYOUT = list; }
 const mtx = new THREE.Matrix4(), col = new THREE.Color(), HIDE = new THREE.Matrix4().makeScale(0, 0, 0);
 const key = (c, r) => r * W + c;
 
 function build() {
-  vox = []; tiles = new Map();
+  for (const ch of chunks.values()) { scene.remove(ch.mesh); ch.mesh.dispose(); }
+  vox = []; tiles = new Map(); chunks = new Map();
   for (const [c0, r0, w, h, floors, si] of LAYOUT) {
     const S = STYLES[si], L = floors * FLOOR + 1, gw = w * N, gh = h * N;
     const lit = new Set();
@@ -65,8 +69,12 @@ function build() {
       const k = key(tc, tr);
       if (!tiles.has(k)) tiles.set(k, { c: tc, r: tr, vox: [], hp: 0, max: 0, alive: 0, total: 0, burn: 0, smokeT: Math.random(), down: false, S });
       const t = tiles.get(k);
-      const v = { x, y: yy, z, c, alive: true, t, i: vox.length };
+      const ck = Math.floor(tc / CHUNK) + ',' + Math.floor(tr / CHUNK);
+      if (!chunks.has(ck)) chunks.set(ck, { list: [], mesh: null, dirty: false, cdirty: false });
+      const ch = chunks.get(ck);
+      const v = { x, y: yy, z, c, alive: true, t, ch, i: ch.list.length };
       t.vox.push(v);
+      ch.list.push(v);
       vox.push(v);
     }
   }
@@ -75,20 +83,31 @@ function build() {
     t.max = t.hp = 160 + t.vox.length * 2.2;
     grid[t.r][t.c] = '#';
   }
-  if (mesh) { scene.remove(mesh); mesh.dispose(); }
-  mesh = new THREE.InstancedMesh(UNIT_BOX, new THREE.MeshLambertMaterial({ color: 0xffffff }), vox.length + 64 * tiles.size);
-  mesh.castShadow = mesh.receiveShadow = true;
-  for (const v of vox) writeVox(v);
-  mesh.count = vox.length;
-  scene.add(mesh);
+  for (const ch of chunks.values()) {
+    ch.mesh = new THREE.InstancedMesh(UNIT_BOX, MAT, ch.list.length);
+    ch.mesh.castShadow = ch.mesh.receiveShadow = true;
+    for (const v of ch.list) writeVox(v);
+    ch.mesh.computeBoundingSphere();
+    scene.add(ch.mesh);
+  }
 }
+const MAT = new THREE.MeshLambertMaterial({ color: 0xffffff });
 function writeVox(v, s = V) {
   mtx.makeScale(s, s, s).setPosition(v.x, v.y, v.z);
-  mesh.setMatrixAt(v.i, mtx);
-  mesh.setColorAt(v.i, col.setHex(v.c));
+  v.ch.mesh.setMatrixAt(v.i, mtx);
+  v.ch.mesh.setColorAt(v.i, col.setHex(v.c));
+}
+// 改過的區塊這一幀結束前一起標記要更新
+function touch(v, color = false) { v.ch.dirty = true; if (color) v.ch.cdirty = true; }
+function flush() {
+  for (const ch of chunks.values()) {
+    if (ch.dirty) { ch.mesh.instanceMatrix.needsUpdate = true; ch.dirty = false; }
+    if (ch.cdirty && ch.mesh.instanceColor) { ch.mesh.instanceColor.needsUpdate = true; ch.cdirty = false; }
+  }
 }
 
 export function resetBuildings() {
+  burning.clear();
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) if (grid[r][c] === 'r') grid[r][c] = '.';
   build();
 }
@@ -107,9 +126,10 @@ export function damageBuilding(x, y, z, dmg, dx = 0, dz = 0, splash = 0) {
   if (!gone.length) for (const v of t.vox) if (v.alive && Math.abs(v.y - y) < 0.4) { gone.push(v); break; }
   if (splash <= 0 && dmg < 12) gone = gone.filter(() => Math.random() < dmg / 12);   // 小口徑：不是每發都打得掉一塊
   const colors = [];
-  for (const v of gone) { v.alive = false; t.alive--; mesh.setMatrixAt(v.i, HIDE); if (colors.length < 4) colors.push(v.c); }
-  mesh.instanceMatrix.needsUpdate = true;
+  for (const v of gone) { v.alive = false; t.alive--; v.ch.mesh.setMatrixAt(v.i, HIDE); touch(v); if (colors.length < 4) colors.push(v.c); }
+  flush();
   t.hp -= dmg * (splash > 0 ? 1.4 : 1);
+  burning.add(t);
   if (gone.length) {
     burst(x - dx * 0.1, y, z - dz * 0.1, colors, Math.min(6, Math.ceil(gone.length / 2)), 2.5 + Math.min(4, dmg * 0.05), -dx * 2, -dz * 2);
     for (let i = 0; i < Math.min(5, 1 + gone.length / 3); i++)
@@ -145,19 +165,19 @@ function collapse(t, dx, dz) {
   burst(cx, 1, cz, colors.length ? colors : [0x8a847a], 16, 4, dx * 2, dz * 2);
   let n = 0;
   for (const v of live) {
-    if (Math.random() < 0.55 || n >= 60) { v.alive = false; mesh.setMatrixAt(v.i, HIDE); continue; }
+    if (Math.random() < 0.55 || n >= 60) { v.alive = false; v.ch.mesh.setMatrixAt(v.i, HIDE); touch(v); continue; }
     // 瓦礫堆：中間高、旁邊低
     const ox = R(-0.48, 0.48), oz = R(-0.48, 0.48), hgt = Math.max(0, 0.5 - Math.hypot(ox, oz)) * 1.3;
     v.x = cx + ox; v.z = cz + oz; v.y = R(0.06, 0.12 + hgt);
     v.c = shade(v.c, 0.7);
     mtx.makeRotationFromEuler(new THREE.Euler(R(-0.6, 0.6), R(0, 3), R(-0.6, 0.6)));
     mtx.scale(new THREE.Vector3(V * R(0.8, 1.2), V * R(0.6, 1), V * R(0.8, 1.2))).setPosition(v.x, v.y, v.z);
-    mesh.setMatrixAt(v.i, mtx);
-    mesh.setColorAt(v.i, col.setHex(v.c));
+    v.ch.mesh.setMatrixAt(v.i, mtx);
+    v.ch.mesh.setColorAt(v.i, col.setHex(v.c));
+    touch(v, true);
     n++;
   }
-  mesh.instanceMatrix.needsUpdate = true;
-  if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
+  flush();
   // 一大團灰塵往外推 + 火光
   for (let i = 0; i < 26; i++) {
     const a = Math.random() * Math.PI * 2, sp = R(1.5, 5);
@@ -170,10 +190,10 @@ function collapse(t, dx, dz) {
 const shade = (hex, k) => { col.setHex(hex).multiplyScalar(k); return col.getHex(); };
 
 // 受損的格子冒煙、起火
+const burning = new Set();   // 受損過的格子（大地圖上格子很多，只看打過的）
 export function updateBuildings(dt) {
-  if (!mesh) return;
-  for (const t of tiles.values()) {
-    if (t.down) continue;
+  for (const t of burning) {
+    if (t.down) { burning.delete(t); continue; }
     const dmgK = 1 - t.hp / t.max;
     if (dmgK < 0.35) continue;
     t.smokeT -= dt;

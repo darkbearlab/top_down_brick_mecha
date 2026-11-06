@@ -56,6 +56,8 @@ html, body {
 #endless { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); text-align: center; text-shadow: 0 1px 3px #000; max-width: min(92vw, 640px); }
 #enTime { font-size: 28px; font-weight: 900; letter-spacing: 2px; color: #fff; }
 #enInfo { font-size: 12px; color: #c8d0dc; margin-top: 2px; }
+#minimap { position: absolute; right: 12px; top: 12px; border: 1px solid rgba(160,180,210,.35); border-radius: 4px; background: #07080b; opacity: .92; image-rendering: pixelated; }
+#minimap.hidden { display: none; }
 #enMods { justify-content: center; margin-top: 4px; max-width: none; }
 #passive { position: absolute; right: 16px; top: 14px; font-size: 13px; font-weight: 800; color: #ffd060; }
 
