@@ -20,8 +20,8 @@ const $ = id => document.getElementById(id);
 // duel：一對一，打倒對手或被打倒就結束
 // sandbox：試玩場，敵機一開始停火（T 切換），被打爆會自動重生
 // watch：觀戰，兩台電腦機體互打（現成配裝或隨機組裝），打完自動換一組重開
-// watch 有兩種（MODE.kind）：'duel' 一對一、'horde' 王牌 vs 雜魚
-const MODE = { name: 'menu', kind: 'duel', duel: null, endT: 0, round: 0, score: { blue: 0, red: 0 }, horde: null };
+// watch 有三種（MODE.kind）：'duel' 一對一、'horde' 王牌 vs 雜魚、'skirmish' 雜魚 vs 雜魚
+const MODE = { name: 'menu', kind: 'duel', duel: null, endT: 0, round: 0, score: { blue: 0, red: 0 }, horde: null, sk: null };
 const BLUE_COLORS = { accent: 0x3a8cff, glow: 0x90c0ff };
 // 試玩場從中間偏下出發；對戰 / 觀戰兩邊從競技場左右兩側出發、面對面
 const PLAYER_START = { x: 0, z: 6 }, SIDE_A = { x: -26, z: 0 }, SIDE_B = { x: 26, z: 0 };
@@ -141,14 +141,73 @@ function updateHorde(dt) {
   }
   H.ace.foe = best;
 }
+// ---------- 觀戰：雜魚 vs 雜魚 ----------
+// 藍、紅兩隊雜魚（普通難度）各 SK_TOTAL 台，從自己那半邊一批批空投，場上每隊最多 SK_MAX 台；先全滅的輸
+// 每台自動挑最近的敵方雜魚打；鏡頭看所有還活著的雜魚的中間，散得越開拉得越遠
+const SK_TOTAL = 12, SK_MAX = 5, SK_FIRST = 3, SK_GAP = 2.4;
+const GRUNT_BLUE = { accent: 0x3a72b0, glow: 0x80b8ff };
+function spotOnSide(side) {
+  for (let i = 0; i < 40; i++) { const p = randomOpenSpot(0, 0, 0); if (side < 0 ? p.x < -8 : p.x > 8) return p; }
+  return { x: side * 26, z: 0 };
+}
+function startSkirmish(fresh = false) {
+  resetWorld();
+  MODE.name = 'watch';
+  if (fresh || MODE.kind !== 'skirmish') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
+  MODE.kind = 'skirmish';
+  MODE.round++;
+  AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.normal;
+  if (player) { removeMech(player); player.alive = false; }
+  MODE.sk = { blue: { side: -1, spawned: 0, killed: 0, t: 1 }, red: { side: 1, spawned: 0, killed: 0, t: 1 } };
+  for (let i = 0; i < SK_FIRST; i++) { skDrop('blue'); skDrop('red'); }
+  $('menu').classList.add('hidden'); $('duel').classList.add('hidden'); $('hud').classList.add('hidden');
+  $('watch').classList.remove('hidden');
+  setSensorsVisible(false);
+  $('wBName').textContent = '藍軍雜魚'; $('wRName').textContent = '紅軍雜魚';
+  toast(`第 ${MODE.round} 場・雜魚 vs 雜魚`);
+}
+function skDrop(team) {
+  const T = MODE.sk[team];
+  if (T.spawned >= SK_TOTAL) return;
+  T.spawned++;
+  const at = spotOnSide(T.side);
+  const dummy = { x: -T.side * 26, z: 0, alive: false, r: 0 };   // 只拿來決定降落時面向哪邊
+  spawnEnemy(dummy, randomGrunt(), at, { team, colors: team === 'blue' ? GRUNT_BLUE : GRUNT_COLORS, diff: DIFFS.normal, grunt: true });
+}
+function updateSkirmish(dt) {
+  const K = MODE.sk;
+  if (!K || MODE.result) return;
+  for (const team of ['blue', 'red']) {
+    const T = K[team];
+    if (enemies.filter(e => e.team === team && e.alive).length < SK_MAX && (T.t -= dt) <= 0) { T.t = SK_GAP * (0.6 + Math.random() * 0.8); skDrop(team); }
+  }
+  // 每台挑最近的敵方雜魚（現在的目標有 3 格的優勢）
+  const live = enemies.filter(e => e.alive && !e.drop);
+  for (const e of live) {
+    let best = null, bd = Infinity;
+    for (const o of live) {
+      if (o.team === e.team) continue;
+      const d = Math.hypot(o.x - e.x, o.z - e.z) - (o === e.foe ? 3 : 0);
+      if (d < bd) { bd = d; best = o; }
+    }
+    e.foe = best;
+  }
+}
 function endWatch(result) {
   MODE.result = result;
   if (result !== 'draw') MODE.score[result]++;
   MODE.endT = 4.5;
-  const text = MODE.kind === 'horde' ? (result === 'blue' ? '王牌勝利：雜魚全滅' : '王牌被擊墜') : result === 'blue' ? '藍方勝利' : result === 'red' ? '紅方勝利' : '同歸於盡';
+  const text = MODE.kind === 'skirmish' ? (result === 'blue' ? '藍軍勝利' : '紅軍勝利') : MODE.kind === 'horde' ? (result === 'blue' ? '王牌勝利：雜魚全滅' : '王牌被擊墜') : result === 'blue' ? '藍方勝利' : result === 'red' ? '紅方勝利' : '同歸於盡';
   setTimeout(() => { if (MODE.name === 'watch') toast(text); }, 2000);
 }
 AI.onEnemyDeath = (e) => {
+  if (MODE.name === 'watch' && MODE.kind === 'skirmish') {
+    if (MODE.result) return;
+    const T = MODE.sk[e.team];
+    T.killed++;
+    if (T.killed >= SK_TOTAL) endWatch(e.team === 'blue' ? 'red' : 'blue');
+    return;
+  }
   if (MODE.name === 'watch' && MODE.kind === 'horde') {
     const H = MODE.horde;
     if (MODE.result) return;
@@ -196,10 +255,10 @@ function showPanel(title, html, buttons) {
 function hidePanel() { $('panel').classList.add('hidden'); }
 const panelOpen = () => !$('panel').classList.contains('hidden');
 function restart() { MODE.name === 'duel' ? startDuel(MODE.duel.preset, MODE.duel.diffKey) : MODE.name === 'watch' ? nextWatch() : startSandbox(); }
-const nextWatch = () => MODE.kind === 'horde' ? startHorde() : startWatch();
+const nextWatch = () => MODE.kind === 'horde' ? startHorde() : MODE.kind === 'skirmish' ? startSkirmish() : startWatch();
 function pause() {
   G.paused = true;
-  showPanel('暫停', MODE.name === 'duel' ? `對戰・${DIFFS[MODE.duel.diffKey].name}` : MODE.name === 'watch' ? `觀戰${MODE.kind === 'horde' ? '（王牌 vs 雜魚）' : ''}・第 ${MODE.round} 場` : '試玩場', [
+  showPanel('暫停', MODE.name === 'duel' ? `對戰・${DIFFS[MODE.duel.diffKey].name}` : MODE.name === 'watch' ? `觀戰${MODE.kind === 'horde' ? '（王牌 vs 雜魚）' : MODE.kind === 'skirmish' ? '（雜魚 vs 雜魚）' : ''}・第 ${MODE.round} 場` : '試玩場', [
     { label: '繼續', primary: true, run: () => { hidePanel(); G.paused = false; } },
     { label: MODE.name === 'watch' ? '下一場' : '重新開始', run: restart },
     ...(MODE.name === 'duel' ? [{ label: '換對手', run: openDuelSetup }] : []),
@@ -229,6 +288,7 @@ $('mDuel').onclick = () => { unlockAudio(); sfx.click(); openDuelSetup(); };
 $('mSandbox').onclick = () => { unlockAudio(); sfx.click(); startSandbox(); };
 $('mWatch').onclick = () => { unlockAudio(); sfx.click(); startWatch(true); };
 $('mHorde').onclick = () => { unlockAudio(); sfx.click(); startHorde(true); };
+$('mSkirmish').onclick = () => { unlockAudio(); sfx.click(); startSkirmish(true); };
 $('mGarage').onclick = () => { unlockAudio(); sfx.click(); openGarageFrom('menu'); };
 $('mHelp').onclick = () => { unlockAudio(); sfx.click(); showPanel('操作說明', HELP, [{ label: '返回', primary: true, run: hidePanel }]); };
 
@@ -391,6 +451,7 @@ function frame(t) {
       updateGuns(player, { L: input.fireL, R: input.fireR }, dt, sensors.locks, aimPoint);
     } else if (MODE.name === 'sandbox' && (respawnT -= dt) <= 0) { spawnPlayer(); toast('重新出擊'); }
     if (watching && MODE.kind === 'horde') updateHorde(dt);
+    if (watching && MODE.kind === 'skirmish') updateSkirmish(dt);
     for (const e of enemies.slice()) {
       updateEnemy(e, dt, e.foe ?? player);
       if (e.alive && !e.drop) driveMech(e, dt, e.drive.mx, e.drive.mz, e.aimYaw);
@@ -444,7 +505,8 @@ function frame(t) {
     const live = pool.filter(e => e.alive && !e.drop), all = live.length ? live : pool;
     if (all.length) {
       fx = all.reduce((a, e) => a + e.x, 0) / all.length; fz = all.reduce((a, e) => a + e.z, 0) / all.length - 0.8;
-      const sep = all.length > 1 ? Math.hypot(all[0].x - all[1].x, all[0].z - all[1].z) : 0;
+      let sep = all.length > 1 ? Math.hypot(all[0].x - all[1].x, all[0].z - all[1].z) : 0;
+      if (MODE.kind === 'skirmish') for (const e of all) sep = Math.max(sep, 2 * Math.hypot(e.x - fx, e.z - fz - 0.8) * 0.8);
       distK = Math.max(0.75, Math.min(1.6, 0.6 + sep / 22));
     }
     lx = lz = 0;
@@ -468,8 +530,14 @@ function frame(t) {
 
   if (playing && !watching) updateHud();
   if (watching) {
-    const blue = enemies.find(e => e.team === 'blue'), red = MODE.kind === 'horde' ? null : enemies.find(e => e.team === 'red');
+    const one = MODE.kind === 'duel', blue = MODE.kind !== 'skirmish' ? enemies.find(e => e.team === 'blue') : null, red = one ? enemies.find(e => e.team === 'red') : null;
     paintDoll($('dollB'), blue?.alive ? blue : null); paintDoll($('dollR'), red?.alive ? red : null);
+    if (MODE.kind === 'skirmish' && MODE.sk) {
+      for (const [side, team] of [['B', 'blue'], ['R', 'red']]) {
+        const T = MODE.sk[team], onField = enemies.filter(e => e.team === team && e.alive).length;
+        $('w' + side + 'Guns').innerHTML = `<span class="wt" style="--c:${team === 'blue' ? '#6aa8ff' : '#e08a50'}">剩 ${SK_TOTAL - T.killed} / ${SK_TOTAL}</span><span class="wt" style="--c:#8a96a6">場上 ${onField}</span>`;
+      }
+    }
     if (MODE.kind === 'horde' && MODE.horde) {
       const H = MODE.horde, onField = enemies.filter(e => e.grunt && e.alive).length;
       $('wRGuns').innerHTML = `<span class="wt" style="--c:#e08a50">擊破 ${H.killed} / ${HORDE_TOTAL}</span><span class="wt" style="--c:#8a96a6">場上 ${onField}</span>`;
@@ -482,7 +550,7 @@ function frame(t) {
 }
 addEventListener('pointerdown', unlockAudio);
 addEventListener('keydown', unlockAudio);
-window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, startHorde, showMenu, paused: false };
+window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, startHorde, startSkirmish, showMenu, paused: false };
 showMenu();
 camTarget.set(player.x, 0, player.z);
 nextFrame(frame);
