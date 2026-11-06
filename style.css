@@ -153,3 +153,8 @@ html, body {
 .wguns { display: flex; flex-wrap: wrap; gap: 4px; margin-top: 6px; max-width: 220px; }
 .wside.red .wguns { justify-content: flex-end; }
 .whint { position: absolute; left: 0; right: 0; bottom: 8px; text-align: center; font-size: 11px; opacity: .45; }
+
+/* 擊墜特寫：上下黑邊 */
+body::before, body::after { content: ''; position: fixed; left: 0; right: 0; height: 0; background: #000; z-index: 40; pointer-events: none; transition: height .25s ease-out; }
+body::before { top: 0; } body::after { bottom: 0; }
+body.killcam::before, body.killcam::after { height: 9vh; transition: height .12s ease-out; }

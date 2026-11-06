@@ -14,6 +14,7 @@ import { burnAt, burst, explosion, fire, flame, hitSparks, smoke, sparks, spawnP
 import { sfx } from './audio.js';
 import { EFFECT, WEAPONS, computeSpec } from './parts.js';
 import { buildMechModel } from './model.js';
+import { collideWrecks, isWreck, startWreck } from './wreck.js';
 
 export const PART_NAMES = { head: '頭部', torso: '軀幹', armL: '左臂', armR: '右臂', backL: '左背', backR: '右背', legs: '腳部' };
 const ARMOR_OF = { head: 'head', torso: 'torso', armL: 'arms', armR: 'arms', backL: 'torso', backR: 'torso', legs: 'legs' };
@@ -28,7 +29,7 @@ export const PLAYER_COLORS = { accent: 0x2aa8c8, glow: 0x7ff0ff };
 export const ENEMY_COLORS = { accent: 0xe07a2a, glow: 0xff5040 };
 
 export const mechs = [];
-export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, hpMul = 1 }) {
+export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, hpMul = 1, ace = true }) {
   const spec = computeSpec(loadout);
   const M = buildMechModel(loadout, colors);
   M.root.position.set(x, 0, z);
@@ -42,7 +43,7 @@ export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, h
     team, colors, loadout, spec, model: M, parts, x, z, vx: 0, vz: 0, r: loadout.legs === 'tread' ? 0.95 : 0.85,
     legYaw: yaw, torsoYaw: yaw, walk: 0, lean: { x: 0, z: 0 }, lastV: { x: 0, z: 0 }, bob: 0,
     energy: 100, energyT: 0, boostT: 0, boostCd: 0, boostDir: { x: 0, z: 0 }, stuckT: 0, stuckMax: 0, stuckN: { x: 0, z: 0 },
-    alive: true, surf: null, guns: null, onDeath: null, swing: null,
+    alive: true, ace, surf: null, guns: null, onDeath: null, swing: null,
   };
   mechs.push(m);
   return m;
@@ -136,6 +137,8 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
     stick(m, hit.hit, hit.nx, hit.nz);
   }
   if (hit.hit > CRASH_SPEED) crash(m, hit.hit - CRASH_SPEED, hit.nx, hit.nz);
+  const wh = collideWrecks(m);
+  if (wh.hit > STICK_SPEED) stick(m, wh.hit, wh.nx, wh.nz);
 
   m.torsoYaw = approachAngle(m.torsoYaw, aimYaw, S.turn * (m.parts.head.broken ? 0.7 : 1) * dt);
   const prev = m.walk;
@@ -235,6 +238,8 @@ function breakPart(m, name, dx, dz) {
 
 function destroyMech(m, dx, dz) {
   m.alive = false;
+  // 主力機體：慢動作特寫 + 留下燒著的殘骸（src/wreck.js）
+  if (m.ace) { startWreck(m, dx, dz); m.onDeath?.(m); return; }
   for (const k in m.parts) if (m.parts[k].g.visible) voxelBurst(m.parts[k].g, 40, 7, m.x, m.z, dx * 3, dz * 3);
   burst(m.x, 1, m.z, [0x2a2a2e, 0x1a1a1e, m.colors.accent], 14, 7);
   explosion(m.x, 1.1, m.z, 1.25);
@@ -249,7 +254,7 @@ function destroyMech(m, dx, dz) {
 }
 
 export function removeMech(m) {
-  scene.remove(m.model.root);
+  if (!isWreck(m)) scene.remove(m.model.root);   // 殘骸的模型歸 wreck.js 管
   const i = mechs.indexOf(m);
   if (i >= 0) mechs.splice(i, 1);
 }

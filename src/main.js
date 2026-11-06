@@ -4,6 +4,7 @@ import { CAM_PITCH, G, camDist, camTarget, camera, renderer, scene, sun } from '
 import { clearPressed, input, updateInput } from './input.js';
 import { rayBlock } from './arena.js';
 import { ENEMY_COLORS, PLAYER_COLORS, collideMechs, driveMech, facing, makeMech, mechs, poseMech, removeMech, tryBoost } from './mech.js';
+import { SLOW_K, clearWrecks, killCam, updateWrecks } from './wreck.js';
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
 import { AI, DIFFS, clearEnemies, enemies, keepEnemies, spawnEnemy, updateEnemy } from './ai.js';
 import { makeLaser, setLaser, updateParticles } from './fx.js';
@@ -30,7 +31,7 @@ function spawnPlayer(x = PLAYER_START.x, z = PLAYER_START.z, yaw = Math.PI) {
   player = makeMech({ team: 'player', colors: PLAYER_COLORS, loadout, x, z, yaw });
   player.guns = makeGuns(loadout);
   player.onDeath = () => {
-    if (MODE.name === 'duel') { MODE.endT = 1.8; MODE.result = 'lose'; }
+    if (MODE.name === 'duel') { MODE.endT = 3.4; MODE.result = 'lose'; }
     else { respawnT = 2.5; toast('機體損毀'); }
   };
   return player;
@@ -41,6 +42,7 @@ function resetWorld() {
   clearEnemies();
   clearShots();
   G.paused = false; G.slowMo = 0; G.hitStop = 0;
+  clearWrecks();
   sensors.progress.clear(); sensors.locks = [];
   MODE.endT = 0; MODE.result = null;
   hidePanel();
@@ -88,14 +90,14 @@ function startWatch(fresh = false) {
   toast(`第 ${MODE.round} 場`);
 }
 AI.onEnemyDeath = () => {
-  if (MODE.name === 'duel' && !enemies.some(e => e.alive) && !MODE.result) { MODE.endT = 1.8; MODE.result = 'win'; }
+  if (MODE.name === 'duel' && !enemies.some(e => e.alive) && !MODE.result) { MODE.endT = 3.4; MODE.result = 'win'; }
   if (MODE.name === 'watch' && !MODE.result) {
     const alive = enemies.filter(e => e.alive);
     if (alive.length <= 1) {
       MODE.result = alive[0]?.team ?? 'draw';
       if (MODE.result !== 'draw') MODE.score[MODE.result]++;
       MODE.endT = 4.5;
-      setTimeout(() => { if (MODE.name === 'watch') toast(MODE.result === 'blue' ? '藍方勝利' : MODE.result === 'red' ? '紅方勝利' : '同歸於盡'); }, 900);
+      setTimeout(() => { if (MODE.name === 'watch') toast(MODE.result === 'blue' ? '藍方勝利' : MODE.result === 'red' ? '紅方勝利' : '同歸於盡'); }, 2000);
     }
   }
 };
@@ -291,7 +293,7 @@ function updateHud() {
 // ---------- 主迴圈 ----------
 const TICK = location.search.includes('tick');
 const nextFrame = TICK ? cb => setTimeout(() => cb(performance.now()), 16) : requestAnimationFrame;
-let last = performance.now(), lastLocks = 0, garageK = 0, watchK = 1;
+let last = performance.now(), lastLocks = 0, garageK = 0, watchK = 1, killK = 0;
 function frame(t) {
   nextFrame(frame);
   const raw = Math.min(0.05, (t - last) / 1000);
@@ -309,7 +311,8 @@ function frame(t) {
 
   let dt = !playing || G.paused || garage.open || window.__dbg.paused ? 0 : raw;
   if (dt > 0 && G.hitStop > 0) { G.hitStop -= raw; dt = 0; }
-  if (dt > 0 && G.slowMo > 0) { G.slowMo -= raw; dt *= 0.35; }
+  // 慢動作：被擊墜時很慢（SLOW_K），最後 0.4 秒慢慢回到正常速度
+  if (dt > 0 && G.slowMo > 0) { G.slowMo -= raw; const k = killCam.t > 0 ? SLOW_K : 0.35; dt *= G.slowMo < 0.4 ? k + (1 - k) * (1 - G.slowMo / 0.4) : k; }
 
   if (playing && !watching && !garage.open) updateAim();
   if (dt > 0) {
@@ -326,6 +329,7 @@ function frame(t) {
     keepEnemies(player);
     collideMechs();
     updateShots(dt);
+    updateWrecks(dt, raw);
     if (!watching) {
       updateSensors(player, enemies, aimPoint, dt);
       if (sensors.locks.length > lastLocks) sfx.lock();
@@ -373,14 +377,18 @@ function frame(t) {
     }
     lx = lz = 0;
   }
-  const ck = 1 - Math.exp(-(watching ? 2.5 : 5) * raw);
+  // 擊墜特寫：鏡頭飛到被打爆的那台、拉近
+  const kc = killCam.t > 0 && playing;
+  if (kc) { fx = killCam.x; fz = killCam.z - 0.4; lx = lz = 0; }
+  killK += ((kc ? 1 : 0) - killK) * (1 - Math.exp(-(kc ? 7 : 2.5) * raw));
+  const ck = 1 - Math.exp(-(kc ? 8 : watching ? 2.5 : 5) * raw);
   camTarget.x += (fx + lx - camTarget.x) * ck;
   camTarget.z += (fz + lz - camTarget.z) * ck;
   watchK += (distK - watchK) * (1 - Math.exp(-1.5 * raw));
   G.trauma = Math.max(0, G.trauma - raw * 1.6);
   const sh = G.trauma * G.trauma * 0.7;
   const ox = (Math.random() - 0.5) * sh, oz = (Math.random() - 0.5) * sh;
-  const cd = dist * (watching ? watchK : 1);
+  const cd = dist * (watching ? watchK : 1) * (1 - 0.42 * killK);
   camera.position.set(camTarget.x + ox, Math.sin(CAM_PITCH) * cd, camTarget.z + Math.cos(CAM_PITCH) * cd + oz);
   camera.lookAt(camTarget.x + ox, 0, camTarget.z + oz);
   sun.position.set(camTarget.x - 8, 22, camTarget.z + 6);
