@@ -22,7 +22,8 @@ const $ = id => document.getElementById(id);
 // watch：觀戰，兩台電腦機體互打（現成配裝或隨機組裝），打完自動換一組重開
 const MODE = { name: 'menu', duel: null, endT: 0, round: 0, score: { blue: 0, red: 0 } };
 const BLUE_COLORS = { accent: 0x3a8cff, glow: 0x90c0ff };
-const PLAYER_START = { x: -3, z: 9 }, DUEL_ENEMY = { x: 3, z: -9 };
+// 試玩場從中間偏下出發；對戰 / 觀戰兩邊從競技場左右兩側出發、面對面
+const PLAYER_START = { x: 0, z: 6 }, SIDE_A = { x: -26, z: 0 }, SIDE_B = { x: 26, z: 0 };
 
 // ---------- 玩家 ----------
 let loadout = loadLoadout();
@@ -63,9 +64,9 @@ function startDuel(preset, diffKey) {
   MODE.duel = { preset, diffKey };
   MODE.endT = 0; MODE.result = null;
   AI.sandbox = false; AI.passive = false; AI.diff = DIFFS[diffKey];
-  spawnPlayer();
+  spawnPlayer(SIDE_A.x, SIDE_A.z, Math.PI / 2);
   const P = preset ?? ENEMY_PRESETS[Math.floor(Math.random() * ENEMY_PRESETS.length)];
-  spawnEnemy(player, P, DUEL_ENEMY);
+  spawnEnemy(player, P, SIDE_B);
   showHud();
   toast(`對戰・${P.name}`);
 }
@@ -78,8 +79,8 @@ function startWatch(fresh = false) {
   MODE.round++;
   AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.hard;
   if (player) { removeMech(player); player.alive = false; }
-  const blue = spawnEnemy({ x: 3, z: -9 }, watchLoadout(), { x: -3, z: 9 }, { team: 'blue', colors: BLUE_COLORS });
-  const red = spawnEnemy({ x: -3, z: 9 }, watchLoadout(), { x: 3, z: -9 }, { team: 'red', colors: ENEMY_COLORS });
+  const blue = spawnEnemy(SIDE_B, watchLoadout(), SIDE_A, { team: 'blue', colors: BLUE_COLORS });
+  const red = spawnEnemy(SIDE_A, watchLoadout(), SIDE_B, { team: 'red', colors: ENEMY_COLORS });
   blue.foe = red; red.foe = blue;
   $('menu').classList.add('hidden'); $('duel').classList.add('hidden'); $('hud').classList.add('hidden');
   $('watch').classList.remove('hidden');
@@ -381,7 +382,7 @@ function frame(t) {
     if (all.length) {
       fx = all.reduce((a, e) => a + e.x, 0) / all.length; fz = all.reduce((a, e) => a + e.z, 0) / all.length - 0.8;
       const sep = all.length > 1 ? Math.hypot(all[0].x - all[1].x, all[0].z - all[1].z) : 0;
-      distK = Math.max(0.75, Math.min(1.35, 0.6 + sep / 22));
+      distK = Math.max(0.75, Math.min(1.6, 0.6 + sep / 22));
     }
     lx = lz = 0;
   }

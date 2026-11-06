@@ -13,12 +13,13 @@ export const SURF = {
   r: { name: '瓦礫', mu: 0.85, drag: 0.6, speed: 0.85 },
   m: { name: '泥地', mu: 0.9, drag: 2.0, speed: 0.55 },
 };
-export const W = 44, H = 34;
+// 64 × 48（原本 44 × 34，面積約兩倍）；建築數量照比例加，密度不變
+export const W = 64, H = 48;
 export const grid = Array.from({ length: H }, (_, r) => Array.from({ length: W }, (_, c) => (r === 0 || c === 0 || r === H - 1 || c === W - 1) ? '#' : '.'));
 const fill = (c0, r0, w, h, ch) => { for (let r = r0; r < r0 + h; r++) for (let c = c0; c < c0 + w; c++) grid[r][c] = ch; };
-// 右下一片泥（建築另外蓋，見 buildings.js）
-fill(29, 20, 8, 5, 'm');
-fill(33, 17, 6, 3, 'm');
+// 兩片泥地，對中心點對稱（建築另外蓋，見 buildings.js）
+fill(16, 27, 8, 4, 'm'); fill(18, 31, 4, 2, 'm');
+fill(40, 17, 8, 4, 'm'); fill(42, 15, 4, 2, 'm');
 
 export const toWorldX = c => c - W / 2 + 0.5;
 export const toWorldZ = r => r - H / 2 + 0.5;
