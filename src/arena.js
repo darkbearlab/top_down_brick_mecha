@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { UNIT_BOX, WALL_H, scene } from './core.js';
 import { setWallTest } from './fx.js';
+import { fogMaterial } from './fog.js';
 
 export const SURF = {
   '.': { name: '混凝土', mu: 1.0, drag: 0.0 },
@@ -68,14 +69,15 @@ export function loadMap(map) {
   const tex = new THREE.CanvasTexture(cv);
   tex.magFilter = THREE.NearestFilter;
   tex.colorSpace = THREE.SRGBColorSpace;
-  floor = new THREE.Mesh(new THREE.PlaneGeometry(W, H), new THREE.MeshLambertMaterial({ map: tex }));
+  floor = new THREE.Mesh(new THREE.PlaneGeometry(W, H), fogMaterial(new THREE.MeshLambertMaterial({ map: tex })));
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
   scene.add(floor);
 
   const blocks = [];
-  for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) if (grid[r][c] === '#') blocks.push([c, r, r === 0 || c === 0 || r === H - 1 || c === W - 1]);
-  walls = new THREE.InstancedMesh(UNIT_BOX, new THREE.MeshLambertMaterial({ color: 0xffffff }), Math.max(1, blocks.length));
+  // 外圍的灰色圍牆只有競技場有；大地圖的邊緣也是岩塊
+  for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) if (grid[r][c] === '#') blocks.push([c, r, map.id === 'arena' && (r === 0 || c === 0 || r === H - 1 || c === W - 1)]);
+  walls = new THREE.InstancedMesh(UNIT_BOX, fogMaterial(new THREE.MeshLambertMaterial({ color: 0xffffff })), Math.max(1, blocks.length));
   blocks.forEach(([c, r, edge], i) => {
     const x = toWorldX(c), z = toWorldZ(r);
     if (edge) { mtx.makeScale(1, WALL_H, 1).setPosition(x, WALL_H / 2, z); col.setHex(0x4a505c); }

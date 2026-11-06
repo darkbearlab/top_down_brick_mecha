@@ -6,6 +6,7 @@
 // 碰撞 / 子彈還是以「格」為單位（arena.js 的 '#'）；倒塌後那格變成 'r'（瓦礫地面）
 // resetBuildings() 把整個場地的建築蓋回來（每局開始）；setLayout() 換一套建築（換地圖時）
 // 方塊依位置分到 16 × 16 格的區塊，每個區塊一個 InstancedMesh：鏡頭外的區塊整塊不畫（大地圖靠這個撐住）
+import { fogMaterial } from './fog.js';
 import * as THREE from 'three';
 import { UNIT_BOX, scene } from './core.js';
 import { H, W, grid, tileC, tileR, toWorldX, toWorldZ } from './arena.js';
@@ -91,7 +92,7 @@ function build() {
     scene.add(ch.mesh);
   }
 }
-const MAT = new THREE.MeshLambertMaterial({ color: 0xffffff });
+const MAT = fogMaterial(new THREE.MeshLambertMaterial({ color: 0xffffff }));
 function writeVox(v, s = V) {
   mtx.makeScale(s, s, s).setPosition(v.x, v.y, v.z);
   v.ch.mesh.setMatrixAt(v.i, mtx);

@@ -1,11 +1,12 @@
 import * as THREE from 'three';
 import { sfx, unlockAudio } from './audio.js';
-import { CAM_PITCH, G, camDist, camTarget, camera, renderer, scene, sun } from './core.js';
+import { CAM_PITCH, G, addMat, camDist, camTarget, camera, renderer, scene, sun } from './core.js';
 import { clearPressed, input, updateInput } from './input.js';
 import { arenaMap, isBlock, loadMap, mapId, randomOpenSpot, rayBlock, tileC, tileR } from './arena.js';
 import { THEMES, genWorld, rng } from './mapgen.js';
 import { flowDist, updateFlow } from './pathing.js';
-import { addProp, clearProps, nearProp, removeProp, setPortal, spendProp, updateProps } from './props.js';
+import { addProp, clearProps, nearProp, props, removeProp, setPortal, spendProp, updateProps } from './props.js';
+import { exploredAt, fogActive, fogOff, initFog, updateFog, visibleAt } from './fog.js';
 import { hideMinimap, initMinimap, updateMinimap } from './minimap.js';
 import { ENEMY_COLORS, PLAYER_COLORS, activeSlot, collideMechs, driveMech, facing, makeMech, mechs, poseMech, removeMech, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { ARENA_LAYOUT, resetBuildings, setLayout, updateBuildings } from './buildings.js';
@@ -14,7 +15,7 @@ import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
 import { AI, DIFFS, clearEnemies, enemies, keepEnemies, removeEnemy, spawnEnemy, updateEnemy } from './ai.js';
 import { makeLaser, setLaser, updateParticles } from './fx.js';
 import { ARMORS, DMG_TYPES, ENEMY_PRESETS, GRUNTS, GRUNTS_LOW, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, SQUADS, WEAPONS, gruntOf, loadLoadout, pickSquad, randomGrunt, randomLoadout } from './parts.js';
-import { clearPickups, spawnPickup, updatePickups } from './pickups.js';
+import { clearPickups, pickups, spawnPickup, updatePickups } from './pickups.js';
 import { sensors, setSensorsVisible, updateSensors } from './sensors.js';
 import { closeGarage, garage, openGarage } from './garage.js';
 
@@ -56,6 +57,8 @@ function resetWorld(map = null) {
   const want = map ?? ARENA;
   if (mapId !== want.id) { loadMap(want); setLayout(map ? map.buildings : ARENA_LAYOUT); }
   hideMinimap();
+  fogOff();
+  for (const b of blips) b.visible = false;
   clearShots();
   G.paused = false; G.slowMo = 0; G.hitStop = 0;
   clearWrecks();
@@ -348,7 +351,7 @@ function showEndlessResult() {
 // 零件：打爆敵機一定掉（精英多、越深越多），拿來開補給箱（強化模組）和武器箱；每張圖的箱子有限 → 強化的數量也有限
 // 清掉 need 隊 → 傳送門可以啟動（標在小地圖上）→ 啟動後頭目從天而降、每隔一陣子來一波增援 → 打倒頭目 → 傳送到下一關（整台修好、彈藥補滿）
 // 越後面的關卡 / 越深的區域：敵人傷害和耐久越高；箱子也越貴
-const SPAWN_R = 58, DESPAWN_R = 72, WAKE_R = 24, LOSE_R = 85, FOUND_R = 34, PORTAL_SEE = 40;
+const SPAWN_R = 58, DESPAWN_R = 72, WAKE_R = 24, LOSE_R = 85;
 const START_WEAPONS = { armL: null, armR: 'mg', backL: null, backR: null };
 const COST = { cache: 25, weapon: 35 };
 let EX = null;
@@ -388,6 +391,11 @@ function startStage(seed) {
     if (c.kind === 'mod') addProp('cache', c.x, c.z, { cost: costOf(COST.cache) });
     else addProp('weapon', c.x, c.z, { cost: costOf(COST.weapon), weapon: PLAYER_WEAPONS[Math.floor(R() * PLAYER_WEAPONS.length)] });
   }
+  // 迷霧：1 層樓的建築不擋視線
+  const low = new Set();
+  for (const [c, r, w, h, f] of map.buildings) if (f === 1) for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) low.add(y * map.W + x);
+  initFog(low);
+  updateFog(1, player.x, player.z);
   initMinimap(map.buildings);
   showHud();
   $('endless').classList.remove('hidden');
@@ -473,7 +481,7 @@ function updateExplore(dt) {
   for (const S of EX.squads) {
     if (S.cleared) continue;
     const d = Math.hypot(S.x - player.x, S.z - player.z);
-    if (d < FOUND_R) S.found = true;
+    if (S.members.some(e => e.alive && e.fogVis)) S.found = true;   // 親眼看到才算發現
     if (!S.members.length) { if (d < SPAWN_R) spawnSquad(S); continue; }
     if (!S.awake && d > DESPAWN_R) { despawnSquad(S); continue; }
     const live = S.members.filter(e => e.alive);
@@ -516,7 +524,7 @@ function updateExplore(dt) {
   }
   // 傳送門
   const P = EX.portal;
-  if (Math.hypot(P.x - player.x, P.z - player.z) < PORTAL_SEE) EX.portalKnown = true;
+  if (visibleAt(P.x, P.z)) EX.portalKnown = true;
   if (P.state === 'idle' && EX.cleared >= EX.need) { setPortal(P, 'ready'); EX.portalKnown = true; toast('傳送門可以啟動了（已標在小地圖上）'); sfx.lock(); }
   if (EX.boss?.alive && (EX.waveT -= dt) <= 0) {
     EX.waveT = Math.max(12, 22 - EN.stage * 2);
@@ -530,6 +538,7 @@ function updateExplore(dt) {
   EX.near = near;
   if (near && input.interactPressed) interact(near);
   updateProps(dt);
+  for (const q of props) q.g.visible = exploredAt(q.x, q.z);   // 箱子、傳送門：看過的地方才畫
   updatePickups(dt, player, takePickup, canTake);
 }
 // ---------- 互動：箱子、武器、傳送門 ----------
@@ -632,6 +641,31 @@ function exploreKill(e) {
   spawnPickup('repair', e.x, e.z); spawnPickup('ammo', e.x, e.z);
   spawnPickup('scrap', e.x, e.z, 8 + S.depth * 2);
   if (EX.cleared <= EX.need) toast(`小隊清除 ${EX.cleared} / ${EX.need}`);   // 只報傳送門進度，不報是哪一隊
+}
+// ---------- 迷霧裡的東西 ----------
+// 敵機：看得到的格子上才畫；開火會暴露位置 1 秒（看不見的狙擊手打你時至少知道在哪）
+// 長距鎖定頭：鎖定距離內看不到的敵機顯示成紅色訊號點；其他頭：正在鎖 / 已鎖上的也顯示
+// 掉落物：看得到才畫
+const BLIP_GEO = new THREE.RingGeometry(0.45, 0.7, 4), blips = [];
+function fogVisibility(dt) {
+  const on = fogActive(), Hd = sensors.head;
+  let n = 0;
+  for (const e of enemies) {
+    if (!e.alive) continue;
+    for (const s in e.guns) { const g = e.guns[s]; if (g.cd > (g.pcd ?? 0) + 0.01) e.revealT = 1; g.pcd = g.cd; }
+    e.revealT = Math.max(0, (e.revealT ?? 0) - dt);
+    const vis = !on || visibleAt(e.x, e.z) || e.revealT > 0;
+    e.fogVis = vis;
+    e.model.root.visible = vis;
+    if (on && !vis && player.alive && ((Hd?.radarLock && Math.hypot(e.x - player.x, e.z - player.z) < Hd.lockRange) || sensors.progress.has(e))) {
+      let b = blips[n];
+      if (!b) { b = blips[n] = new THREE.Mesh(BLIP_GEO, addMat(0xff5040, 0.85)); b.rotation.x = -Math.PI / 2; scene.add(b); }
+      b.visible = true; b.position.set(e.x, 0.1, e.z); b.rotation.z = G.now * 2;
+      n++;
+    }
+  }
+  for (let i = n; i < blips.length; i++) blips[i].visible = false;
+  for (const p of pickups) if (on && !visibleAt(p.x, p.z)) p.g.visible = false;
 }
 const runSummary = () => {
   const mods = Object.entries(EN.mods).map(([k, n]) => `${MODS[k].name}${n > 1 ? ' ×' + n : ''}`).join('、') || '無';
@@ -862,7 +896,7 @@ function updateHud() {
   // 準星附近、看得到的敵機；對戰中一直顯示對手
   let best = null, bd = MODE.name === 'duel' ? Infinity : 6;
   for (const e of enemies) {
-    if (!e.alive || e.drop) continue;
+    if (!e.alive || e.drop || e.fogVis === false) continue;
     const d = Math.hypot(e.x - aimPoint.x, e.z - aimPoint.z);
     if (d < bd) { bd = d; best = e; }
   }
@@ -1039,7 +1073,7 @@ function frame(t) {
 
   if (playing && !watching) updateHud();
   if (MODE.name === 'endless') updateEndlessHud();
-  if (MODE.name === 'explore' && EX) { updateExploreHud(); updateMinimap(raw, player, enemies, EX.squads, EX); }
+  if (MODE.name === 'explore' && EX) { updateFog(raw, player.x, player.z); fogVisibility(dt); updateExploreHud(); updateMinimap(raw, player, enemies, EX.squads, EX); }
   if (watching) {
     const one = MODE.kind === 'duel', blue = MODE.kind !== 'skirmish' ? enemies.find(e => e.team === 'blue') : null, red = one ? enemies.find(e => e.team === 'red') : null;
     paintDoll($('dollB'), blue?.alive ? blue : null); paintDoll($('dollR'), red?.alive ? red : null);

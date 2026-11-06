@@ -18,6 +18,12 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 256, H = 
   const rand = rng(seed), ri = (a, b) => a + Math.floor(rand() * (b - a + 1)), pick = a => a[Math.floor(rand() * a.length)];
   const grid = Array.from({ length: H }, (_, r) => Array.from({ length: W }, (_, c) => (r === 0 || c === 0 || r === H - 1 || c === W - 1) ? '#' : '.'));
   const inside = (c, r) => c > 0 && r > 0 && c < W - 1 && r < H - 1;
+  // 地圖邊緣：一圈厚薄不一的岩壁往內長（3～10 格，沿著邊緣起伏），看起來是山壁而不是圍牆
+  const ep = Array.from({ length: 4 }, () => rand() * 6.28);
+  for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
+    const t = c + r, th = 6 + 2.2 * Math.sin(t / 9 + ep[0]) + 1.5 * Math.sin(t / 4.3 + ep[1]) + 1.2 * Math.sin((c - r) / 6 + ep[2]);
+    if (Math.min(c, r, W - 1 - c, H - 1 - r) < th) grid[r][c] = '#';
+  }
 
   // 種子：5 × 3 格各一個、大幅抖動；隨機拿掉 0～2 個 → 有的區域特別大
   const seeds = [];

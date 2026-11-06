@@ -7,13 +7,14 @@
 import * as THREE from 'three';
 import { addMat, scene } from './core.js';
 import { DMG_TYPES, WEAPONS } from './parts.js';
+import { fogMaterial } from './fog.js';
 
 export const props = [];
 export const RANGE = 2.6;
 const CRATE = new THREE.BoxGeometry(1.1, 0.8, 0.8), LONG = new THREE.BoxGeometry(1.6, 0.6, 0.7), STRIP = new THREE.BoxGeometry(1.14, 0.12, 0.84);
 const LONG_STRIP = new THREE.BoxGeometry(1.64, 0.1, 0.74), BAR = new THREE.BoxGeometry(1.1, 0.22, 0.26), RING = new THREE.RingGeometry(2.0, 2.5, 40), RING_S = new THREE.RingGeometry(0.7, 0.82, 24);
 const PILLAR = new THREE.BoxGeometry(0.5, 2.6, 0.5), BEAM = new THREE.CylinderGeometry(1.6, 1.6, 14, 24, 1, true);
-const DARK = new THREE.MeshLambertMaterial({ color: 0x3a3f4a }), DARK2 = new THREE.MeshLambertMaterial({ color: 0x2a2d34 });
+const DARK = fogMaterial(new THREE.MeshLambertMaterial({ color: 0x3a3f4a })), DARK2 = fogMaterial(new THREE.MeshLambertMaterial({ color: 0x2a2d34 }));
 const PORTAL_C = { idle: 0x803028, ready: 0xff9030, boss: 0xff3020, open: 0x60f0ff };
 
 export function addProp(kind, x, z, data = {}) {
