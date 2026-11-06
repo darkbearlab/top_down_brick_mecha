@@ -120,10 +120,12 @@ export const GRUNTS_LOW = {
   marksman: { name: '射手', head: 'hunter', core: 'light', legs: 'reverse', armL: null, armR: 'sniper_l', backL: null, backR: null, hp: 60 },
   mortar: { name: '迫擊砲車', head: 'dome', core: 'std', legs: 'tread', armL: null, armR: null, backL: null, backR: 'cannon_l', hp: 110 },
   bazooka: { name: '火箭兵', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'mg_l', backL: null, backR: 'rocket_l', hp: 85 },
+  // 砲塔：固定不動（只轉上半身），耐久高；只出現在陣地型小隊
+  turret: { name: '砲塔', head: 'dome', core: 'std', legs: 'tread', armL: null, armR: 'autocannon_l', backL: null, backR: null, hp: 150, fixed: true },
 };
 // 出場比例：步兵最多，砲車 / 狙擊兵少
 const GRUNT_WEIGHT = { rifle: 5, rocket: 3, heavy: 2, gun: 1.2, sniper: 1.2, blade: 2,
-  scout: 5, trooper: 3, launcher: 2.5, brawler: 2, stick: 1.8, marksman: 1.2, mortar: 1, bazooka: 1.5 };
+  turret: 0, scout: 5, trooper: 3, launcher: 2.5, brawler: 2, stick: 1.8, marksman: 1.2, mortar: 1, bazooka: 1.5 };
 export function randomGrunt(pool = GRUNTS) {
   const keys = Object.keys(pool);
   let r = Math.random() * keys.reduce((a, k) => a + GRUNT_WEIGHT[k], 0);
@@ -142,9 +144,15 @@ export function gruntOf(key) {
 //   巡邏隊：基本款；突擊隊 / 火箭伏擊：貼臉衝過來（考驗後退射擊、失衡、霰彈）；
 //   砲擊陣地 / 狙擊組：遠距離壓制（考驗掩體和機動、長射程武器）；飛彈小隊：鎖定（考驗打頭、繞掩體）；
 //   重裝隊 / 砲車隊：帶一台精英（考驗高單發傷害、屬性剋制）
+// 行動方式（不寫 = 一般：待命不動，醒來後追著打）：
+//   hold：守備型，醒來也不追，只在據點 hold 格內移動；據點周圍有一圈矮掩體（打得壞），配砲塔 → 要攻堅（繞側、爆破掩體、迫擊砲 / 垂直飛彈）
+//   patrol：巡邏型，待命時沿著一條路線走來走去 → 會自己撞上來，或要等它走開再過
 // themes：在哪種地形比較常出現（街區轉角多 → 近戰；荒野視線長 → 遠程）；minDepth：離出發區至少幾個隘口才會出現
 export const SQUADS = {
-  patrol: { name: '巡邏隊', units: ['scout', 'scout', 'trooper'], themes: { city: 2, open: 2, ruins: 2, plaza: 2 } },
+  patrol: { name: '巡邏隊', units: ['scout', 'scout', 'trooper'], themes: { city: 2, open: 2, ruins: 2, plaza: 2 }, patrol: true },
+  hunters: { name: '遊獵隊', units: ['brawler', 'stick', 'scout'], themes: { ruins: 2, open: 1, city: 1 }, patrol: true },
+  outpost: { name: '前哨陣地', units: ['turret', 'turret', 'trooper', 'marksman'], themes: { open: 2, plaza: 2, ruins: 1 }, hold: 5, minDepth: 1 },
+  bunker: { name: '守備據點', units: ['turret', 'mortar', 'trooper', 'trooper'], themes: { city: 2, plaza: 2 }, hold: 6, minDepth: 2 },
   rush: { name: '突擊隊', units: ['brawler', 'brawler', 'stick', 'stick'], themes: { city: 3, ruins: 2, plaza: 1 } },
   ambush: { name: '火箭伏擊', units: ['bazooka', 'bazooka', 'brawler'], themes: { city: 2, ruins: 2 } },
   mortar: { name: '砲擊陣地', units: ['mortar', 'mortar', 'scout'], themes: { open: 3, plaza: 2, ruins: 1 } },

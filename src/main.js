@@ -269,7 +269,7 @@ function updateEndless(dt) {
     enDrop(); if (cap - onField > 6) enDrop();   // 少很多的時候一次補兩台
   }
   if ((EN.aceT -= dt) <= 0) { EN.aceT = EN_ACE; enDrop(true); }
-  updatePickups(dt, player, takePickup);
+  updatePickups(dt, player, takePickup, canTake);
 }
 function enLoot(e) {
   const x = e.x, z = e.z;
@@ -280,6 +280,13 @@ function enLoot(e) {
   if (Math.random() < m) spawnPickup('mod', x, z);
 }
 // 撿到：彈藥每把補 30%（全滿就不撿）、修理沒壞的部位各 +25%（全滿就不撿）、模組隨機一種
+// 撿得起來嗎（彈藥 / 修理全滿就不撿，也不會被吸過來）
+function canTake(kind) {
+  const p = player;
+  if (kind === 'ammo') return Object.values(p.guns).some(g => g.max !== Infinity && g.ammo < g.max);
+  if (kind === 'repair') return Object.values(p.parts).some(q => !q.broken && q.hp < q.max);
+  return true;
+}
 function takePickup(kind, val) {
   const p = player;
   if (kind === 'scrap') { EN.scrap += val; return; }
@@ -361,18 +368,20 @@ function spawnRunPlayer(x, z, yaw) {
 }
 function startStage(seed) {
   const map = genWorld(seed);
-  resetWorld(map);
-  MODE.name = 'explore';
-  AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.easy;
-  spawnRunPlayer(map.spawn.x, map.spawn.z, Math.PI / 2);
   // 每個區域：兩種駐軍輪流排、三成五是增援據點（出發區、第一圈除外）；用地圖的種子決定 → 同一張圖一樣
   const R = rng(map.seed * 7 + 13);
   const zones = map.zones.map((Z, k) => ({ ...Z, squads: [pickSquad(Z.theme, Z.depth, R), pickSquad(Z.theme, Z.depth, R)], reinforce: k !== map.startZ && Z.depth >= 2 && R() < 0.35, n: 0 }));
   const squads = map.sites.map(S => {
     const Z = zones[S.zone], key = Z.squads[Z.n++ % 2], D = SQUADS[key];
     const units = [...D.units, ...(S.depth >= 2 ? [D.units[D.units.length - 1]] : [])];
-    return { ...S, key, name: D.name, units: units.map(k => ({ key: k, hp: null, dead: false })), members: [], awake: false, found: false, cleared: false };
+    return { ...S, key, name: D.name, units: units.map(k => ({ key: k, hp: null, dead: false })), members: [], awake: false, found: false, cleared: false, hold: D.hold ?? 0, patrol: !!D.patrol, wp: 0, legT: 0 };
   });
+  for (const S of squads) if (S.hold) fortify(map, S, R);
+  resetWorld(map);
+  MODE.name = 'explore';
+  AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.easy;
+  spawnRunPlayer(map.spawn.x, map.spawn.z, Math.PI / 2);
+  for (const S of squads) if (S.patrol) S.route = patrolRoute(S);
   EX = { map, zones, squads, waves: [], pending: [], cleared: 0, need: Math.min(squads.length, 5 + EN.stage), boss: null, waveT: 0, portalKnown: false, prompt: '' };
   EX.portal = addProp('portal', map.portal.x, map.portal.z);
   for (const c of map.caches) {
@@ -384,13 +393,40 @@ function startStage(seed) {
   $('endless').classList.remove('hidden');
   toast(`第 ${EN.stage} 關・清除 ${EX.need} 支小隊後就能啟動傳送門`);
 }
+// 守備據點的工事：據點周圍半徑 5 格一圈 6 段矮掩體（1 層樓的建築，打得壞），中間留缺口
+function fortify(map, S, R) {
+  const used = new Set();
+  for (const [c, r, w, h] of map.buildings) for (let y = r - 1; y <= r + h; y++) for (let x = c - 1; x <= c + w; x++) used.add(y * map.W + x);
+  const free = (c, r) => c > 1 && r > 1 && c < map.W - 2 && r < map.H - 2 && map.grid[r][c] !== '#' && !used.has(r * map.W + c);
+  const a0 = R() * Math.PI * 2;
+  for (let i = 0; i < 6; i++) {
+    const a = a0 + i * Math.PI / 3 + (R() - 0.5) * 0.3, ns = Math.abs(Math.sin(a)) > 0.7, w = ns ? 2 : 1, h = ns ? 1 : 2;
+    const c0 = Math.round(S.c + Math.cos(a) * 5 - w / 2), r0 = Math.round(S.r + Math.sin(a) * 5 - h / 2);
+    let ok = true;
+    for (let y = r0; y < r0 + h; y++) for (let x = c0; x < c0 + w; x++) if (!free(x, y)) ok = false;
+    if (!ok) continue;
+    map.buildings.push([c0, r0, w, h, 1, Math.floor(R() * 3)]);
+    for (let y = r0; y < r0 + h; y++) for (let x = c0; x < c0 + w; x++) used.add(y * map.W + x);
+  }
+}
+// 巡邏路線：據點 → 兩個 10～18 格外、從據點看得到的空地，來回走
+function patrolRoute(S) {
+  const pts = [{ x: S.x, z: S.z }];
+  for (let t = 0; t < 60 && pts.length < 3; t++) {
+    const a = Math.random() * Math.PI * 2, d = 10 + Math.random() * 8, x = S.x + Math.cos(a) * d, z = S.z + Math.sin(a) * d;
+    if (openAround(x, z) && rayBlock(S.x, S.z, Math.cos(a), Math.sin(a), d) >= d) pts.push({ x, z });
+  }
+  return pts;
+}
 function spawnSquad(S) {
   S.members = [];
   S.units.forEach((u, i) => {
     if (u.dead) return;
     const a = i / S.units.length * Math.PI * 2, at = { x: S.x + Math.sin(a) * 1.8, z: S.z + Math.cos(a) * 1.8 };
-    const e = spawnEnemy({ x: at.x + Math.sin(a), z: at.z + Math.cos(a) }, gruntOf(u.key), at, { colors: GRUNT_COLORS, diff: exDiff(S.depth), grunt: true, noDrop: true });
-    e.dormant = !S.awake; e.squad = S; e.unit = u; e.enElite = u.key.endsWith('*'); e.lvl = S.depth;
+    const P = gruntOf(u.key), e = spawnEnemy({ x: at.x + Math.sin(a), z: at.z + Math.cos(a) }, P, at, { colors: GRUNT_COLORS, diff: exDiff(S.depth), grunt: true, noDrop: true });
+    e.dormant = !S.awake; e.squad = S; e.unit = u; e.enElite = u.key.endsWith('*'); e.lvl = S.depth; e.fixed = !!P.fixed;
+    if (S.hold) e.hold = { x: S.x, z: S.z, r: S.hold };
+    e.slot = i;
     if (u.hp != null) e.parts.torso.hp = Math.min(u.hp, e.parts.torso.max);
     e.seenHp = e.parts.torso.hp;
     S.members.push(e);
@@ -429,7 +465,6 @@ function callReinforcements(groups, n, depth, pool) {
     EX.waves.push(W);
     names.push(dirName(ang));
   }
-  if (names.length) { toast(`敵方增援：從${[...new Set(names)].join('、')}方接近`); sfx.lock(); }
 }
 const zoneAt = (x, z) => EX.zones[EX.map.zoneOf[tileR(z) * EX.map.W + tileC(x)]];
 function updateExplore(dt) {
@@ -441,8 +476,19 @@ function updateExplore(dt) {
     if (d < FOUND_R) S.found = true;
     if (!S.members.length) { if (d < SPAWN_R) spawnSquad(S); continue; }
     if (!S.awake && d > DESPAWN_R) { despawnSquad(S); continue; }
-    if (!player.alive) continue;
     const live = S.members.filter(e => e.alive);
+    // 巡邏：待命中沿著路線走；大家都到了（或走了 25 秒還沒到）就換下一個點
+    if (S.route && !S.awake && live.length) {
+      const T = S.route[S.wp % S.route.length];
+      let all = true;
+      for (const e of live) {
+        const a = e.slot / S.units.length * Math.PI * 2, tx = T.x + Math.sin(a) * 1.6, tz = T.z + Math.cos(a) * 1.6;
+        e.patrol = { x: tx, z: tz };
+        if (Math.hypot(tx - e.x, tz - e.z) > 2.2) all = false;
+      }
+      if (all || (S.legT += dt) > 25) { S.wp++; S.legT = 0; }
+    }
+    if (!player.alive) continue;
     if (!S.awake) {
       // 醒來：剛被打（跟上次看的時候比少了血；不然被打過又跟丟的小隊會一直醒來又跟丟）、或玩家在 WAKE_R 格內而且看得到
       let hit = false;
@@ -454,7 +500,6 @@ function updateExplore(dt) {
       if (trig) {
         S.awake = S.found = true; for (const e of live) e.dormant = false;
         const Z = EX.zones[S.zone], call = Z.reinforce && !S.called && EN.t - (Z.lastCall ?? -99) > 45;
-        toast(`遭遇：${S.name}${call ? '・對方呼叫了增援！' : ''}`); sfx.lock();
         // 增援據點：小隊第一次被驚動，5 秒後從兩三個方向來增援（用這個區域的駐軍兵種）；同一個區域 45 秒內只叫一次
         if (call) { S.called = true; Z.lastCall = EN.t; EX.pending.push({ t: 5, groups: 2 + (S.depth >= 4 ? 1 : 0), n: 2, depth: S.depth, pool: Z.squads.flatMap(k => SQUADS[k].units) }); }
       }
@@ -485,7 +530,7 @@ function updateExplore(dt) {
   EX.near = near;
   if (near && input.interactPressed) interact(near);
   updateProps(dt);
-  updatePickups(dt, player, takePickup);
+  updatePickups(dt, player, takePickup, canTake);
 }
 // ---------- 互動：箱子、武器、傳送門 ----------
 const weaponLine = id => { const W = WEAPONS[id]; return `<span class="wt" style="--c:${DMG_TYPES[W.type].css}">${DMG_TYPES[W.type].name}</span> ${W.mount === 'arm' ? '手臂' : '背部'}・傷害 ${W.dmg}${W.pellets ? ' ×' + W.pellets : ''}${W.salvo > 1 ? ' ×' + W.salvo : ''}${W.splash ? '・爆風' : ''}・${W.ammo ? '彈藥 ' + W.ammo : '吃能量'}・重量 ${W.weight}`; };
@@ -586,7 +631,7 @@ function exploreKill(e) {
   S.cleared = true; S.awake = false; EX.cleared++;
   spawnPickup('repair', e.x, e.z); spawnPickup('ammo', e.x, e.z);
   spawnPickup('scrap', e.x, e.z, 8 + S.depth * 2);
-  toast(`${S.name} 已清除${EX.cleared <= EX.need ? `（${EX.cleared} / ${EX.need}）` : ''}`);
+  if (EX.cleared <= EX.need) toast(`小隊清除 ${EX.cleared} / ${EX.need}`);   // 只報傳送門進度，不報是哪一隊
 }
 const runSummary = () => {
   const mods = Object.entries(EN.mods).map(([k, n]) => `${MODS[k].name}${n > 1 ? ' ×' + n : ''}`).join('、') || '無';

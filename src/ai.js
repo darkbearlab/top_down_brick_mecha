@@ -109,7 +109,10 @@ export function updateEnemy(e, dt, player) {
   // 待命（遠征模式還沒發現玩家的小隊）：站著不動、偶爾轉頭看看
   if (e.dormant) {
     e.drive = { mx: 0, mz: 0 };
-    if (Math.random() < dt * 0.25) e.aimYaw = e.torsoYaw + (Math.random() - 0.5) * 2;
+    // 巡邏：慢慢走向 e.patrol（遠征模式每幀更新路線點），看著前進方向
+    const P = e.patrol, pd = P ? Math.hypot(P.x - e.x, P.z - e.z) : 0;
+    if (P && pd > 1 && !e.fixed) { e.drive = steer(e, (P.x - e.x) / pd * 0.4, (P.z - e.z) / pd * 0.4); e.aimYaw = Math.atan2(P.x - e.x, P.z - e.z); }
+    else if (Math.random() < dt * 0.25) e.aimYaw = e.torsoYaw + (Math.random() - 0.5) * 2;
     e.laser.g.visible = false;
     updateGuns(e, { L: false, R: false }, dt, [], null);
     return;
@@ -138,7 +141,15 @@ export function updateEnemy(e, dt, player) {
   }
   else if (dist < A.want - 2) { mx = -nx; mz = -nz; }
   else { mx = -nz * A.strafe + nx * 0.15; mz = nx * A.strafe + nz * 0.15; }
+  // 守備：離據點 hold.r 格以上就回去；靠近邊緣時不再往外走（只保留沿著邊緣的分量）
+  const Hd = e.hold;
+  if (Hd) {
+    const ax = Hd.x - e.x, az = Hd.z - e.z, ad = Math.hypot(ax, az) || 1;
+    if (ad > Hd.r) { mx = ax / ad; mz = az / ad; }
+    else if (ad > Hd.r * 0.6) { const out = -(mx * ax + mz * az) / ad; if (out > 0) { mx += ax / ad * out; mz += az / ad * out; } }
+  }
   ({ mx, mz } = steer(e, mx, mz));
+  if (e.fixed) mx = mz = 0;   // 砲塔
 
   // 推進：重的子彈 / 飛彈飛過來往旁邊噴；偶爾推進換位置；近戰型推進衝過去
   A.reposition -= dt;
@@ -156,6 +167,7 @@ export function updateEnemy(e, dt, player) {
   }
   if (A.reposition <= 0 && player.alive) { A.reposition = 4 + Math.random() * 4; boost = true; if (A.want <= 3 && dist > 4) { bx = nx; bz = nz; } }
   if (boost && !DF.dodge && !(A.reposition > 3.9)) boost = false;
+  if (e.fixed || Hd) boost = false;
   if (boost && e.energy > 55) {
     // 噴出去的方向要夠空，不然換反方向 / 斜的，都不行就不噴（推進撞牆是以前的頭號死因）
     const d = Math.hypot(bx, bz) || 1, ux = bx / d, uz = bz / d;

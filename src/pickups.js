@@ -39,14 +39,14 @@ function removeAt(i) {
 }
 export function clearPickups() { while (pickups.length) removeAt(pickups.length - 1); }
 
-// onTake(kind, val) 回傳 false = 這次不撿（例如滿血時的修理）
-export function updatePickups(dt, player, onTake) {
+// onTake(kind, val) 回傳 false = 這次不撿（例如滿血時的修理）；canTake(kind) 回傳 false = 現在用不到，不吸過來、也不撿
+export function updatePickups(dt, player, onTake, canTake = () => true) {
   for (let i = pickups.length - 1; i >= 0; i--) {
     const p = pickups[i];
     p.life -= dt; p.t += dt;
     if (p.life <= 0) { removeAt(i); continue; }
     p.vx *= Math.exp(-4 * dt); p.vz *= Math.exp(-4 * dt);
-    if (player?.alive) {
+    if (player?.alive && canTake(p.kind)) {
       const dx = player.x - p.x, dz = player.z - p.z, d = Math.hypot(dx, dz);
       if (d < TAKE + player.r * 0.5 && onTake(p.kind, p.val) !== false) { removeAt(i); continue; }
       if (d < p.magnet) { const k = 9 * (1 - d / p.magnet) + 2; p.vx += dx / d * k * dt * 4; p.vz += dz / d * k * dt * 4; }
