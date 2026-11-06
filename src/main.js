@@ -394,7 +394,7 @@ function startStage(seed) {
   // 迷霧：1 層樓的建築不擋視線
   const low = new Set();
   for (const [c, r, w, h, f] of map.buildings) if (f === 1) for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) low.add(y * map.W + x);
-  initFog(low);
+  initFog(low, map.edgeBand);
   updateFog(1, player.x, player.z);
   initMinimap(map.buildings);
   showHud();
