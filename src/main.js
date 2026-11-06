@@ -2,8 +2,10 @@ import * as THREE from 'three';
 import { sfx, unlockAudio } from './audio.js';
 import { CAM_PITCH, G, camDist, camTarget, camera, renderer, scene, sun } from './core.js';
 import { clearPressed, input, updateInput } from './input.js';
-import { arenaMap, loadMap, mapId, randomOpenSpot, rayBlock, tileC, tileR } from './arena.js';
-import { THEMES, genWorld } from './mapgen.js';
+import { arenaMap, isBlock, loadMap, mapId, randomOpenSpot, rayBlock, tileC, tileR } from './arena.js';
+import { THEMES, genWorld, rng } from './mapgen.js';
+import { flowDist, updateFlow } from './pathing.js';
+import { addProp, clearProps, nearProp, removeProp, setPortal, spendProp, updateProps } from './props.js';
 import { hideMinimap, initMinimap, updateMinimap } from './minimap.js';
 import { ENEMY_COLORS, PLAYER_COLORS, activeSlot, collideMechs, driveMech, facing, makeMech, mechs, poseMech, removeMech, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { ARENA_LAYOUT, resetBuildings, setLayout, updateBuildings } from './buildings.js';
@@ -11,7 +13,7 @@ import { SLOW_K, clearWrecks, killCam, updateWrecks } from './wreck.js';
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
 import { AI, DIFFS, clearEnemies, enemies, keepEnemies, removeEnemy, spawnEnemy, updateEnemy } from './ai.js';
 import { makeLaser, setLaser, updateParticles } from './fx.js';
-import { ARMORS, DMG_TYPES, ENEMY_PRESETS, GRUNTS, GRUNTS_LOW, LEGS, SLOTS, SLOT_KEYS, SQUADS, WEAPONS, gruntOf, loadLoadout, pickSquad, randomGrunt, randomLoadout } from './parts.js';
+import { ARMORS, DMG_TYPES, ENEMY_PRESETS, GRUNTS, GRUNTS_LOW, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, SQUADS, WEAPONS, gruntOf, loadLoadout, pickSquad, randomGrunt, randomLoadout } from './parts.js';
 import { clearPickups, spawnPickup, updatePickups } from './pickups.js';
 import { sensors, setSensorsVisible, updateSensors } from './sensors.js';
 import { closeGarage, garage, openGarage } from './garage.js';
@@ -23,7 +25,7 @@ const $ = id => document.getElementById(id);
 // duel：一對一，打倒對手或被打倒就結束
 // sandbox：試玩場，敵機一開始停火（T 切換），被打爆會自動重生
 // endless：無盡模式，雜魚越來越多越來越強，打爆會掉彈藥 / 修理 / 強化模組，撐越久越好（被打爆就結束）
-// explore：探索，大地圖（mapgen.js）上清掉散在各區域的遭遇小隊
+// explore：遠征，一關一張大地圖：撿武器、開補給箱、清小隊、啟動傳送門打頭目、進下一關（見下面「遠征模式」）
 // watch：觀戰，兩台電腦機體互打（現成配裝或隨機組裝），打完自動換一組重開
 // watch 有三種（MODE.kind）：'duel' 一對一、'horde' 王牌 vs 雜魚、'skirmish' 雜魚 vs 雜魚
 const MODE = { name: 'menu', kind: 'duel', duel: null, endT: 0, round: 0, score: { blue: 0, red: 0 }, horde: null, sk: null };
@@ -34,10 +36,10 @@ const PLAYER_START = { x: 0, z: 6 }, SIDE_A = { x: -26, z: 0 }, SIDE_B = { x: 26
 // ---------- 玩家 ----------
 let loadout = loadLoadout();
 let player = null, respawnT = 0;
-function spawnPlayer(x = PLAYER_START.x, z = PLAYER_START.z, yaw = Math.PI) {
+function spawnPlayer(x = PLAYER_START.x, z = PLAYER_START.z, yaw = Math.PI, lo = loadout) {
   if (player) removeMech(player);
-  player = makeMech({ team: 'player', colors: PLAYER_COLORS, loadout, x, z, yaw });
-  player.guns = makeGuns(loadout);
+  player = makeMech({ team: 'player', colors: PLAYER_COLORS, loadout: lo, x, z, yaw });
+  player.guns = makeGuns(lo);
   player.dmgMul = 1; player.rateMul = 1; player.lockMul = 1;
   player.onDeath = () => {
     if (MODE.name === 'duel' || MODE.name === 'endless' || MODE.name === 'explore') { MODE.endT = 3.4; MODE.result = 'lose'; }
@@ -58,7 +60,9 @@ function resetWorld(map = null) {
   G.paused = false; G.slowMo = 0; G.hitStop = 0;
   clearWrecks();
   clearPickups();
+  clearProps();
   resetBuildings();
+  $('boss').classList.add('hidden'); $('prompt').classList.add('hidden');
   $('endless').classList.add('hidden');
   sensors.progress.clear(); sensors.locks = [];
   MODE.endT = 0; MODE.result = null; MODE.clock = 0;
@@ -276,8 +280,9 @@ function enLoot(e) {
   if (Math.random() < m) spawnPickup('mod', x, z);
 }
 // 撿到：彈藥每把補 30%（全滿就不撿）、修理沒壞的部位各 +25%（全滿就不撿）、模組隨機一種
-function takePickup(kind) {
+function takePickup(kind, val) {
   const p = player;
+  if (kind === 'scrap') { EN.scrap += val; return; }
   if (kind === 'ammo') {
     let any = false;
     for (const s in p.guns) { const g = p.guns[s]; if (g.max === Infinity || g.ammo >= g.max) continue; g.ammo = Math.min(g.max, g.ammo + Math.ceil(g.max * 0.3)); any = true; }
@@ -296,11 +301,15 @@ function takePickup(kind) {
   }
 }
 function updateExploreHud() {
-  const zc = Math.floor(tileC(player.x) / 64), zr = Math.floor(tileR(player.z) / 64), Z = EX.map.zones[zr * 4 + zc];
+  const Z = zoneAt(player.x, player.z);
   $('enTime').textContent = mmss(EN.t);
-  $('enInfo').textContent = `清除 ${EX.cleared} / ${EX.squads.length} 隊・擊破 ${EN.kills}・${Z ? THEMES[Z.theme] + (Z.depth > 0 ? `（深度 ${Z.depth}）` : '（出發區）') : ''}`;
+  $('enInfo').textContent = `第 ${EN.stage} 關・零件 ${EN.scrap}・小隊 ${Math.min(EX.cleared, EX.need)} / ${EX.need}・擊破 ${EN.kills}` +
+    (Z ? `・${THEMES[Z.theme]}${Z.depth > 0 ? `（深度 ${Z.depth}）` : '（出發區）'}${Z.reinforce ? '・增援據點' : ''}` : '');
   const mods = Object.entries(EN.mods).map(([k, n]) => `<span class="wt" style="--c:#c080ff">${MODS[k].name}${n > 1 ? ' ×' + n : ''}</span>`).join('');
   if (EN.modsHtml !== mods) { EN.modsHtml = mods; $('enMods').innerHTML = mods; }
+  const pt = promptText(EX.near);
+  if (pt !== EX.prompt) { EX.prompt = pt; $('prompt').textContent = pt; $('prompt').classList.toggle('hidden', !pt); }
+  if (EX.boss) $('bossHp').style.width = (100 * Math.max(0, EX.boss.parts.torso.hp) / EX.boss.parts.torso.max) + '%';
 }
 const mmss = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
 function updateEndlessHud() {
@@ -323,36 +332,57 @@ function showEndlessResult() {
     { label: '回主選單', run: showMenu },
   ]);
 }
-// ---------- 探索模式 ----------
-// 大地圖（mapgen.js）：岩壁把地圖切成 12 個區域、靠隘口相連；每個區域 2～3 個遭遇點，各駐守一支小隊（parts.js SQUADS）
-// 小隊平常待命不動；玩家進到 WAKE_R 格內而且看得到、或有人被打 → 整隊醒來；全部離玩家超過 LOSE_R 格 → 跟丟、回到待命
+// ---------- 遠征模式 ----------
+// 一關一張大地圖（mapgen.js）：大小不一的區域、岩壁隔開、靠隘口相連；每個區域有自己的主題和駐軍（兩種小隊輪流），有的是「增援據點」
+// 機體：骨架（頭、軀幹、腳、裝甲）用整備裡的；武器從一把機槍開始，其他的要撿
+// 小隊平常待命不動；玩家進到 WAKE_R 格內而且看得到、或有人被打 → 整隊醒來（增援據點：幾秒後從兩三個方向空降增援）
+//   全部離玩家的路程超過 LOSE_R 格 → 跟丟、回到待命；看不到玩家時照流場繞路追（pathing.js）
 // 效能：離玩家 SPAWN_R 格內才生出來，待命中離開 DESPAWN_R 格就先收起來（記住剩多少血、死了哪幾台）
-// 越深的區域（穿過越多隘口）：多一台、傷害和耐久越高；清掉一隊掉一個模組和一個修理；全部清掉就過關
-const SPAWN_R = 58, DESPAWN_R = 72, WAKE_R = 24, LOSE_R = 50, FOUND_R = 34;
+// 零件：打爆敵機一定掉（精英多、越深越多），拿來開補給箱（強化模組）和武器箱；每張圖的箱子有限 → 強化的數量也有限
+// 清掉 need 隊 → 傳送門可以啟動（標在小地圖上）→ 啟動後頭目從天而降、每隔一陣子來一波增援 → 打倒頭目 → 傳送到下一關（整台修好、彈藥補滿）
+// 越後面的關卡 / 越深的區域：敵人傷害和耐久越高；箱子也越貴
+const SPAWN_R = 58, DESPAWN_R = 72, WAKE_R = 24, LOSE_R = 85, FOUND_R = 34, PORTAL_SEE = 40;
+const START_WEAPONS = { armL: null, armR: 'mg', backL: null, backR: null };
+const COST = { cache: 25, weapon: 35 };
 let EX = null;
+const costOf = base => Math.round(base * (1 + 0.35 * (EN.stage - 1)));
 function exDiff(depth) {
-  const D = DIFFS.easy, L = depth * 0.6;
+  const D = DIFFS.easy, L = depth * 0.6 + (EN.stage - 1) * 1.2;
   return { ...D, dmg: D.dmg * (1 + 0.2 * L), hp: D.hp * (1 + 0.15 * L), rest: Math.max(1.2, D.rest - 0.12 * L), err: Math.max(0.05, D.err - 0.02 * L) };
 }
-function startExplore(seed) {
+const PLAYER_WEAPONS = Object.keys(WEAPONS).filter(k => !WEAPONS[k].low);
+function startRun(seed) {
+  EN = { t: 0, kills: 0, mods: {}, scrap: 0, stage: 1, explore: true, loadout: { ...structuredClone(loadout), ...START_WEAPONS } };
+  startStage(seed);
+}
+function spawnRunPlayer(x, z, yaw) {
+  spawnPlayer(x, z, yaw, EN.loadout);
+  for (const [k, n] of Object.entries(EN.mods)) for (let i = 0; i < n; i++) MODS[k].apply(player);
+}
+function startStage(seed) {
   const map = genWorld(seed);
   resetWorld(map);
   MODE.name = 'explore';
   AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.easy;
-  spawnPlayer(map.spawn.x, map.spawn.z, Math.PI / 2);
-  EN = { t: 0, kills: 0, mods: {}, best: 0, explore: true };
-  EX = {
-    map, cleared: 0,
-    squads: map.sites.map(S => {
-      const key = pickSquad(S.theme, S.depth), D = SQUADS[key];
-      const units = [...D.units, ...(S.depth >= 2 ? [D.units[D.units.length - 1]] : [])];
-      return { ...S, key, name: D.name, units: units.map(k => ({ key: k, hp: null, dead: false })), members: [], awake: false, found: false, cleared: false };
-    }),
-  };
+  spawnRunPlayer(map.spawn.x, map.spawn.z, Math.PI / 2);
+  // 每個區域：兩種駐軍輪流排、三成五是增援據點（出發區、第一圈除外）；用地圖的種子決定 → 同一張圖一樣
+  const R = rng(map.seed * 7 + 13);
+  const zones = map.zones.map((Z, k) => ({ ...Z, squads: [pickSquad(Z.theme, Z.depth, R), pickSquad(Z.theme, Z.depth, R)], reinforce: k !== map.startZ && Z.depth >= 2 && R() < 0.35, n: 0 }));
+  const squads = map.sites.map(S => {
+    const Z = zones[S.zone], key = Z.squads[Z.n++ % 2], D = SQUADS[key];
+    const units = [...D.units, ...(S.depth >= 2 ? [D.units[D.units.length - 1]] : [])];
+    return { ...S, key, name: D.name, units: units.map(k => ({ key: k, hp: null, dead: false })), members: [], awake: false, found: false, cleared: false };
+  });
+  EX = { map, zones, squads, waves: [], pending: [], cleared: 0, need: Math.min(squads.length, 5 + EN.stage), boss: null, waveT: 0, portalKnown: false, prompt: '' };
+  EX.portal = addProp('portal', map.portal.x, map.portal.z);
+  for (const c of map.caches) {
+    if (c.kind === 'mod') addProp('cache', c.x, c.z, { cost: costOf(COST.cache) });
+    else addProp('weapon', c.x, c.z, { cost: costOf(COST.weapon), weapon: PLAYER_WEAPONS[Math.floor(R() * PLAYER_WEAPONS.length)] });
+  }
   initMinimap(map.buildings);
   showHud();
   $('endless').classList.remove('hidden');
-  toast(`探索・${EX.squads.length} 支小隊散在各區域`);
+  toast(`第 ${EN.stage} 關・清除 ${EX.need} 支小隊後就能啟動傳送門`);
 }
 function spawnSquad(S) {
   S.members = [];
@@ -360,8 +390,9 @@ function spawnSquad(S) {
     if (u.dead) return;
     const a = i / S.units.length * Math.PI * 2, at = { x: S.x + Math.sin(a) * 1.8, z: S.z + Math.cos(a) * 1.8 };
     const e = spawnEnemy({ x: at.x + Math.sin(a), z: at.z + Math.cos(a) }, gruntOf(u.key), at, { colors: GRUNT_COLORS, diff: exDiff(S.depth), grunt: true, noDrop: true });
-    e.dormant = !S.awake; e.squad = S; e.unit = u; e.enElite = u.key.endsWith('*');
+    e.dormant = !S.awake; e.squad = S; e.unit = u; e.enElite = u.key.endsWith('*'); e.lvl = S.depth;
     if (u.hp != null) e.parts.torso.hp = Math.min(u.hp, e.parts.torso.max);
+    e.seenHp = e.parts.torso.hp;
     S.members.push(e);
   });
 }
@@ -369,6 +400,38 @@ function despawnSquad(S) {
   for (const e of S.members) if (e.alive) { e.unit.hp = e.parts.torso.hp; removeEnemy(e); }
   S.members = [];
 }
+// ---------- 增援 ----------
+// groups 批、每批 n 台，從玩家周圍平均分開的方向空降（離玩家 22～32 格、走得到的空地）；一落地就醒著、照流場包圍過來
+const DIR_NAMES = ['東', '東南', '南', '西南', '西', '西北', '北', '東北'];
+const dirName = a => DIR_NAMES[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8];
+function openAround(x, z) {
+  for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (isBlock(x + dx * 1.2, z + dz * 1.2)) return false;
+  return true;
+}
+function callReinforcements(groups, n, depth, pool) {
+  const base = Math.random() * Math.PI * 2, names = [];
+  for (let g = 0; g < groups; g++) {
+    let spot = null, ang = 0;
+    for (let t = 0; t < 60 && !spot; t++) {
+      // 先在這一批的方向附近找，找不到（那邊是岩壁 / 地圖邊緣）再隨便找個方向
+      ang = t < 30 ? base + g * Math.PI * 2 / groups + (Math.random() - 0.5) * 0.9 : Math.random() * Math.PI * 2;
+      const rad = 22 + Math.random() * 10, x = player.x + Math.cos(ang) * rad, z = player.z + Math.sin(ang) * rad;
+      if (openAround(x, z) && flowDist(x, z) < rad * 2) spot = { x, z };
+    }
+    if (!spot) continue;
+    const W = { wave: true, members: [], awake: true, x: spot.x, z: spot.z, depth };
+    for (let i = 0; i < n; i++) {
+      const key = pool[Math.floor(Math.random() * pool.length)], a = i / n * Math.PI * 2;
+      const e = spawnEnemy(player, gruntOf(key), { x: spot.x + Math.sin(a) * 1.6, z: spot.z + Math.cos(a) * 1.6 }, { colors: GRUNT_COLORS, diff: exDiff(depth), grunt: true });
+      e.squad = W; e.unit = { key, dead: false }; e.enElite = key.endsWith('*'); e.lvl = depth;
+      W.members.push(e);
+    }
+    EX.waves.push(W);
+    names.push(dirName(ang));
+  }
+  if (names.length) { toast(`敵方增援：從${[...new Set(names)].join('、')}方接近`); sfx.lock(); }
+}
+const zoneAt = (x, z) => EX.zones[EX.map.zoneOf[tileR(z) * EX.map.W + tileC(x)]];
 function updateExplore(dt) {
   if (!EX || MODE.result) return;
   EN.t += dt;
@@ -381,37 +444,161 @@ function updateExplore(dt) {
     if (!player.alive) continue;
     const live = S.members.filter(e => e.alive);
     if (!S.awake) {
-      const trig = live.some(e => {
-        if (e.parts.torso.hp < e.parts.torso.max - 0.01) return true;
+      // 醒來：剛被打（跟上次看的時候比少了血；不然被打過又跟丟的小隊會一直醒來又跟丟）、或玩家在 WAKE_R 格內而且看得到
+      let hit = false;
+      for (const e of live) { if (e.parts.torso.hp < (e.seenHp ?? e.parts.torso.max) - 0.01) hit = true; e.seenHp = e.parts.torso.hp; }
+      const trig = hit || live.some(e => {
         const dx = player.x - e.x, dz = player.z - e.z, dd = Math.hypot(dx, dz);
         return dd < WAKE_R && rayBlock(e.x, e.z, dx / dd, dz / dd, dd) >= dd - player.r;
       });
-      if (trig) { S.awake = S.found = true; for (const e of live) e.dormant = false; toast(`遭遇：${S.name}`); sfx.lock(); }
-    } else if (live.length && live.every(e => Math.hypot(e.x - player.x, e.z - player.z) > LOSE_R)) {
-      S.awake = false; for (const e of live) e.dormant = true;
+      if (trig) {
+        S.awake = S.found = true; for (const e of live) e.dormant = false;
+        const Z = EX.zones[S.zone], call = Z.reinforce && !S.called && EN.t - (Z.lastCall ?? -99) > 45;
+        toast(`遭遇：${S.name}${call ? '・對方呼叫了增援！' : ''}`); sfx.lock();
+        // 增援據點：小隊第一次被驚動，5 秒後從兩三個方向來增援（用這個區域的駐軍兵種）；同一個區域 45 秒內只叫一次
+        if (call) { S.called = true; Z.lastCall = EN.t; EX.pending.push({ t: 5, groups: 2 + (S.depth >= 4 ? 1 : 0), n: 2, depth: S.depth, pool: Z.squads.flatMap(k => SQUADS[k].units) }); }
+      }
+    } else if (live.length && live.every(e => flowDist(e.x, e.z) > LOSE_R)) {   // 用實際要走的路程算（繞岩壁追過來的不算跟丟）
+      S.awake = false; for (const e of live) { e.dormant = true; e.seenHp = e.parts.torso.hp; }
     }
   }
+  for (let i = EX.pending.length - 1; i >= 0; i--) { const P = EX.pending[i]; if ((P.t -= dt) <= 0) { EX.pending.splice(i, 1); if (player.alive) callReinforcements(P.groups, P.n, P.depth, P.pool); } }
+  // 增援部隊：全滅就收掉；全部離玩家很遠（被甩掉）也收掉
+  for (let i = EX.waves.length - 1; i >= 0; i--) {
+    const W = EX.waves[i], live = W.members.filter(e => e.alive);
+    if (!live.length) { EX.waves.splice(i, 1); continue; }
+    if (live.every(e => Math.hypot(e.x - player.x, e.z - player.z) > DESPAWN_R)) { for (const e of live) removeEnemy(e); EX.waves.splice(i, 1); }
+  }
+  // 傳送門
+  const P = EX.portal;
+  if (Math.hypot(P.x - player.x, P.z - player.z) < PORTAL_SEE) EX.portalKnown = true;
+  if (P.state === 'idle' && EX.cleared >= EX.need) { setPortal(P, 'ready'); EX.portalKnown = true; toast('傳送門可以啟動了（已標在小地圖上）'); sfx.lock(); }
+  if (EX.boss?.alive && (EX.waveT -= dt) <= 0) {
+    EX.waveT = Math.max(12, 22 - EN.stage * 2);
+    if (enemies.filter(e => e.alive && !e.dormant).length < 10) {
+      const pool = EN.stage >= 3 ? ['scout', 'trooper', 'brawler', 'bazooka', 'rifle*', 'blade*'] : ['scout', 'trooper', 'brawler', 'launcher', 'stick'];
+      callReinforcements(2, 2 + Math.min(2, EN.stage - 1), EX.map.zones[EX.map.portal.zone].depth, pool);
+    }
+  }
+  // 互動
+  const near = player.alive ? nearProp(player.x, player.z) : null;
+  EX.near = near;
+  if (near && input.interactPressed) interact(near);
+  updateProps(dt);
   updatePickups(dt, player, takePickup);
 }
+// ---------- 互動：箱子、武器、傳送門 ----------
+const weaponLine = id => { const W = WEAPONS[id]; return `<span class="wt" style="--c:${DMG_TYPES[W.type].css}">${DMG_TYPES[W.type].name}</span> ${W.mount === 'arm' ? '手臂' : '背部'}・傷害 ${W.dmg}${W.pellets ? ' ×' + W.pellets : ''}${W.salvo > 1 ? ' ×' + W.salvo : ''}${W.splash ? '・爆風' : ''}・${W.ammo ? '彈藥 ' + W.ammo : '吃能量'}・重量 ${W.weight}`; };
+function promptText(p) {
+  if (!p) return '';
+  if (p.kind === 'cache') return `F・打開補給箱（${p.cost} 零件）${EN.scrap < p.cost ? '・零件不足' : ''}`;
+  if (p.kind === 'weapon') return `F・打開武器箱：${WEAPONS[p.weapon].name}（${p.cost} 零件）${EN.scrap < p.cost ? '・零件不足' : ''}`;
+  if (p.kind === 'gun') return `F・拿起 ${WEAPONS[p.weapon].name}`;
+  if (p.kind === 'portal') return p.state === 'idle' ? `傳送門・還要清除 ${EX.need - EX.cleared} 支小隊` : p.state === 'ready' ? 'F・啟動傳送門（頭目會出現）' : p.state === 'boss' ? '先打倒頭目' : `F・傳送到第 ${EN.stage + 1} 關`;
+  return '';
+}
+function interact(p) {
+  if (p.kind === 'cache' || p.kind === 'weapon') {
+    if (EN.scrap < p.cost) { toast(`零件不足（需要 ${p.cost}，現在 ${EN.scrap}）`); sfx.click(); return; }
+    EN.scrap -= p.cost; spendProp(p); sfx.reload();
+    if (p.kind === 'cache') spawnPickup('mod', p.x, p.z);
+    else offerGun(addProp('gun', p.x, p.z + 1.2, { weapon: p.weapon }));
+  } else if (p.kind === 'gun') offerGun(p);
+  else if (p.kind === 'portal') {
+    if (p.state === 'ready') startBoss(p);
+    else if (p.state === 'open') { EN.stage++; startStage(); }
+    else { toast(promptText(p)); sfx.click(); }
+  }
+}
+// 武器：有空的同類掛點就直接裝；不然問要換掉哪一邊（1 / 2 選、或點按鈕），換下來的丟在地上
+function offerGun(p) {
+  const W = WEAPONS[p.weapon], slots = SLOTS.filter(s => s.startsWith(W.mount));
+  const empty = slots.find(s => !EN.loadout[s]);
+  if (empty) { equip(p, empty); return; }
+  G.paused = true;
+  showPanel(`拿起 ${W.name}`, weaponLine(p.weapon), [
+    ...slots.map((s, i) => ({ label: `${i + 1}・換掉${SLOT_NAMES[s]}的${WEAPONS[EN.loadout[s]].name}`, primary: i === 0, run: () => { hidePanel(); G.paused = false; equip(p, s); } })),
+    { label: '3・先不要', run: () => { hidePanel(); G.paused = false; } },
+  ]);
+}
+function equip(p, slot) {
+  removeProp(p);
+  const prev = refit(slot, p.weapon);
+  if (prev) { const a = player.torsoYaw + Math.PI; addProp('gun', player.x + Math.sin(a) * 1.6, player.z + Math.cos(a) * 1.6, { weapon: prev }); }
+  toast(`${SLOT_NAMES[slot]}：${WEAPONS[p.weapon].name}`); sfx.reload();
+}
+// 換武器 = 照新的配裝重組一台，再把原本的狀態搬過去（各部位耐久比例、壞掉的部位、其他武器的彈藥比例、速度、能量）
+function refit(slot, id) {
+  const old = player, keep = {}, ammo = {};
+  for (const k in old.parts) keep[k] = { r: old.parts[k].hp / old.parts[k].max, broken: old.parts[k].broken };
+  for (const s in old.guns) { const g = old.guns[s]; ammo[s] = g.max === Infinity ? 1 : g.ammo / g.max; }
+  const prev = EN.loadout[slot];
+  EN.loadout = { ...EN.loadout, [slot]: id };
+  const st = { vx: old.vx, vz: old.vz, energy: old.energy, legYaw: old.legYaw };
+  spawnRunPlayer(old.x, old.z, old.torsoYaw);
+  Object.assign(player, st);
+  for (const k in player.parts) {
+    const q = player.parts[k], o = keep[k];
+    if (!o) continue;
+    if (o.broken && k !== 'torso') { q.hp = 0; q.broken = true; if (k === 'legs') q.mat.color.setHex(0x5a5048); else q.g.visible = false; }
+    else q.hp = Math.max(1, q.max * o.r);
+  }
+  for (const s in player.guns) { const g = player.guns[s]; if (s !== slot && ammo[s] != null && g.max !== Infinity) g.ammo = Math.round(g.max * ammo[s]); }
+  return prev;
+}
+// ---------- 頭目 ----------
+// 完整的機體（隨機組裝），耐久好幾倍；在傳送門附近空降。打倒 → 傳送門打開、掉一個強化模組和一把武器
+function startBoss(p) {
+  setPortal(p, 'boss');
+  let at = null;
+  for (let t = 0; t < 40 && !at; t++) { const a = Math.random() * Math.PI * 2, x = p.x + Math.cos(a) * 10, z = p.z + Math.sin(a) * 10; if (openAround(x, z)) at = { x, z }; }
+  const P = randomLoadout(), D = EN.stage >= 3 ? DIFFS.hard : DIFFS.normal;
+  const e = spawnEnemy(player, P, at ?? { x: p.x, z: p.z + 6 }, { diff: { ...D, hp: D.hp * (2.2 + 0.4 * EN.stage), dmg: D.dmg * (0.75 + 0.15 * EN.stage) } });
+  e.boss = true;
+  EX.boss = e; EX.waveT = 10;
+  $('bossName').textContent = `頭目・${P.name}`;
+  $('boss').classList.remove('hidden');
+  toast(`頭目出現：${P.name}`); sfx.lock();
+}
+function exLoot(e) {
+  const x = e.x, z = e.z;
+  spawnPickup('scrap', x, z, (e.enElite ? 9 : 3) + (e.lvl ?? 0) + (EN.stage - 1) * 2);
+  const [a, r] = e.enElite ? [0.18, 0.12] : [0.14, 0.08];
+  if (Math.random() < a) spawnPickup('ammo', x, z);
+  if (Math.random() < r) spawnPickup('repair', x, z);
+}
 function exploreKill(e) {
-  EN.kills++; enLoot(e);
+  EN.kills++;
+  if (e.boss) {
+    EX.boss = null;
+    $('boss').classList.add('hidden');
+    setPortal(EX.portal, 'open');
+    spawnPickup('mod', e.x, e.z); spawnPickup('repair', e.x, e.z); spawnPickup('ammo', e.x, e.z);
+    addProp('gun', e.x, e.z, { weapon: PLAYER_WEAPONS[Math.floor(Math.random() * PLAYER_WEAPONS.length)] });
+    toast('頭目擊破！傳送門開啟'); sfx.lock();
+    return;
+  }
+  exLoot(e);
   const S = e.squad;
   if (!S) return;
   e.unit.dead = true;
-  if (!S.units.every(u => u.dead)) return;
+  if (S.wave || !S.units.every(u => u.dead)) return;
   S.cleared = true; S.awake = false; EX.cleared++;
-  spawnPickup('mod', e.x, e.z); spawnPickup('repair', e.x, e.z);
-  toast(`${S.name} 已清除（${EX.cleared} / ${EX.squads.length}）`);
-  if (EX.cleared >= EX.squads.length) { MODE.result = 'win'; MODE.endT = 3; }
+  spawnPickup('repair', e.x, e.z); spawnPickup('ammo', e.x, e.z);
+  spawnPickup('scrap', e.x, e.z, 8 + S.depth * 2);
+  toast(`${S.name} 已清除${EX.cleared <= EX.need ? `（${EX.cleared} / ${EX.need}）` : ''}`);
 }
-function showExploreResult(win) {
+const runSummary = () => {
+  const mods = Object.entries(EN.mods).map(([k, n]) => `${MODS[k].name}${n > 1 ? ' ×' + n : ''}`).join('、') || '無';
+  const guns = SLOTS.map(s => EN.loadout[s]).filter(Boolean).map(id => WEAPONS[id].name).join('、') || '無';
+  return `第 <b>${EN.stage}</b> 關・${mmss(EN.t)}・擊破 <b>${EN.kills}</b> 台<br>武器：${guns}<br>強化：${mods}`;
+};
+function showExploreResult() {
   G.paused = true;
   sfx.click();
-  const mods = Object.entries(EN.mods).map(([k, n]) => `${MODS[k].name}${n > 1 ? ' ×' + n : ''}`).join('、') || '無';
-  showPanel(win ? '全區域清除' : '機體損毀', `${mmss(EN.t)}・清除 <b>${EX.cleared} / ${EX.squads.length}</b> 隊・擊破 <b>${EN.kills}</b> 台<br>強化：${mods}`, [
-    { label: '同一張地圖再來', primary: true, run: () => startExplore(EX.map.seed) },
-    { label: '新地圖', run: () => startExplore() },
-    { label: '整備', run: () => { hidePanel(); openGarageFrom('result'); } },
+  showPanel('機體損毀', runSummary(), [
+    { label: '再出發', primary: true, run: () => startRun() },
+    { label: '整備（換骨架）', run: () => { hidePanel(); openGarageFrom('result'); } },
     { label: '回主選單', run: showMenu },
   ]);
 }
@@ -478,12 +665,12 @@ function showPanel(title, html, buttons) {
 }
 function hidePanel() { $('panel').classList.add('hidden'); }
 const panelOpen = () => !$('panel').classList.contains('hidden');
-function restart() { MODE.name === 'explore' ? startExplore(EX.map.seed) : MODE.name === 'endless' ? startEndless() : MODE.name === 'duel' ? startDuel(MODE.duel.preset, MODE.duel.diffKey) : MODE.name === 'watch' ? nextWatch() : startSandbox(); }
+function restart() { MODE.name === 'explore' ? startRun() : MODE.name === 'endless' ? startEndless() : MODE.name === 'duel' ? startDuel(MODE.duel.preset, MODE.duel.diffKey) : MODE.name === 'watch' ? nextWatch() : startSandbox(); }
 const WATCH_LIMIT = 180;   // 觀戰一場最多幾秒（遊戲時間）
 const nextWatch = () => MODE.kind === 'horde' ? startHorde() : MODE.kind === 'skirmish' ? startSkirmish() : startWatch();
 function pause() {
   G.paused = true;
-  showPanel('暫停', MODE.name === 'explore' ? `探索・${mmss(EN.t)}・清除 ${EX.cleared} / ${EX.squads.length} 隊・地圖 #${EX.map.seed}` : MODE.name === 'endless' ? `無盡模式・${mmss(EN.t)}・擊破 ${EN.kills}` : MODE.name === 'duel' ? `對戰・${DIFFS[MODE.duel.diffKey].name}` : MODE.name === 'watch' ? `觀戰${MODE.kind === 'horde' ? '（王牌 vs 雜魚）' : MODE.kind === 'skirmish' ? '（雜魚 vs 雜魚）' : ''}・第 ${MODE.round} 場` : '試玩場', [
+  showPanel('暫停', MODE.name === 'explore' ? `遠征・地圖 #${EX.map.seed}<br>${runSummary()}` : MODE.name === 'endless' ? `無盡模式・${mmss(EN.t)}・擊破 ${EN.kills}` : MODE.name === 'duel' ? `對戰・${DIFFS[MODE.duel.diffKey].name}` : MODE.name === 'watch' ? `觀戰${MODE.kind === 'horde' ? '（王牌 vs 雜魚）' : MODE.kind === 'skirmish' ? '（雜魚 vs 雜魚）' : ''}・第 ${MODE.round} 場` : '試玩場', [
     { label: '繼續', primary: true, run: () => { hidePanel(); G.paused = false; } },
     { label: MODE.name === 'watch' ? '下一場' : '重新開始', run: restart },
     ...(MODE.name === 'duel' ? [{ label: '換對手', run: openDuelSetup }] : []),
@@ -501,8 +688,8 @@ function showResult(win) {
   ]);
 }
 const HELP = `<div class="help">
-<b>操作</b>WASD 移動・滑鼠瞄準・左鍵 / 右鍵 左右手・Q / E 左右背・Space / Shift 推進衝刺<br>G 整備・Esc 暫停<br>
-手把：左右搖桿、LT / RT 左右手、LB / RB 左右背、A 衝刺、Back 整備、Start 暫停<br>
+<b>操作</b>WASD 移動・滑鼠瞄準・左鍵 / 右鍵 左右手・Q / E 左右背・Space / Shift 推進衝刺<br>G 整備・F 互動（遠征：開箱、撿武器、傳送門）・Esc 暫停<br>
+手把：左右搖桿、LT / RT 左右手、LB / RB 左右背、A 衝刺、X 互動、Back 整備、Start 暫停<br>
 <b>移動</b>有慣性：放開方向鍵會滑一段。冰面很滑、泥地很慢。衝刺吃能量，不受摩擦限制<br>
 <b>屬性</b>動能剋鏡面、化學剋複合、能量剋陶瓷；反過來會被擋下（藍白色火花）<br>
 <b>部位</b>打到哪看子彈從哪個方向來：正面是軀幹裝甲、側面是手臂、背面是弱點和背部武器<br>
@@ -510,7 +697,7 @@ const HELP = `<div class="help">
 
 // ---------- 主選單與對戰設定 ----------
 $('mDuel').onclick = () => { unlockAudio(); sfx.click(); openDuelSetup(); };
-$('mExplore').onclick = () => { unlockAudio(); sfx.click(); startExplore(); };
+$('mExplore').onclick = () => { unlockAudio(); sfx.click(); startRun(); };
 $('mEndless').onclick = () => { unlockAudio(); sfx.click(); startEndless(); };
 $('mSandbox').onclick = () => { unlockAudio(); sfx.click(); startSandbox(); };
 $('mWatch').onclick = () => { unlockAudio(); sfx.click(); startWatch(true); };
@@ -694,6 +881,7 @@ function frame(t) {
     } else if (MODE.name === 'sandbox' && (respawnT -= dt) <= 0) { spawnPlayer(); toast('重新出擊'); }
     if (MODE.name === 'endless') updateEndless(dt);
     if (MODE.name === 'explore') updateExplore(dt);
+    if (!watching && player.alive) updateFlow(dt, player.x, player.z);
     if (watching && MODE.kind === 'horde') updateHorde(dt);
     if (watching && MODE.kind === 'skirmish') updateSkirmish(dt);
     for (const e of enemies.slice()) {
@@ -723,7 +911,7 @@ function frame(t) {
       toast('時間到');
     }
     // 對戰結束：倒下的動畫播一下再出結果；觀戰：自動下一場
-    if (MODE.endT > 0 && (MODE.endT -= raw) <= 0) watching ? nextWatch() : MODE.name === 'endless' ? showEndlessResult() : MODE.name === 'explore' ? showExploreResult(MODE.result === 'win') : showResult(MODE.result === 'win');
+    if (MODE.endT > 0 && (MODE.endT -= raw) <= 0) watching ? nextWatch() : MODE.name === 'endless' ? showEndlessResult() : MODE.name === 'explore' ? showExploreResult() : showResult(MODE.result === 'win');
   }
   if (!playing || dt > 0 || garage.open) updateParticles(playing ? dt : raw);
   for (const m of mechs) poseMech(m, dt);
@@ -806,7 +994,7 @@ function frame(t) {
 
   if (playing && !watching) updateHud();
   if (MODE.name === 'endless') updateEndlessHud();
-  if (MODE.name === 'explore' && EX) { updateExploreHud(); updateMinimap(raw, player, enemies, EX.squads); }
+  if (MODE.name === 'explore' && EX) { updateExploreHud(); updateMinimap(raw, player, enemies, EX.squads, EX); }
   if (watching) {
     const one = MODE.kind === 'duel', blue = MODE.kind !== 'skirmish' ? enemies.find(e => e.team === 'blue') : null, red = one ? enemies.find(e => e.team === 'red') : null;
     paintDoll($('dollB'), blue?.alive ? blue : null); paintDoll($('dollR'), red?.alive ? red : null);
@@ -827,8 +1015,10 @@ function frame(t) {
   renderer.render(scene, camera);
 }
 addEventListener('pointerdown', unlockAudio);
+// 面板上的按鈕可以用數字鍵選（1 = 第一個）
+addEventListener('keydown', e => { if (panelOpen() && /^Digit[1-9]$/.test(e.code)) $('pButtons').children[+e.code.slice(5) - 1]?.click(); });
 addEventListener('keydown', unlockAudio);
-window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, startHorde, startSkirmish, startEndless, startExplore, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
+window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, startHorde, startSkirmish, startEndless, startRun, startStage, callReinforcements, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
 showMenu();
 camTarget.set(player.x, 0, player.z);
 nextFrame(frame);

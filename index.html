@@ -35,6 +35,8 @@
   </div>
   <div id="passive" class="hidden">敵機停火中（T）</div>
   <canvas id="minimap" class="hidden"></canvas>
+  <div id="boss" class="hidden"><b id="bossName"></b><div class="bbar"><i id="bossHp"></i></div></div>
+  <div id="prompt" class="hidden"></div>
   <div id="endless" class="hidden"><div id="enTime">0:00</div><div id="enInfo"></div><div id="enMods" class="wguns"></div></div>
 </div>
 <div id="watch" class="hidden">
@@ -49,7 +51,7 @@
     <h1>BRICK<span>MECHA</span></h1>
     <p class="sub">俯視角方塊機甲・組裝・捉對廝殺</p>
     <button class="btn primary" id="mDuel">對戰<small>一對一・選對手和難度</small></button>
-    <button class="btn" id="mExplore">探索（大地圖測試）<small>256 × 192 的大地圖，岩壁隔出 12 個區域・清掉各區域駐守的小隊</small></button>
+    <button class="btn" id="mExplore">遠征<small>從一把機槍出發：撿武器、花零件開補給箱、清掉小隊後啟動傳送門打頭目，一關比一關難</small></button>
     <button class="btn" id="mEndless">無盡模式<small>雜魚越來越多、越來越強・撿掉落的彈藥、修理和強化模組・撐越久越好</small></button>
     <button class="btn" id="mWatch">觀戰<small>電腦對電腦・隨機配裝・打完自動換下一場</small></button>
     <button class="btn" id="mHorde">觀戰：王牌 vs 雜魚<small>一台王牌機對上一批批空投的雜魚機（共 18 台）</small></button>

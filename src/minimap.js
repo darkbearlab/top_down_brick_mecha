@@ -1,7 +1,9 @@
-// ---------- 小地圖（探索模式） ----------
+// ---------- 小地圖（遠征模式） ----------
 // 右上角。地圖先整張畫一次（岩壁、建築、泥地、空地），沒去過的地方蓋黑：玩家周圍 REVEAL 格內會慢慢揭開
-// 上面畫：玩家（白色箭頭）、發現過的遭遇點（紅圈 = 還在、灰叉 = 清掉了）、交戰中的敵機（紅點）
+// 上面畫：玩家（白色箭頭）、發現過的遭遇點（紅圈 = 還在、灰叉 = 清掉了）、交戰中的敵機（紅點）、
+//   揭開的地方裡的箱子（紫 = 補給箱、黃 = 武器箱、灰 = 開過了）、傳送門（菱形，看過或條件達成後才標）
 import { H, W, grid, tileC, tileR } from './arena.js';
+import { props } from './props.js';
 
 const el = document.getElementById('minimap');
 const g = el.getContext('2d');
@@ -28,7 +30,7 @@ export function initMinimap(buildings) {
 export function revealAll() { seen?.fill(1); }   // 除錯用
 export function hideMinimap() { el.classList.add('hidden'); base = null; }
 
-export function updateMinimap(dt, player, enemies, squads) {
+export function updateMinimap(dt, player, enemies, squads, ex = null) {
   if (!base) return;
   // 揭開
   const pc = tileC(player.x) / CELL, pr = tileR(player.z) / CELL, rr = REVEAL / CELL;
@@ -47,6 +49,20 @@ export function updateMinimap(dt, player, enemies, squads) {
     g.lineWidth = 1.5;
     if (S.cleared) { g.strokeStyle = '#6a6e78'; g.beginPath(); g.moveTo(x - 3, y - 3); g.lineTo(x + 3, y + 3); g.moveTo(x + 3, y - 3); g.lineTo(x - 3, y + 3); g.stroke(); }
     else { g.strokeStyle = S.awake ? '#ff5040' : '#d07050'; g.beginPath(); g.arc(x, y, 4, 0, Math.PI * 2); g.stroke(); }
+  }
+  if (ex) {
+    const seenAt = (x, z) => { const c = Math.floor(tileC(x) / CELL), r = Math.floor(tileR(z) / CELL); return seen[r * CW + c]; };
+    for (const p of props) {
+      if (p.kind === 'portal' || !seenAt(p.x, p.z)) continue;
+      const [x, y] = P(p.x, p.z);
+      g.fillStyle = p.used ? '#5a5e66' : p.kind === 'cache' ? '#c080ff' : '#ffd060';
+      g.fillRect(x - 2, y - 2, 4, 4);
+    }
+    if (ex.portalKnown) {
+      const [x, y] = P(ex.portal.x, ex.portal.z);
+      g.fillStyle = { idle: '#a04030', ready: '#ff9030', boss: '#ff3020', open: '#60f0ff' }[ex.portal.state];
+      g.beginPath(); g.moveTo(x, y - 5); g.lineTo(x + 5, y); g.lineTo(x, y + 5); g.lineTo(x - 5, y); g.fill();
+    }
   }
   g.fillStyle = '#ff5040';
   for (const e of enemies) if (e.alive && !e.dormant) { const [x, y] = P(e.x, e.z); g.fillRect(x - 1.5, y - 1.5, 3, 3); }

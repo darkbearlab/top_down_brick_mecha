@@ -15,7 +15,7 @@ export const SURF = {
   r: { name: '瓦礫', mu: 0.85, drag: 0.6, speed: 0.85 },
   m: { name: '泥地', mu: 0.9, drag: 2.0, speed: 0.55 },
 };
-// 場地可以換（loadMap）：競技場 64 × 48 固定；探索模式用 mapgen.js 產生的大地圖
+// 場地可以換（loadMap）：競技場 64 × 48 固定；遠征模式用 mapgen.js 產生的大地圖
 // W、H、grid 是 live binding，換地圖後其他模組讀到的就是新的
 export let W = 64, H = 48, grid = [], mapId = '';
 // 競技場：64 × 48，兩片泥地對中心點對稱（建築另外蓋，見 buildings.js）

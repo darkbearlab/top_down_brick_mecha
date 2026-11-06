@@ -1,6 +1,6 @@
 // ---------- 輸入：鍵盤滑鼠 / 手把（雙搖桿） ----------
-// 鍵盤滑鼠：WASD 移動、滑鼠瞄準、左鍵 / 右鍵 = 左邊 / 右邊目前準備好的武器開火、Q / E = 左邊 / 右邊在手臂武器和背部武器之間切換、Space / Shift = 推進衝刺、G = 整備
-// 手把：左搖桿移動、右搖桿瞄準、LT / RT = 左右開火、LB / RB = 左右切換背部武器、A = 推進衝刺、Start = 暫停、Back = 整備
+// 鍵盤滑鼠：WASD 移動、滑鼠瞄準、左鍵 / 右鍵 = 左邊 / 右邊目前準備好的武器開火、Q / E = 左邊 / 右邊在手臂武器和背部武器之間切換、Space / Shift = 推進衝刺、G = 整備、F = 互動（遠征模式的箱子、武器、傳送門）
+// 手把：左搖桿移動、右搖桿瞄準、LT / RT = 左右開火、LB / RB = 左右切換背部武器、A = 推進衝刺、Start = 暫停、Back = 整備、X = 互動
 // 輸出都是「螢幕方向」：x 往右、y 往下（= 世界的 +x、+z）
 const DEAD = 0.2;
 
@@ -10,7 +10,7 @@ export const input = {
   mouse: { x: innerWidth / 2, y: innerHeight / 2, seen: false },
   padAim: { x: 0, y: -1, active: false },
   fireL: false, fireR: false, readyL: false, readyR: false,   // readyL / R：這一幀按下切換
-  boostPressed: false, pausePressed: false, resetPressed: false, passivePressed: false, garagePressed: false,
+  boostPressed: false, pausePressed: false, resetPressed: false, passivePressed: false, garagePressed: false, interactPressed: false,
 };
 const keys = new Set();
 let mouseL = false, mouseR = false, padPrev = [];
@@ -36,6 +36,7 @@ addEventListener('keydown', e => {
   if (e.code === 'KeyR') input.resetPressed = true;
   if (e.code === 'KeyT') input.passivePressed = true;
   if (e.code === 'KeyG') input.garagePressed = true;
+  if (e.code === 'KeyF') input.interactPressed = true;
   if (e.code === 'KeyQ') input.readyL = true;
   if (e.code === 'KeyE') input.readyR = true;
   if (e.code === 'Space') e.preventDefault();
@@ -61,6 +62,7 @@ export function updateInput() {
     if (down(8)) input.garagePressed = true;
     if (down(9)) input.pausePressed = true;
     if (down(3)) input.resetPressed = true;
+    if (down(2)) input.interactPressed = true;
     padPrev = pad.buttons.map(x => x.pressed);
     if (Math.hypot(px, py) > 0 || Math.hypot(ax, ay) > 0.35 || padFireL || padFireR) input.source = 'pad';
   }
@@ -84,5 +86,5 @@ export function updateInput() {
 }
 // 單次事件：每幀最後清掉
 export function clearPressed() {
-  input.boostPressed = input.pausePressed = input.resetPressed = input.passivePressed = input.garagePressed = input.readyL = input.readyR = false;
+  input.boostPressed = input.pausePressed = input.resetPressed = input.passivePressed = input.garagePressed = input.interactPressed = input.readyL = input.readyR = false;
 }

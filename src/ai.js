@@ -14,6 +14,7 @@ import { makeGuns, shots, updateGuns } from './weapons.js';
 import { ENEMY_PRESETS, SLOTS } from './parts.js';
 import { burst, hitSparks, makeLaser, setLaser, smoke } from './fx.js';
 import { sfx } from './audio.js';
+import { flowDir } from './pathing.js';
 
 export const enemies = [];
 // 難度：dmg 敵機傷害倍率、hp 耐久倍率、rest 射擊間隔倍率、err 瞄準晃動（弧度）、dodge 會不會噴開閃避、lock 鎖定時間倍率
@@ -45,7 +46,7 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
     want: has('saber') || has('shotgun') ? 3 : has('sniper') ? 13 : 8,
   };
   e.laser = makeLaser(0xff3020);
-  // noDrop：直接站在地上（探索模式的遭遇小隊），不然從天上降落
+  // noDrop：直接站在地上（遠征模式的遭遇小隊），不然從天上降落
   if (opts.noDrop) { e.drive = { mx: 0, mz: 0 }; e.aimYaw = e.torsoYaw; }
   else {
     const ring = new THREE.Mesh(RING_GEO, addMat(0xff4030, 0.8));
@@ -105,7 +106,7 @@ const reachOf = d => d.kind === 'saber' ? d.reach + 1.2 : d.kind === 'bullet' ||
 export function updateEnemy(e, dt, player) {
   if (!e.alive) return;
   if (e.drop) { if (updateDrop(e, dt, player)) return; }
-  // 待命（探索模式還沒發現玩家的小隊）：站著不動、偶爾轉頭看看
+  // 待命（遠征模式還沒發現玩家的小隊）：站著不動、偶爾轉頭看看
   if (e.dormant) {
     e.drive = { mx: 0, mz: 0 };
     if (Math.random() < dt * 0.25) e.aimYaw = e.torsoYaw + (Math.random() - 0.5) * 2;
@@ -123,7 +124,11 @@ export function updateEnemy(e, dt, player) {
   if (A.t <= 0) { A.t = 2 + Math.random() * 2.5; if (Math.random() < 0.5) A.strafe *= -1; }
   let mx, mz;
   if (!player.alive) { mx = 0; mz = 0; }
-  else if (dist > A.want + 4 || !los) { mx = nx; mz = nz; }
+  else if (dist > A.want + 4 || !los) {
+    // 看不到玩家：照流場繞過去（pathing.js）；看得到就直線靠近
+    const f = !los && player.team === 'player' ? flowDir(e.x, e.z) : null;
+    if (f) { mx = f.x; mz = f.z; } else { mx = nx; mz = nz; }
+  }
   else if (A.lineBlockedT > 0.4) {
     // 看得到但槍口被轉角擋住（槍口在身體側邊）：往被擋的反方向橫移、同時靠近一點，讓出射線
     // 左邊掛點在機體本地 +x = 世界 (nz, -nx)；往被擋那一邊的反方向移

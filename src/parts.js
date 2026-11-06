@@ -137,7 +137,7 @@ export function gruntOf(key) {
   const a = Object.keys(ARMORS)[Math.floor(Math.random() * 3)];
   return { ...pool[k], id: k, elite, armor: { head: a, torso: a, arms: a, legs: a } };
 }
-// ---------- 遭遇小隊（探索模式） ----------
+// ---------- 遭遇小隊（遠征模式） ----------
 // 每隊 3～4 台，組合針對不同的裝備：
 //   巡邏隊：基本款；突擊隊 / 火箭伏擊：貼臉衝過來（考驗後退射擊、失衡、霰彈）；
 //   砲擊陣地 / 狙擊組：遠距離壓制（考驗掩體和機動、長射程武器）；飛彈小隊：鎖定（考驗打頭、繞掩體）；
