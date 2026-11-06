@@ -508,7 +508,7 @@ function updateExplore(dt) {
       });
       if (trig) {
         S.awake = S.found = true; for (const e of live) e.dormant = false;
-        const Z = EX.zones[S.zone], call = Z.reinforce && !S.called && EN.t - (Z.lastCall ?? -99) > 45;
+        const Z = EX.zones[S.zone], call = Z.reinforce && !S.called && EN.t - (Z.lastCall ?? -99) > 45 && !EX.boss && EX.portal.state !== 'open';   // 傳送門啟動後不再叫增援
         // 增援據點：小隊第一次被驚動，5 秒後從兩三個方向來增援（用這個區域的駐軍兵種）；同一個區域 45 秒內只叫一次
         if (call) { S.called = true; Z.lastCall = EN.t; EX.pending.push({ t: 5, groups: 2 + (S.depth >= 4 ? 1 : 0), n: 2, depth: S.depth, pool: Z.squads.flatMap(k => SQUADS[k].units) }); }
       }
@@ -527,13 +527,6 @@ function updateExplore(dt) {
   const P = EX.portal;
   if (visibleAt(P.x, P.z)) EX.portalKnown = true;
   if (P.state === 'idle' && EX.cleared >= EX.need) { setPortal(P, 'ready'); EX.portalKnown = true; toast('傳送門可以啟動了（已標在小地圖上）'); sfx.lock(); }
-  if (EX.boss?.alive && (EX.waveT -= dt) <= 0) {
-    EX.waveT = Math.max(12, 22 - EN.stage * 2);
-    if (enemies.filter(e => e.alive && !e.dormant).length < 10) {
-      const pool = EN.stage >= 3 ? ['scout', 'trooper', 'brawler', 'bazooka', 'rifle*', 'blade*'] : ['scout', 'trooper', 'brawler', 'launcher', 'stick'];
-      callReinforcements(2, 2 + Math.min(2, EN.stage - 1), EX.map.zones[EX.map.portal.zone].depth, pool);
-    }
-  }
   // 互動
   const near = player.alive ? nearProp(player.x, player.z) : null;
   EX.near = near;
@@ -622,7 +615,8 @@ function startBoss(p) {
   const P = randomLoadout(), D = EN.stage >= 3 ? DIFFS.hard : DIFFS.normal;
   const e = spawnEnemy(player, P, at ?? { x: p.x, z: p.z + 6 }, { diff: { ...D, hp: D.hp * (2.2 + 0.4 * EN.stage), dmg: D.dmg * (0.75 + 0.15 * EN.stage) } });
   e.boss = true;
-  EX.boss = e; EX.waveT = 10;
+  EX.boss = e;
+  EX.pending = [];   // 頭目是完整機體、不比玩家差：啟動後所有增援都關掉（已經在場上的留著，不再新增）
   $('bossName').textContent = `頭目・${P.name}`;
   $('boss').classList.remove('hidden');
   toast(`頭目出現：${P.name}`); sfx.lock();
