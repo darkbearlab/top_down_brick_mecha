@@ -80,7 +80,7 @@ export const WEAPONS = {
 };
 export const SLOTS = ['armL', 'armR', 'backL', 'backR'];
 export const SLOT_NAMES = { armL: '左手', armR: '右手', backL: '左背', backR: '右背' };
-export const SLOT_KEYS = { armL: '左鍵', armR: '右鍵', backL: 'Q', backR: 'E' };
+export const SLOT_KEYS = { armL: '左鍵', armR: '右鍵', backL: 'Q 切換', backR: 'E 切換' };
 export const ARMOR_PARTS = { head: '頭部', torso: '軀幹', arms: '手臂', legs: '腳部' };
 
 export const DEFAULT_LOADOUT = {

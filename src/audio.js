@@ -63,5 +63,7 @@ export const sfx = {
   saber() { tone('sine', 300, 900, 0.18, 0.12); noise(0.16, 0.25, 3000, 2); },
   saberHit() { tone('square', 1200, 200, 0.12, 0.14); noise(0.1, 0.4, 2500, 1); },
   lock() { tone('square', 1500, 1500, 0.04, 0.05); },
+  deploy() { tone('square', 220, 520, 0.12, 0.08); noise(0.14, 0.22, 1600, 1.5); },
+  stow() { tone('square', 480, 200, 0.1, 0.07); noise(0.1, 0.18, 1400, 1.5); },
   click() { tone('triangle', 700, 900, 0.05, 0.1); },
 };

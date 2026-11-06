@@ -45,6 +45,8 @@ export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, h
     legYaw: yaw, torsoYaw: yaw, walk: 0, lean: { x: 0, z: 0 }, lastV: { x: 0, z: 0 }, bob: 0,
     energy: 100, energyT: 0, boostT: 0, boostCd: 0, boostDir: { x: 0, z: 0 }, stuckT: 0, stuckMax: 0, stuckN: { x: 0, z: 0 },
     alive: true, ace, surf: null, guns: null, onDeath: null, swing: null,
+    // 背部武器準備：ready = 那一邊現在用背部武器、deployT = 展開 / 收回中還剩幾秒（不能開火）、readyK = 動畫 0..1
+    ready: { L: false, R: false }, deployT: { L: 0, R: 0 }, readyK: { L: 0, R: 0 },
   };
   mechs.push(m);
   return m;
@@ -56,15 +58,67 @@ export function toWorld(m, [lx, ly, lz]) {
   const s = Math.sin(m.torsoYaw), c = Math.cos(m.torsoYaw);
   return { x: m.x + lx * c + lz * s, y: m.model.hipY + ly, z: m.z - lx * s + lz * c };
 }
-export const muzzleOf = (m, slot) => toWorld(m, m.model.muzzles[slot] ?? [0, 0.5, 0.8]);
 export const slotBroken = (m, slot) => !m.parts[slot] || m.parts[slot].broken;
+// 背部武器架上肩膀時往上、往前移的量（方塊單位 1/16）
+const READY_OFF = [0, 3 / 16, 7 / 16];
+export function muzzleOf(m, slot) {
+  const b = m.model.muzzles[slot] ?? [0, 0.5, 0.8];
+  const k = slot.startsWith('back') ? m.readyK?.[slot[4]] ?? 0 : 0;
+  return toWorld(m, k ? [b[0], b[1] + READY_OFF[1] * k, b[2] + READY_OFF[2] * k] : b);
+}
 
+// ---------- 背部武器準備（Q / E 切換） ----------
+// 按一次：手臂放下、背部武器架上肩膀，該邊滑鼠鍵改打背部武器；再按一次換回手臂
+// 切換要 DEPLOY_T 秒，期間那一邊不能開火；背部武器開始換彈 / 被打掉時自動換回手臂
+export const DEPLOY_T = 0.3;
+const LOCK_KINDS = new Set(['missile', 'split', 'vmissile']);
+export const activeSlot = (m, side) => (m.ready[side] ? 'back' : 'arm') + side;
+export function canReady(m, side) {
+  const g = m.guns?.['back' + side];
+  return !!g && !slotBroken(m, 'back' + side) && g.reloadT <= 0;
+}
+export function toggleReady(m, side) {
+  if (!m.alive || m.swing) return false;
+  const on = !m.ready[side];
+  if (on && !canReady(m, side)) return false;
+  m.ready[side] = on;
+  m.deployT[side] = DEPLOY_T;
+  if (m.team === 'player') on ? sfx.deploy() : sfx.stow();
+  return true;
+}
+// 這個掛載點現在能不能開火（是那一邊目前準備的武器、而且不在切換中）
+export const slotLive = (m, slot) => activeSlot(m, slot.slice(-1)) === slot && m.deployT[slot.slice(-1)] <= 0;
+// 現在準備中的武器有沒有要鎖定的（飛彈類）：沒有就不會開始鎖定
+export function wantsLock(m) {
+  for (const side of ['L', 'R']) {
+    const slot = activeSlot(m, side), g = m.guns?.[slot];
+    if (g && !slotBroken(m, slot) && LOCK_KINDS.has(g.def.kind)) return true;
+  }
+  return false;
+}
+export function updateReady(m, dt) {
+  for (const side of ['L', 'R']) {
+    if (m.deployT[side] > 0) m.deployT[side] -= dt;
+    // 換彈或被打掉：自動收回、換回手臂；那一邊手上沒武器（或被打掉）就一直架著背部武器
+    const armOk = !!m.guns?.['arm' + side] && !slotBroken(m, 'arm' + side);
+    if (m.ready[side] && armOk && !canReady(m, side)) { m.ready[side] = false; m.deployT[side] = DEPLOY_T; }
+    if (!m.ready[side] && !armOk && m.guns?.['back' + side] && !slotBroken(m, 'back' + side)) { m.ready[side] = true; m.deployT[side] = DEPLOY_T; }
+    const k = m.readyK[side], to = m.ready[side] ? 1 : 0;
+    m.readyK[side] = k + Math.sign(to - k) * Math.min(Math.abs(to - k), dt / DEPLOY_T);
+  }
+}
+
+// 實際噴出去的方向：沒按方向就往正前方；履帶只能沿車身前後噴
+export function boostDirOf(m, mx, mz) {
+  const ml = Math.hypot(mx, mz);
+  let d = ml > 0.2 ? { x: mx / ml, z: mz / ml } : facing(m);
+  if (m.loadout.legs === 'tread') { const lf = { x: Math.sin(m.legYaw), z: Math.cos(m.legYaw) }; const s = d.x * lf.x + d.z * lf.z >= 0 ? 1 : -1; d = { x: lf.x * s, z: lf.z * s }; }
+  return d;
+}
+export const boostKOf = m => m.spec.boost * (m.parts.legs.broken ? 0.75 : 1);
 export function tryBoost(m, mx, mz) {
   if (!m.alive || m.boostCd > 0 || m.energy < BOOST_COST) return false;
-  const ml = Math.hypot(mx, mz), f = facing(m);
-  let d = ml > 0.2 ? { x: mx / ml, z: mz / ml } : f;
-  if (m.loadout.legs === 'tread') { const lf = { x: Math.sin(m.legYaw), z: Math.cos(m.legYaw) }; const s = d.x * lf.x + d.z * lf.z >= 0 ? 1 : -1; d = { x: lf.x * s, z: lf.z * s }; }
-  const k = m.spec.boost * (m.parts.legs.broken ? 0.75 : 1);
+  const d = boostDirOf(m, mx, mz), k = boostKOf(m);
   // 噴射只往一個方向：原本的速度只留沿著噴射方向的分量（往反方向跑的會被抵銷），橫向的全部吃掉
   const along = Math.max(0, m.vx * d.x + m.vz * d.z);
   m.vx = d.x * (along + BOOST_DV * k); m.vz = d.z * (along + BOOST_DV * k);
@@ -315,6 +369,19 @@ export function poseMech(m, dt) {
     const s = m.swing?.slot === slot ? m.swing : null;
     if (s) { const t = 1 - s.t / s.dur, side = slot === 'armL' ? 1 : -1; p.g.rotation.y = side * (1.1 - t * 2.4); }
     else p.g.rotation.y *= Math.exp(-12 * dt);
+    // 背部武器準備中：手臂垂下、往外張開一點
+    const e = ease(m.readyK[slot[3]]);
+    p.g.rotation.x = 0.85 * e;
+    p.g.rotation.z = (slot === 'armL' ? 1 : -1) * 0.12 * e;
+  }
+  // 背部武器架上肩膀：往上、往前移，炮口從朝後上方轉成朝前
+  for (const side of ['L', 'R']) {
+    const p = m.parts['back' + side];
+    if (!p) continue;
+    p.base0 ??= p.g.position.clone();
+    const e = ease(m.readyK[side]);
+    p.g.position.set(p.base0.x, p.base0.y + READY_OFF[1] * e, p.base0.z + READY_OFF[2] * e);
+    p.g.rotation.x = -0.5 * Math.sin(e * Math.PI);   // 架上去的途中炮口先翹起來
   }
   for (const k in m.parts) {
     const p = m.parts[k];
@@ -334,6 +401,7 @@ export function poseMech(m, dt) {
     smoke(tmpV.x, y + 0.2, tmpV.z, 1, 0.8, p.broken ? 0x1e1f22 : undefined);
   }
 }
+const ease = k => k * k * (3 - 2 * k);
 // 各部位冒火 / 爆炸的高度
 function partY(m, name, y) {
   return name === 'legs' ? m.model.hipY * 0.55 : name === 'head' ? y + 0.2 : name === 'torso' ? y + 0.5 : name.startsWith('back') ? y + 0.1 : y + 0.3;

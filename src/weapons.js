@@ -1,5 +1,6 @@
 // ---------- 武器與彈藥 ----------
-// 四個掛載點：左手（左鍵）、右手（右鍵）、左背（Q）、右背（E）；手臂 / 背部武器被打掉就不能用
+// 四個掛載點：左手、右手、左背、右背；每一邊同時只有一把在準備（Q / E 切換，見 mech.js），左鍵 / 右鍵打那一邊準備好的
+// 手臂 / 背部武器被打掉就不能用
 // 種類：
 //   bullet  一般子彈（機槍、機砲、霰彈、狙擊、加農砲）
 //   beam    光束：吃能量，不用換彈
@@ -12,7 +13,7 @@ import * as THREE from 'three';
 import { UNIT_BOX, addMat, addTrauma, scene } from './core.js';
 import { isBlock, rayBlock } from './arena.js';
 import { blastBuildings, damageBuilding } from './buildings.js';
-import { facing, hitMech, mechs, muzzleOf, slotBroken, useEnergy } from './mech.js';
+import { facing, hitMech, mechs, muzzleOf, slotBroken, slotLive, updateReady, useEnergy } from './mech.js';
 import { explosion, flame, hitSparks, muzzleFlash, rampOf, smoke, spawnGlow, spawnPuff, sparks } from './fx.js';
 import { DMG_TYPES, SLOTS, WEAPONS } from './parts.js';
 import { sfx } from './audio.js';
@@ -30,8 +31,9 @@ const glowMat = c => { if (!mats.has(c)) mats.set(c, addMat(c)); return mats.get
 const CORE_MAT = addMat(0xffffff);
 const R = (a, b) => a + Math.random() * (b - a);
 
-// 每幀：triggers = { armL, armR, backL, backR } 按著沒；locks = 鎖定中的目標（陣列）；aim = 瞄準點
+// 每幀：triggers = { L, R } 左右鍵按著沒（打那一邊目前準備好的武器）；locks = 鎖定中的目標（陣列）；aim = 瞄準點
 export function updateGuns(m, triggers, dt, locks = [], aim = null) {
+  updateReady(m, dt);
   if (m.salvo?.length) {
     for (let i = m.salvo.length - 1; i >= 0; i--) { const q = m.salvo[i]; q.t -= dt; if (q.t <= 0) { m.salvo.splice(i, 1); if (m.alive) q.fn(); } }
   }
@@ -44,7 +46,7 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
       if (gun.reloadT <= 0) { gun.ammo = d.mag; if (m.team === 'player') sfx.reloadDone(); }
       continue;
     }
-    if (!triggers[slot] || gun.cd > 0 || !m.alive || slotBroken(m, slot) || m.swing) continue;
+    if (!triggers[slot.slice(-1)] || !slotLive(m, slot) || gun.cd > 0 || !m.alive || slotBroken(m, slot) || m.swing) continue;
     if (d.needLock && !locks.length && m.team === 'player') { gun.cd = 0.3; sfx.click(); continue; }
     if (d.energy && !useEnergy(m, d.energy)) continue;
     gun.cd = d.interval;

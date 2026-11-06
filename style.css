@@ -40,6 +40,8 @@ html, body {
 #status .gun i { width: 8px; height: 8px; border-radius: 2px; }
 #status .gun em { margin-left: auto; font-style: normal; font-variant-numeric: tabular-nums; opacity: .85; padding-left: 10px; }
 #status .gun .dim { opacity: .4; }
+#status .gun.idle { opacity: .45; }
+#status .gun.act kbd { background: rgba(127,240,255,.35); color: #fff; }
 #status .bad { color: #ff7a60; }
 #warn { font-size: 11px; color: #ffb060; min-height: 0; }
 #warn:empty { display: none; }

@@ -3,7 +3,7 @@ import { sfx, unlockAudio } from './audio.js';
 import { CAM_PITCH, G, camDist, camTarget, camera, renderer, scene, sun } from './core.js';
 import { clearPressed, input, updateInput } from './input.js';
 import { rayBlock } from './arena.js';
-import { ENEMY_COLORS, PLAYER_COLORS, collideMechs, driveMech, facing, makeMech, mechs, poseMech, removeMech, tryBoost } from './mech.js';
+import { ENEMY_COLORS, PLAYER_COLORS, activeSlot, collideMechs, driveMech, facing, makeMech, mechs, poseMech, removeMech, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { resetBuildings, updateBuildings } from './buildings.js';
 import { SLOW_K, clearWrecks, killCam, updateWrecks } from './wreck.js';
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
@@ -255,6 +255,7 @@ function gunState(m, slot) {
   if (!g) return '—';
   if (m.parts[slot]?.broken) return '<span class="bad">損毀</span>';
   if (g.reloadT > 0) return '裝填中';
+  if (m.deployT[slot.slice(-1)] > 0 && activeSlot(m, slot.slice(-1)) === slot) return '展開中';
   if (g.def.energy) return m.energy < g.def.energy ? '<span class="bad">能量不足</span>' : g.cd > 0 ? '冷卻' : '就緒';
   if (g.def.needLock && !sensors.locks.length) return '需要鎖定';
   return g.def.mag ? `${g.ammo}/${g.def.mag}` : g.cd > 0 ? '冷卻' : '就緒';
@@ -263,9 +264,11 @@ let gunsKey = '';
 function updateHud() {
   const p = player;
   paintDoll($('dollP'), p.alive ? p : null);
+  // 每一邊：目前準備好的那把亮著（kbd 顯示左鍵 / 右鍵），另一把暗著（背部顯示切換鍵）
   const rows = SLOTS.map(s => {
-    const g = p.guns[s];
-    return `<div class="gun"><kbd>${SLOT_KEYS[s]}</kbd>${g ? `<i style="background:${DMG_TYPES[g.def.type].css}"></i>${g.def.name}` : '<span class="dim">（空）</span>'}<em>${gunState(p, s)}</em></div>`;
+    const g = p.guns[s], side = s.slice(-1), act = activeSlot(p, side) === s;
+    const key = act ? (side === 'L' ? '左鍵' : '右鍵') : s.startsWith('back') ? (side === 'L' ? 'Q' : 'E') : '—';
+    return `<div class="gun${act ? ' act' : ' idle'}"><kbd>${key}</kbd>${g ? `<i style="background:${DMG_TYPES[g.def.type].css}"></i>${g.def.name}` : '<span class="dim">（空）</span>'}<em>${gunState(p, s)}</em></div>`;
   }).join('');
   if (rows !== gunsKey) { gunsKey = rows; $('guns').innerHTML = rows; }
   $('energy').style.width = p.energy + '%';
@@ -273,7 +276,7 @@ function updateHud() {
   $('surf').textContent = p.surf?.name ?? '';
   $('speed').textContent = Math.hypot(p.vx, p.vz).toFixed(1);
   const H = sensors.head;
-  $('lockInfo').textContent = H?.lockCount ? `鎖定 ${sensors.locks.length}/${H.lockCount}` : '無法鎖定';
+  $('lockInfo').textContent = !H?.lockCount ? '無法鎖定' : wantsLock(p) ? `鎖定 ${sensors.locks.length}/${H.lockCount}` : '鎖定待命（未備飛彈）';
   const S = p.spec;
   $('warn').textContent = [S.loadK > 1 && '超重', S.armOver && '手臂超重', S.backOver && '背部超重', p.parts.head.broken && '頭部損毀：視野縮小'].filter(Boolean).join('・');
   // 準星附近、看得到的敵機；對戰中一直顯示對手
@@ -322,7 +325,9 @@ function frame(t) {
     else if (player.alive) {
       if (input.boostPressed) tryBoost(player, input.move.x, input.move.y);
       driveMech(player, dt, input.move.x, input.move.y, aimYaw);
-      updateGuns(player, { armL: input.fireL, armR: input.fireR, backL: input.fireQ, backR: input.fireE }, dt, sensors.locks, aimPoint);
+      if (input.readyL && !toggleReady(player, 'L')) sfx.click();
+      if (input.readyR && !toggleReady(player, 'R')) sfx.click();
+      updateGuns(player, { L: input.fireL, R: input.fireR }, dt, sensors.locks, aimPoint);
     } else if (MODE.name === 'sandbox' && (respawnT -= dt) <= 0) { spawnPlayer(); toast('重新出擊'); }
     for (const e of enemies.slice()) {
       updateEnemy(e, dt, e.foe ?? player);

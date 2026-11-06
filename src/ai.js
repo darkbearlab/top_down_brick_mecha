@@ -2,11 +2,13 @@
 // 每台隨機挑一套配裝（parts.js ENEMY_PRESETS），用跟玩家同一套物理和武器
 // 距離依武器決定：有劍 / 霰彈就貼近、有狙擊就拉遠、其他保持中距離繞圈
 // 看到玩家的加農砲 / 飛彈飛過來會往旁邊噴開；狙擊開槍前會先亮紅色雷射預告
+// 背部武器跟玩家一樣要先架起來（toggleReady）：用得上才架、架一陣子或換彈就收回；只有架著飛彈才會鎖定
+// 避牆：移動前用三條射線探路（越快探越遠）、速度朝牆而且來不及停就先剎車；推進前確認噴出去的方向夠空
 // 被打爆後過幾秒，新的一台從天上降落（地上先出現紅圈，站在下面會被砸）
 import * as THREE from 'three';
 import { G, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { randomOpenSpot, rayBlock } from './arena.js';
-import { ENEMY_COLORS, damagePart, facing, makeMech, muzzleOf, removeMech, slotBroken, tryBoost } from './mech.js';
+import { BOOST_DV, BOOST_PUSH, BOOST_TIME, ENEMY_COLORS, activeSlot, boostDirOf, boostKOf, legK, damagePart, facing, makeMech, muzzleOf, removeMech, slotBroken, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { makeGuns, shots, updateGuns } from './weapons.js';
 import { ENEMY_PRESETS, SLOTS } from './parts.js';
 import { burst, hitSparks, makeLaser, setLaser, smoke } from './fx.js';
@@ -35,7 +37,7 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   e.preset = P;
   const ws = SLOTS.map(s => P[s]).filter(Boolean);
   e.ai = {
-    strafe: Math.random() < 0.5 ? -1 : 1, t: 1, burst: 0, rest: 1 + Math.random(), reposition: 3 + Math.random() * 3, lockT: 0, snipeT: 0,
+    strafe: Math.random() < 0.5 ? -1 : 1, t: 1, burst: 0, rest: 1 + Math.random(), reposition: 3 + Math.random() * 3, lockT: 0, snipeT: 0, hold: { L: Math.random(), R: Math.random() },
     want: ws.includes('saber') || ws.includes('shotgun') ? 3 : ws.includes('sniper') ? 13 : 8,
   };
   e.laser = makeLaser(0xff3020);
@@ -108,13 +110,7 @@ export function updateEnemy(e, dt, player) {
   else if (dist > A.want + 4 || !los) { mx = nx; mz = nz; }
   else if (dist < A.want - 2) { mx = -nx; mz = -nz; }
   else { mx = -nz * A.strafe + nx * 0.15; mz = nx * A.strafe + nz * 0.15; }
-  const ml = Math.hypot(mx, mz);
-  if (ml > 0.1) {
-    for (const turn of [0, 0.8, -0.8, 1.6, -1.6]) {
-      const a = Math.atan2(mx, mz) + turn * A.strafe;
-      if (rayBlock(e.x, e.z, Math.sin(a), Math.cos(a), 2.4) >= 2.4) { mx = Math.sin(a) * ml; mz = Math.cos(a) * ml; break; }
-    }
-  }
+  ({ mx, mz } = steer(e, mx, mz));
 
   // 推進：重的子彈 / 飛彈飛過來往旁邊噴；偶爾推進換位置；近戰型推進衝過去
   A.reposition -= dt;
@@ -132,7 +128,14 @@ export function updateEnemy(e, dt, player) {
   }
   if (A.reposition <= 0 && player.alive) { A.reposition = 4 + Math.random() * 4; boost = true; if (A.want <= 3 && dist > 4) { bx = nx; bz = nz; } }
   if (boost && !AI.diff.dodge && !(A.reposition > 3.9)) boost = false;
-  if (boost && e.energy > 55) tryBoost(e, bx, bz);
+  if (boost && e.energy > 55) {
+    // 噴出去的方向要夠空，不然換反方向 / 斜的，都不行就不噴（推進撞牆是以前的頭號死因）
+    const d = Math.hypot(bx, bz) || 1, ux = bx / d, uz = bz / d;
+    for (const [cx, cz] of [[ux, uz], [ux * 0.7 - uz * 0.7, uz * 0.7 + ux * 0.7], [ux * 0.7 + uz * 0.7, uz * 0.7 - ux * 0.7], [-ux, -uz]]) {
+      const bd = boostDirOf(e, cx, cz), len = boostLen(e, bd.x, bd.z);
+      if (clearAhead(e, bd.x, bd.z, len) >= len) { if (tryBoost(e, cx, cz)) A.lastBoost = { x: e.x, z: e.z, len, t: G.now }; break; }
+    }
+  }
   e.drive = { mx, mz };
 
   // 瞄準：稍微預判
@@ -142,27 +145,30 @@ export function updateEnemy(e, dt, player) {
   const onTarget = Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.14 && canShoot;
   // 鎖定玩家（給飛彈用）：在範圍內、看得到就慢慢鎖上
   const H = e.spec.head;
-  A.lockT = canShoot && dist < H.lockRange && !e.parts.head.broken ? A.lockT + dt : Math.max(0, A.lockT - dt * 2);
+  updateReadyChoice(e, dt, dist, canShoot);
+  A.lockT = canShoot && wantsLock(e) && dist < H.lockRange && !e.parts.head.broken ? A.lockT + dt : Math.max(0, A.lockT - dt * 2);
   const locks = A.lockT >= H.lockTime * AI.diff.lock ? [player] : [];
 
   // 手臂：連射武器一陣一陣打；狙擊先亮雷射；劍貼近才揮；飛彈有鎖定才射
-  const trig = { armL: false, armR: false, backL: false, backR: false };
+  const trig = { L: false, R: false };
   if (A.burst > 0) A.burst -= dt;
   else { A.rest -= dt; if (A.rest <= 0 && onTarget) { A.burst = 0.8; A.rest = (1 + Math.random() * 1.2) * AI.diff.rest; } }
   let laserSlot = null;
-  for (const slot of SLOTS) {
-    const g = e.guns[slot];
-    if (!g || slotBroken(e, slot)) continue;
+  for (const side of ['L', 'R']) {
+    const slot = activeSlot(e, side), g = e.guns[slot];
+    if (!g || slotBroken(e, slot) || e.deployT[side] > 0) continue;
     const d = g.def, inRange = dist < reachOf(d);
-    if (d.kind === 'saber') trig[slot] = inRange && canShoot && Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.4;
-    else if (d.kind === 'missile' || d.kind === 'split') trig[slot] = locks.length > 0 && Math.random() < dt * 0.8 / AI.diff.rest;
-    else if (d.kind === 'vmissile') trig[slot] = locks.length > 0 && dist > 5 && Math.random() < dt * 0.6 / AI.diff.rest;
+    let t = false;
+    if (d.kind === 'saber') t = inRange && canShoot && Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.4;
+    else if (d.kind === 'missile' || d.kind === 'split') t = locks.length > 0 && Math.random() < dt * 1.6 / AI.diff.rest;
+    else if (d.kind === 'vmissile') t = locks.length > 0 && dist > 5 && Math.random() < dt * 1.2 / AI.diff.rest;
     else if (d.speed > 50) {
       // 狙擊：瞄 0.8 秒（紅色雷射）才開槍
-      if (onTarget && inRange && g.cd <= 0 && g.reloadT <= 0) { A.snipeT += dt; laserSlot = slot; if (A.snipeT >= 0.8) { trig[slot] = true; A.snipeT = 0; } }
+      if (onTarget && inRange && g.cd <= 0 && g.reloadT <= 0) { A.snipeT += dt; laserSlot = slot; if (A.snipeT >= 0.8) { t = true; A.snipeT = 0; } }
       else A.snipeT = Math.max(0, A.snipeT - dt);
-    } else if (d.interval >= 1) trig[slot] = onTarget && inRange && Math.random() < dt * 0.7 / AI.diff.rest;
-    else trig[slot] = A.burst > 0 && onTarget && inRange;
+    } else if (d.interval >= 1) t = onTarget && inRange && Math.random() < dt * 1.2 / AI.diff.rest;
+    else t = A.burst > 0 && onTarget && inRange;
+    trig[side] = t;
   }
   updateGuns(e, trig, dt, locks, { x: player.x, z: player.z });
   if (laserSlot) {
@@ -170,6 +176,72 @@ export function updateEnemy(e, dt, player) {
     const len = Math.min(rayBlock(mz.x, mz.z, f.x, f.z, 30), dist);
     setLaser(e.laser, mz.x, mz.z, f.x, f.z, len, mz.y, 0.3 + A.snipeT * 0.8, 0.04 + A.snipeT * 0.05);
   } else e.laser.g.visible = false;
+}
+
+// ---------- 背部武器要不要架起來 ----------
+// 用得上（飛彈：看得到、在鎖定距離內；加農砲：看得到、打得到）才架；架著一陣子後多半收回來用手臂
+// 手上是劍而且已經貼近：一定用劍
+function backUseful(d, dist, canShoot, head) {
+  if (!canShoot) return false;
+  if (d.kind === 'missile' || d.kind === 'split') return dist < head.lockRange;
+  if (d.kind === 'vmissile') return dist > 5 && dist < head.lockRange;
+  return dist < reachOf(d);
+}
+function updateReadyChoice(e, dt, dist, canShoot) {
+  const A = e.ai;
+  for (const side of ['L', 'R']) {
+    const back = e.guns['back' + side], arm = e.guns['arm' + side];
+    if (!back || slotBroken(e, 'back' + side) || !arm || slotBroken(e, 'arm' + side)) continue;   // 沒得選（沒手臂武器的會自動架著）
+    if (e.deployT[side] > 0) continue;
+    const melee = arm.def.kind === 'saber' && dist < 5;
+    if (e.ready[side] && melee) { toggleReady(e, side); A.hold[side] = 1.5; continue; }
+    if ((A.hold[side] -= dt) > 0) continue;
+    const useful = back.reloadT <= 0 && backUseful(back.def, dist, canShoot, e.spec.head);
+    if (!e.ready[side]) {
+      if (useful && !melee && Math.random() < 0.6) { toggleReady(e, side); A.hold[side] = 2.5 + Math.random() * 2; }
+      else A.hold[side] = 0.6 + Math.random() * 0.8;
+    } else if (!useful || Math.random() < 0.6) { toggleReady(e, side); A.hold[side] = 1.5 + Math.random() * 1.5; }
+    else A.hold[side] = 1 + Math.random();
+  }
+}
+
+// ---------- 避牆 ----------
+// 三條射線（中間 + 左右肩寬）裡最短的那條：機體整台過不過得去
+function clearAhead(e, ux, uz, len) {
+  const o = e.r * 0.8;
+  return Math.min(rayBlock(e.x, e.z, ux, uz, len), rayBlock(e.x - uz * o, e.z + ux * o, ux, uz, len), rayBlock(e.x + uz * o, e.z - ux * o, ux, uz, len));
+}
+const hoverOf = e => e.spec.legs.type === 'hover';
+// 往 (ux, uz) 推進會滑多遠：噴射段 + 從噴射速度剎回極速的距離 + 餘裕（原本就往那邊跑的速度會疊上去）
+// 剎車：一般腳超速時用整個抓地力（約 26），懸浮只有約 7；腳受傷都更差
+function boostLen(e, ux, uz) {
+  const k = boostKOf(e), along = Math.max(0, e.vx * ux + e.vz * uz);
+  const v0 = along + BOOST_DV * k + BOOST_PUSH * k * BOOST_TIME, vmax = e.spec.vmax;
+  const decel = (hoverOf(e) ? 7 : 26) * legK(e);
+  return v0 * BOOST_TIME + Math.max(0, v0 * v0 - vmax * vmax) / (2 * decel) + 1.5;
+}
+// 想往 (mx, mz) 走：前面有牆就轉開（越快看越遠）；速度朝著牆、照現在的剎車來不及停就先往反方向踩
+function steer(e, mx, mz) {
+  const ml = Math.hypot(mx, mz), v = Math.hypot(e.vx, e.vz), A = e.ai;
+  const decel = (hoverOf(e) ? 6 : 13) * legK(e);
+  if (v > 2) {
+    const ux = e.vx / v, uz = e.vz / v, stop = v * v / (2 * decel) + 0.6;
+    if (clearAhead(e, ux, uz, stop + 0.5) < stop) return { mx: -ux, mz: -uz };
+  }
+  if (ml < 0.1) return { mx, mz };
+  const look = 1.4 + v * (hoverOf(e) ? 0.75 : 0.45);
+  const base = Math.atan2(mx, mz);
+  let best = null, bestLen = -1;
+  for (const turn of [0, 0.45, -0.45, 0.9, -0.9, 1.4, -1.4, 2, -2, 2.6, -2.6]) {
+    const a = base + turn * A.strafe, ux = Math.sin(a), uz = Math.cos(a);
+    const len = clearAhead(e, ux, uz, look);
+    if (len >= look) {
+      if (Math.abs(turn) > 1.2) A.strafe *= -1;   // 繞圈繞到牆邊：換個方向繞
+      return { mx: ux * ml, mz: uz * ml };
+    }
+    if (len > bestLen) { bestLen = len; best = [ux, uz]; }
+  }
+  return { mx: best[0] * ml * 0.5, mz: best[1] * ml * 0.5 };
 }
 
 export function keepEnemies(player) {
