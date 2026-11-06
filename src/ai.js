@@ -8,6 +8,7 @@
 import * as THREE from 'three';
 import { G, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { randomOpenSpot, rayBlock } from './arena.js';
+import { headStats } from './sensors.js';
 import { BOOST_DV, BOOST_PUSH, BOOST_TIME, ENEMY_COLORS, activeSlot, boostDirOf, boostKOf, legK, damagePart, facing, makeMech, muzzleOf, removeMech, slotBroken, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { makeGuns, shots, updateGuns } from './weapons.js';
 import { ENEMY_PRESETS, SLOTS } from './parts.js';
@@ -153,7 +154,7 @@ export function updateEnemy(e, dt, player) {
   const canShoot = los && player.alive && !AI.passive;
   const onTarget = Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.14 && canShoot;
   // 鎖定玩家（給飛彈用）：在範圍內、看得到就慢慢鎖上
-  const H = e.spec.head;
+  const H = headStats(e);   // 頭受損鎖定也會變差（sensors.js）
   updateReadyChoice(e, dt, dist, canShoot, player);
   // 長距鎖定頭：看不到（隔著牆）也能靠雷達鎖
   const lockable = player.alive && !AI.passive && (los || (H.radarLock && dist < H.radar));
@@ -225,7 +226,7 @@ function updateReadyChoice(e, dt, dist, canShoot, tgt) {
     const melee = arm.def.kind === 'saber' && dist < 5;
     if (e.ready[side] && melee) { toggleReady(e, side); A.hold[side] = 1.5; continue; }
     if ((A.hold[side] -= dt) > 0) continue;
-    const useful = back.reloadT <= 0 && backUseful(e, 'back' + side, back.def, dist, canShoot, e.spec.head, tgt);
+    const useful = back.reloadT <= 0 && backUseful(e, 'back' + side, back.def, dist, canShoot, headStats(e), tgt);
     if (!e.ready[side]) {
       if (useful && !melee && Math.random() < 0.6) { toggleReady(e, side); A.hold[side] = 2.5 + Math.random() * 2; }
       else A.hold[side] = 0.6 + Math.random() * 0.8;

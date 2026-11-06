@@ -73,9 +73,26 @@ function blip(x, z) {
 
 export function setSensorsVisible(v) { fanG.visible = v; for (const [, m] of lockMarks) m.g.visible = v; }
 
+// 頭部受損 → 鎖定跟著衰退（視野、雷達不變；打掉才一起沒）：
+//   健康度 k = hp / max；鎖定時間 ×(1 + 1.2(1-k))、鎖定距離 ×(1 - 0.5(1-k))
+//   半血：鎖定 ×1.6 慢、距離 ×0.75；剩兩成：×1.96、×0.6；1/4 以下只能鎖 1 台、長距鎖定頭不能再隔牆鎖
+// 彈道武器發數多，比較容易打到頭 → 打頭就是對付飛彈機的手段
+const BROKEN_HEAD = { vision: 60, range: 8, radar: 0, lockTime: 9, lockCount: 0, lockRange: 0, intel: false };
+const headCache = new WeakMap();
 export function headStats(p) {
-  const H = p.spec.head;
-  return p.parts.head.broken ? { vision: 60, range: 8, radar: 0, lockTime: 9, lockCount: 0, lockRange: 0, intel: false } : H;
+  const H = p.spec.head, hp = p.parts.head;
+  if (hp.broken) return BROKEN_HEAD;
+  const k = hp.hp / hp.max;
+  if (k >= 0.999) return H;
+  const q = Math.round(k * 50) / 50;   // 量化，避免每幀都產生新物件
+  let c = headCache.get(p);
+  if (c?.q !== q || c.H !== H) {
+    const d = 1 - q;
+    c = { q, H, s: { ...H, lockTime: H.lockTime * (1 + 1.2 * d), lockRange: H.lockRange * (1 - 0.5 * d),
+      lockCount: q < 0.25 ? Math.min(1, H.lockCount) : H.lockCount, radarLock: q < 0.25 ? false : H.radarLock, health: q } };
+    headCache.set(p, c);
+  }
+  return c.s;
 }
 
 export function updateSensors(p, enemies, aim, dt) {
