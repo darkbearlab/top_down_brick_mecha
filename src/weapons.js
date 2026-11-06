@@ -90,7 +90,7 @@ function fire(m, slot, d, locks, aim) {
       const side = (i % 2 ? 1 : -1) * (0.15 + 0.1 * Math.floor(i / 2));
       if (d.kind === 'vmissile') {
         const tp = target ?? (aim ? { x: aim.x, z: aim.z } : { x: m.x + ff.x * 8, z: m.z + ff.z * 8 });
-        spawnMissile(m, d, p.x + R(-0.15, 0.15), p.y, p.z + R(-0.15, 0.15), { vx: R(-1, 1), vy: R(9, 11), vz: R(-1, 1) }, target, { x: tp.x, z: tp.z });
+        spawnMissile(m, d, p.x + R(-0.15, 0.15), p.y, p.z + R(-0.15, 0.15), { vx: R(-1, 1) + ff.x * 3, vy: R(14, 16), vz: R(-1, 1) + ff.z * 3 }, target, { x: tp.x, z: tp.z });
       } else {
         const a = Math.atan2(ff.x, ff.z) + side;
         spawnMissile(m, d, p.x, p.y, p.z, { vx: Math.sin(a) * d.speed, vy: 0, vz: Math.cos(a) * d.speed }, target, null);
@@ -255,11 +255,35 @@ function stepMissile(s, i, dt) {
   if (s.kind === 'vmissile') {
     // 先往上飛，到頂後轉向目標（或目標點）砸下來
     const tp = tgt ?? s.point;
-    if (s.age < 0.45) s.vy -= 6 * dt;
+    // 三段：爬升（往上衝、很快慢下來，頂點約 5～6 格高）→ 平飛（水平方向每秒最多轉 d.turn，轉彎半徑大）→ 接近目標俯衝
+    const v = Math.hypot(s.vx, s.vy, s.vz) || 1, sp = Math.min(d.maxSpeed, v + d.accel * dt);
+    if (s.age < 0.35) s.vy -= 30 * dt;
     else {
-      const tx = tp.x - s.x, ty = 0.8 - s.y, tz = tp.z - s.z, tl = Math.hypot(tx, ty, tz) || 1;
-      const sp = Math.min(20, Math.hypot(s.vx, s.vy, s.vz) + 30 * dt), k = Math.min(1, 6 * dt);
-      s.vx += (tx / tl * sp - s.vx) * k; s.vy += (ty / tl * sp - s.vy) * k; s.vz += (tz / tl * sp - s.vz) * k;
+      const hx = tp.x - s.x, hz = tp.z - s.z, hd = Math.hypot(hx, hz) || 1;
+      if (!s.dive && hd < s.y * 2 + 3) { s.dive = true; s.divePt = { x: tp.x, z: tp.z }; }
+      if (s.dive) {
+        // 俯衝：瞄開始俯衝那一刻目標的位置，之後只慢慢修正（每秒 1.5 格）→ 俯衝時橫移就閃得掉
+        const P = s.divePt, gx = tp.x - P.x, gz = tp.z - P.z, gl = Math.hypot(gx, gz), mv = Math.min(gl, 1.5 * dt);
+        if (gl > 1e-4) { P.x += gx / gl * mv; P.z += gz / gl * mv; }
+        const ax = P.x - s.x, az = P.z - s.z, ty = 0.8 - s.y, tl = Math.hypot(ax, ty, az) || 1;
+        let ux = s.vx / v, uy = s.vy / v, uz = s.vz / v;
+        const wx = ax / tl, wy = ty / tl, wz = az / tl;
+        const ang = Math.acos(Math.max(-1, Math.min(1, ux * wx + uy * wy + uz * wz)));
+        if (ang > 1e-4) {
+          const k = Math.min(1, d.turn * 2.5 * dt / ang);
+          ux += (wx - ux) * k; uy += (wy - uy) * k; uz += (wz - uz) * k;
+          const ul = Math.hypot(ux, uy, uz) || 1; ux /= ul; uy /= ul; uz /= ul;
+        }
+        s.vx = ux * sp; s.vy = uy * sp; s.vz = uz * sp;
+      } else {
+        // 平飛：高度慢慢穩住，水平方向轉向目標（有上限）
+        s.vy *= Math.exp(-5 * dt);
+        let dir = Math.atan2(s.vx, s.vz);
+        const diff = Math.atan2(Math.sin(Math.atan2(hx, hz) - dir), Math.cos(Math.atan2(hx, hz) - dir));
+        dir += Math.max(-d.turn * dt, Math.min(d.turn * dt, diff));
+        const hs = Math.sqrt(Math.max(1, sp * sp - s.vy * s.vy));
+        s.vx = Math.sin(dir) * hs; s.vz = Math.cos(dir) * hs;
+      }
     }
     s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
     trail(s);

@@ -30,7 +30,7 @@ function options(key) {
     return { id, name: A.name, html: `${armorTag(id)} 擋 ${typeTag(good)}・怕 ${typeTag(bad)}` };
   });
   if (key === 'head') return Object.entries(HEADS).map(([id, H]) => ({ id, name: H.name,
-    html: `視野 ${H.vision}°・${H.range} 格・雷達 ${H.radar}<br>鎖定 ${H.lockCount} 台・${H.lockTime}s・${H.lockRange} 格${H.intel ? '・敵情' : ''}<br>耐久 ${Math.round(H.hp * HP_MUL)}・重 ${H.weight}` }));
+    html: `視野 ${H.vision}°・${H.range} 格・雷達 ${H.radar}<br>鎖定 ${H.lockCount} 台・${H.lockTime}s・${H.lockRange} 格${H.radarLock ? '・雷達鎖定（看不到也能鎖）' : ''}${H.intel ? '・敵情' : ''}<br>耐久 ${Math.round(H.hp * HP_MUL)}・重 ${H.weight}` }));
   if (key === 'core') return Object.entries(CORES).map(([id, C]) => ({ id, name: C.name,
     html: `耐久 ${Math.round(C.hp * HP_MUL)}・轉速 ${C.turn}<br>手臂負重 ${C.armLoad}・背部負重 ${C.backLoad}・重 ${C.weight}` }));
   if (key === 'legs') return Object.entries(LEGS).map(([id, L]) => ({ id, name: L.name,

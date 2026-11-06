@@ -153,7 +153,9 @@ export function updateEnemy(e, dt, player) {
   // 鎖定玩家（給飛彈用）：在範圍內、看得到就慢慢鎖上
   const H = e.spec.head;
   updateReadyChoice(e, dt, dist, canShoot, player);
-  A.lockT = canShoot && wantsLock(e) && dist < H.lockRange && !e.parts.head.broken ? A.lockT + dt : Math.max(0, A.lockT - dt * 2);
+  // 長距鎖定頭：看不到（隔著牆）也能靠雷達鎖
+  const lockable = player.alive && !AI.passive && (los || (H.radarLock && dist < H.radar));
+  A.lockT = lockable && wantsLock(e) && dist < H.lockRange && !e.parts.head.broken ? A.lockT + dt : Math.max(0, A.lockT - dt * 2);
   const locks = A.lockT >= H.lockTime * AI.diff.lock ? [player] : [];
 
   // 手臂：連射武器一陣一陣打；狙擊先亮雷射；劍貼近才揮；飛彈有鎖定才射
@@ -171,8 +173,8 @@ export function updateEnemy(e, dt, player) {
     const inRange = clear && dist < reachOf(d);
     let t = false;
     if (d.kind === 'saber') t = inRange && canShoot && Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.4;
-    else if (d.kind === 'missile' || d.kind === 'split') t = clear && locks.length > 0 && Math.random() < dt * 1.6 / AI.diff.rest;
-    else if (d.kind === 'vmissile') t = clear && locks.length > 0 && dist > 5 && Math.random() < dt * 1.2 / AI.diff.rest;
+    else if (d.kind === 'missile' || d.kind === 'split') t = canShoot && clear && locks.length > 0 && Math.random() < dt * 1.6 / AI.diff.rest;
+    else if (d.kind === 'vmissile') t = clear && locks.length > 0 && dist > 6 && Math.random() < dt * 1.2 / AI.diff.rest;
     else if (d.speed > 50) {
       // 狙擊：瞄 0.8 秒（紅色雷射）才開槍
       if (onTarget && inRange && g.cd <= 0 && g.reloadT <= 0) { A.snipeT += dt; laserSlot = slot; if (A.snipeT >= 0.8) { t = true; A.snipeT = 0; } }
@@ -205,6 +207,8 @@ function lineClear(e, slot, d, tgt) {
   return need <= 0 || rayBlock(mz.x, mz.z, f.x, f.z, need) >= need;
 }
 function backUseful(e, slot, d, dist, canShoot, head, tgt) {
+  // 垂直飛彈 + 長距鎖定頭：隔著牆也能鎖、越過掩體打
+  if (d.kind === 'vmissile' && head.radarLock && tgt.alive && !AI.passive) return dist > 6 && dist < head.lockRange;
   if (!canShoot || !lineClear(e, slot, d, tgt)) return false;
   if (d.kind === 'missile' || d.kind === 'split') return dist < head.lockRange;
   if (d.kind === 'vmissile') return dist > 5 && dist < head.lockRange;

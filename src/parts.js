@@ -35,6 +35,9 @@ export const HEADS = {
     model: [[-2, 0, -2, 4, 3, 5, 'a'], [-1, 1, 3, 2, 2, 3, 'f'], [-1, 1, 6, 2, 2, 1, 'g']] },
   array: { name: '多重鎖定頭', hp: 60, vision: 120, range: 15, radar: 20, lockTime: 0.55, lockCount: 6, lockRange: 20, intel: false, weight: 4,
     model: [[-4, 0, -2, 8, 3, 5, 'a'], [-3, 1, 3, 1, 1, 1, 'g'], [-1, 1, 3, 1, 1, 1, 'g'], [1, 1, 3, 1, 1, 1, 'g'], [3, 1, 3, 1, 1, 1, 'g'], [-4, 3, -1, 1, 4, 1, 'f'], [3, 3, -1, 1, 4, 1, 'f']] },
+  // 長距鎖定頭：雷達範圍內、準星附近的目標，看不到（被牆擋、在視野外）也能慢慢鎖上 → 配垂直飛彈越過掩體遠距離打
+  radar: { name: '長距鎖定頭', hp: 50, vision: 110, range: 18, radar: 36, lockTime: 1.5, lockCount: 2, lockRange: 34, radarLock: true, intel: true, weight: 4,
+    model: [[-3, 0, -2, 6, 3, 5, 'a'], [-1, 1, 3, 2, 1, 1, 'g'], [-1, 3, -1, 1, 4, 1, 'f'], [-4, 7, -2, 7, 1, 3, 'a'], [-3, 8, -1, 5, 1, 1, 'g']] },
 };
 // 軀幹：halfW = 半寬、top = 頂部高度（放頭）；手臂接在 ±(halfW + 3)，背部掛點在 ±(halfW - 2)
 export const CORES = {
@@ -73,7 +76,7 @@ export const WEAPONS = {
     model: [[-2, -2, -4, 5, 5, 8, 'f'], [-1, -1, 4, 3, 3, 12, 'f'], [-2, -2, 15, 5, 5, 1, 'w']], muzzle: [0.5, 0.5, 17] },
   missile: { name: '直射飛彈', type: 'chemical', mount: 'back', weight: 6, kind: 'missile', interval: 1.2, mag: 8, reload: 3.0, dmg: 30, salvo: 2, speed: 18, accel: 26, maxSpeed: 32, turn: 1.9, life: 1.6, size: 0.12, splash: 1.3,
     model: [[-3, -3, -4, 6, 6, 8, 'f'], [-2, -2, 4, 2, 2, 1, 'w'], [0, -2, 4, 2, 2, 1, 'w'], [-2, 0, 4, 2, 2, 1, 'w'], [0, 0, 4, 2, 2, 1, 'w']], muzzle: [0, 0, 5] },
-  vmissile: { name: '垂直飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'vmissile', interval: 1.6, mag: 8, reload: 3.4, dmg: 22, salvo: 4, speed: 9, life: 4, size: 0.12, splash: 1.5, needLock: true,
+  vmissile: { name: '垂直飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'vmissile', interval: 1.6, mag: 8, reload: 3.4, dmg: 22, salvo: 4, speed: 9, accel: 30, maxSpeed: 26, turn: 1.8, life: 3.2, size: 0.12, splash: 1.5, needLock: true,
     model: [[-3, -3, -4, 6, 5, 8, 'f'], [-2, 2, -3, 2, 1, 2, 'w'], [0, 2, -3, 2, 1, 2, 'w'], [-2, 2, 0, 2, 1, 2, 'w'], [0, 2, 0, 2, 1, 2, 'w']], muzzle: [0, 3, 0] },
   split: { name: '分裂飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'split', interval: 1.8, mag: 4, reload: 3.4, dmg: 11, salvo: 1, bomblets: 6, speed: 16, accel: 16, maxSpeed: 25, turn: 1.2, life: 1.9, size: 0.18, splash: 1.0,
     model: [[-3, -3, -4, 6, 6, 9, 'f'], [-2, -2, 5, 4, 4, 2, 'w']], muzzle: [0, 0, 7] },
@@ -98,16 +101,43 @@ export const ENEMY_PRESETS = [
     armor: { head: 'mirror', torso: 'mirror', arms: 'mirror', legs: 'mirror' } },
   { name: '光束型', head: 'std', core: 'std', legs: 'hover', armL: 'beam', armR: 'saber', backL: 'missile', backR: 'split',
     armor: { head: 'ceramic', torso: 'ceramic', arms: 'ceramic', legs: 'ceramic' } },
+  { name: '支援型', head: 'radar', core: 'std', legs: 'biped', armL: 'mg', armR: 'autocannon', backL: 'vmissile', backR: 'missile',
+    armor: { head: 'composite', torso: 'composite', arms: 'ceramic', legs: 'composite' } },
   { name: '重砲型', head: 'dome', core: 'heavy', legs: 'tread', armL: 'mg', armR: 'mg', backL: 'cannon', backR: 'split',
     armor: { head: 'ceramic', torso: 'composite', arms: 'composite', legs: 'ceramic' } },
 ];
 
 // 隨機組一台（觀戰用）：至少兩把武器，總重盡量不超過腳的負重
 const pickOf = obj => { const k = Object.keys(obj); return k[Math.floor(Math.random() * k.length)]; };
+// 隨機組裝：先抽 12 套合法的（至少兩把武器、不超重），照「相性」打分、加一點隨機，挑最高的
+//   飛彈類：頭要能多鎖、鎖得遠；垂直飛彈 + 長距鎖定頭最搭（越過掩體遠距離打）
+//   沒有飛彈卻帶多重鎖定頭 / 長距鎖定頭：浪費
+//   狙擊：配狙擊頭 / 長距鎖定頭；近戰（劍、霰彈）：不要窄視野的狙擊頭、不要履帶，快的腳加分；狙擊和近戰混搭扣分
+export function synergy(lo) {
+  const ws = SLOTS.map(s => lo[s]).filter(Boolean), H = HEADS[lo.head];
+  const has = k => ws.some(w => WEAPONS[w].kind === k || w === k);
+  const lockers = ws.filter(w => ['missile', 'split', 'vmissile'].includes(WEAPONS[w].kind)).length;
+  const melee = has('saber') || has('shotgun'), sniper = has('sniper');
+  // 只獎勵「搭」、懲罰「不搭」，帶不帶飛彈本身不加分（不然全部都會變飛彈機）
+  let sc = 0;
+  if (lockers) {
+    if (has('vmissile') && H.radarLock) sc += 0.8;
+    if (lo.head === 'array' && (lockers >= 2 || has('split'))) sc += 0.6;
+    if (lo.head === 'hunter' && lockers >= 2) sc -= 0.4;
+  } else if (lo.head === 'array' || lo.head === 'radar') sc -= 1.5;
+  if (sniper) sc += lo.head === 'hunter' ? 1 : lo.head === 'radar' ? 0.5 : 0;
+  if (melee) {
+    if (lo.head === 'hunter') sc -= 1.5;
+    sc += lo.legs === 'tread' ? -1 : lo.legs === 'reverse' || lo.legs === 'hover' ? 0.3 : 0;
+  }
+  if (sniper && melee) sc -= 0.7;
+  return sc;
+}
 export function randomLoadout() {
   const armW = Object.keys(WEAPONS).filter(k => WEAPONS[k].mount === 'arm'), backW = Object.keys(WEAPONS).filter(k => WEAPONS[k].mount === 'back');
   const r = a => a[Math.floor(Math.random() * a.length)];
-  for (let tries = 0; tries < 30; tries++) {
+  let best = null, bestSc = -Infinity;
+  for (let tries = 0, found = 0; tries < 200 && found < 12; tries++) {
     const lo = {
       head: pickOf(HEADS), core: pickOf(CORES), legs: pickOf(LEGS),
       armL: Math.random() < 0.9 ? r(armW) : null, armR: Math.random() < 0.9 ? r(armW) : null,
@@ -116,11 +146,14 @@ export function randomLoadout() {
     };
     const n = SLOTS.filter(s => lo[s]).length;
     if (n < 2 || computeSpec(lo).loadK > 1.05) continue;
-    const main = WEAPONS[lo.armR ?? lo.armL ?? lo.backL ?? lo.backR].name;
-    lo.name = `${LEGS[lo.legs].name}・${main}`;
-    return lo;
+    found++;
+    const sc = synergy(lo) + Math.random() * 1.2;
+    if (sc > bestSc) { bestSc = sc; best = lo; }
   }
-  return structuredClone(ENEMY_PRESETS[0]);
+  if (!best) return structuredClone(ENEMY_PRESETS[0]);
+  const main = WEAPONS[best.armR ?? best.armL ?? best.backL ?? best.backR].name;
+  best.name = `${LEGS[best.legs].name}・${main}`;
+  return best;
 }
 
 // ---------- 由零件算出整台機體的數值 ----------

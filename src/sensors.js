@@ -4,6 +4,7 @@
 // 鎖定：準星附近（槍口方向 ±20° 或離準星 2.5 格內）、在視野和鎖定距離內的敵機會慢慢鎖上；
 //   鎖定時間、同時鎖幾台看頭；鎖上的目標給飛彈追蹤用（垂直飛彈一定要鎖定）
 //   只有準備中的武器有飛彈時才會開始鎖定（Q / E 架起飛彈）
+//   長距鎖定頭（radarLock）：雷達範圍內的目標看不到也能鎖（隔著牆、視野外），配垂直飛彈越過掩體打
 import * as THREE from 'three';
 import { addMat, angleDiff, scene } from './core.js';
 import { rayBlock } from './arena.js';
@@ -102,7 +103,7 @@ export function updateSensors(p, enemies, aim, dt) {
     // 鎖定
     const aimA = Math.abs(angleDiff(p.torsoYaw, Math.atan2(dx, dz)));
     const nearAim = aim && Math.hypot(e.x - aim.x, e.z - aim.z) < 2.5;
-    const can = p.alive && armed && seen && H.lockCount > 0 && dist <= H.lockRange && (aimA < 0.35 || nearAim);
+    const can = p.alive && armed && (seen || (H.radarLock && dist <= H.radar)) && H.lockCount > 0 && dist <= H.lockRange && (aimA < 0.35 || nearAim);
     let prog = sensors.progress.get(e) ?? 0;
     prog = can ? Math.min(1, prog + dt / H.lockTime) : Math.max(0, prog - dt * (seen ? 1.2 : 3));
     if (prog > 0) { sensors.progress.set(e, prog); live.add(e); } else sensors.progress.delete(e);
