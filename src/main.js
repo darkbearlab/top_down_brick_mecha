@@ -8,7 +8,7 @@ import { flowDist, updateFlow } from './pathing.js';
 import { addProp, clearProps, nearProp, props, removeProp, setPortal, spendProp, updateProps } from './props.js';
 import { exploredAt, fogActive, fogOff, initFog, updateFog, visibleAt } from './fog.js';
 import { hideMinimap, initMinimap, updateMinimap } from './minimap.js';
-import { ENEMY_COLORS, PLAYER_COLORS, activeSlot, collideMechs, driveMech, facing, makeMech, mechs, poseMech, removeMech, toggleReady, tryBoost, wantsLock } from './mech.js';
+import { ENEMY_COLORS, PLAYER_COLORS, activeSlot, collideMechs, driveMech, facing, makeMech, mechs, poseMech, muzzleOf, removeMech, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { ARENA_LAYOUT, resetBuildings, setLayout, updateBuildings } from './buildings.js';
 import { SLOW_K, clearWrecks, killCam, updateWrecks } from './wreck.js';
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
@@ -48,7 +48,7 @@ function spawnPlayer(x = PLAYER_START.x, z = PLAYER_START.z, yaw = Math.PI, lo =
   };
   return player;
 }
-const guide = makeLaser(0x7ff0ff);
+const guides = { L: makeLaser(0x7ff0ff), R: makeLaser(0x7ff0ff) };
 
 // map：要用的地圖（不給 = 競技場）；換了才重新載入
 const ARENA = arenaMap();
@@ -352,7 +352,7 @@ function showEndlessResult() {
 // 清掉 need 隊 → 傳送門可以啟動（標在小地圖上）→ 啟動後頭目從天而降、每隔一陣子來一波增援 → 打倒頭目 → 傳送到下一關（整台修好、彈藥補滿）
 // 越後面的關卡 / 越深的區域：敵人傷害和耐久越高；箱子也越貴
 const SPAWN_R = 58, DESPAWN_R = 72, WAKE_R = 24, LOSE_R = 85;
-const START_WEAPONS = { armL: null, armR: 'mg', backL: null, backR: null };
+const START_WEAPONS = { armL: null, armR: 'mg', backL: 'missile', backR: null };   // 右手機槍、左背飛彈
 const COST = { cache: 25, weapon: 35 };
 let EX = null;
 const costOf = base => Math.round(base * (1 + 0.35 * (EN.stage - 1)));
@@ -389,6 +389,7 @@ function startStage(seed) {
   EX.portal = addProp('portal', map.portal.x, map.portal.z);
   for (const c of map.caches) {
     if (c.kind === 'mod') addProp('cache', c.x, c.z, { cost: costOf(COST.cache) });
+    else if (c.kind === 'station') addProp('station', c.x, c.z, { cost: costOf(COST.cache) });
     else addProp('weapon', c.x, c.z, { cost: costOf(COST.weapon), weapon: PLAYER_WEAPONS[Math.floor(R() * PLAYER_WEAPONS.length)] });
   }
   // 迷霧：1 層樓的建築不擋視線
@@ -548,6 +549,7 @@ function promptText(p) {
   if (p.kind === 'cache') return `F・打開補給箱（${p.cost} 零件）${EN.scrap < p.cost ? '・零件不足' : ''}`;
   if (p.kind === 'weapon') return `F・打開武器箱：${WEAPONS[p.weapon].name}（${p.cost} 零件）${EN.scrap < p.cost ? '・零件不足' : ''}`;
   if (p.kind === 'gun') return `F・拿起 ${WEAPONS[p.weapon].name}`;
+  if (p.kind === 'station') return !damaged() ? '修復站・機體沒有損傷' : `F・全機修復（${p.cost} 零件）${EN.scrap < p.cost ? '・零件不足' : ''}`;
   if (p.kind === 'portal') return p.state === 'idle' ? `傳送門・還要清除 ${EX.need - EX.cleared} 支小隊` : p.state === 'ready' ? 'F・啟動傳送門（頭目會出現）' : p.state === 'boss' ? '先打倒頭目' : `F・傳送到第 ${EN.stage + 1} 關`;
   return '';
 }
@@ -557,6 +559,12 @@ function interact(p) {
     EN.scrap -= p.cost; spendProp(p); sfx.reload();
     if (p.kind === 'cache') spawnPickup('mod', p.x, p.z);
     else offerGun(addProp('gun', p.x, p.z + 1.2, { weapon: p.weapon }));
+  } else if (p.kind === 'station') {
+    if (!damaged()) { toast('機體沒有損傷'); sfx.click(); return; }
+    if (EN.scrap < p.cost) { toast(`零件不足（需要 ${p.cost}，現在 ${EN.scrap}）`); sfx.click(); return; }
+    EN.scrap -= p.cost; spendProp(p);
+    rebuild(EN.loadout, null, true);
+    toast('全機修復完成'); sfx.lock();
   } else if (p.kind === 'gun') offerGun(p);
   else if (p.kind === 'portal') {
     if (p.state === 'ready') startBoss(p);
@@ -582,23 +590,28 @@ function equip(p, slot) {
   toast(`${SLOT_NAMES[slot]}：${WEAPONS[p.weapon].name}`); sfx.reload();
 }
 // 換武器 = 照新的配裝重組一台，再把原本的狀態搬過去（各部位耐久比例、壞掉的部位、其他武器的彈藥比例、速度、能量）
+const damaged = () => Object.values(player.parts).some(q => q.broken || q.hp < q.max - 0.5);
 function refit(slot, id) {
+  const prev = EN.loadout[slot];
+  rebuild({ ...EN.loadout, [slot]: id }, slot, false);
+  return prev;
+}
+// 照 lo 重組玩家機體；fresh = 換上的那個掛點（彈藥全滿）；repair = 全部修好（修復站），不然搬原本的耐久
+function rebuild(lo, fresh, repair) {
   const old = player, keep = {}, ammo = {};
   for (const k in old.parts) keep[k] = { r: old.parts[k].hp / old.parts[k].max, broken: old.parts[k].broken };
   for (const s in old.guns) { const g = old.guns[s]; ammo[s] = g.max === Infinity ? 1 : g.ammo / g.max; }
-  const prev = EN.loadout[slot];
-  EN.loadout = { ...EN.loadout, [slot]: id };
+  EN.loadout = lo;
   const st = { vx: old.vx, vz: old.vz, energy: old.energy, legYaw: old.legYaw };
   spawnRunPlayer(old.x, old.z, old.torsoYaw);
   Object.assign(player, st);
   for (const k in player.parts) {
     const q = player.parts[k], o = keep[k];
-    if (!o) continue;
+    if (!o || repair) continue;
     if (o.broken && k !== 'torso') { q.hp = 0; q.broken = true; if (k === 'legs') q.mat.color.setHex(0x5a5048); else q.g.visible = false; }
     else q.hp = Math.max(1, q.max * o.r);
   }
-  for (const s in player.guns) { const g = player.guns[s]; if (s !== slot && ammo[s] != null && g.max !== Infinity) g.ammo = Math.round(g.max * ammo[s]); }
-  return prev;
+  for (const s in player.guns) { const g = player.guns[s]; if (s !== fresh && ammo[s] != null && g.max !== Infinity) g.ammo = Math.round(g.max * ammo[s]); }
 }
 // ---------- 頭目 ----------
 // 完整的機體（隨機組裝），耐久好幾倍；在傳送門附近空降。打倒 → 傳送門打開、掉一個強化模組和一把武器
@@ -997,12 +1010,14 @@ function frame(t) {
   if (!playing) { player.torsoYaw = player.legYaw = G.now * 0.25; poseMech(player, 0); }
   clearPressed();
 
-  // 瞄準線：從上半身正前方射出
-  if (playing && !watching && player.alive && !garage.open) {
-    const f = facing(player), ox = player.x + f.x * 0.9, oz = player.z + f.z * 0.9;
-    const len = rayBlock(ox, oz, f.x, f.z, 22);
-    setLaser(guide, ox, oz, f.x, f.z, len, 1.4, 0.3, 0.03);
-  } else guide.g.visible = false;
+  // 瞄準線：左右各一條，從那一邊目前準備好的武器的槍口、沿上半身正前方射出（子彈就是這樣飛的）；空手、壞掉、劍不畫
+  for (const side of ['L', 'R']) {
+    const slot = activeSlot(player, side), g = player.guns?.[slot];
+    if (playing && !watching && player.alive && !garage.open && g && !player.parts[slot]?.broken && g.def.kind !== 'saber') {
+      const f = facing(player), mz = muzzleOf(player, slot);
+      setLaser(guides[side], mz.x, mz.z, f.x, f.z, rayBlock(mz.x, mz.z, f.x, f.z, 22), mz.y, 0.3, 0.03);
+    } else guides[side].g.visible = false;
+  }
 
   // 鏡頭：跟著玩家、往瞄準方向偏；整備時拉近、讓機體在畫面左邊；主選單拉近看機體
   // 偏多少：瞄準方向上「整個鎖定距離」都要在畫面裡（鎖定得到的敵人一定看得到）；滑鼠拉遠時至少照原本的手感偏（最多 5 格）

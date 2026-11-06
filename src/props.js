@@ -2,6 +2,7 @@
 // cache 補給箱：花零件打開，掉出一個強化模組
 // weapon 武器箱：上面投影出裡面是哪一把（屬性色），花零件打開 → 變成地上的 gun（武器）
 // gun 地上的武器：靠近按 F 裝上（換下來的那把也會丟在地上）
+// station 修復站：花零件把整台修好（包括壞掉的部位），用一次就沒了
 // portal 傳送門：state = idle（條件未達成，暗紅）/ ready（可以啟動，橘色脈動）/ boss（頭目戰中，紅）/ open（可以傳送，青色光柱）
 // 不擋路、不能打壞；玩家站在 RANGE 格內最近的那個可以互動
 import * as THREE from 'three';
@@ -13,6 +14,7 @@ export const props = [];
 export const RANGE = 2.6;
 const CRATE = new THREE.BoxGeometry(1.1, 0.8, 0.8), LONG = new THREE.BoxGeometry(1.6, 0.6, 0.7), STRIP = new THREE.BoxGeometry(1.14, 0.12, 0.84);
 const LONG_STRIP = new THREE.BoxGeometry(1.64, 0.1, 0.74), BAR = new THREE.BoxGeometry(1.1, 0.22, 0.26), RING = new THREE.RingGeometry(2.0, 2.5, 40), RING_S = new THREE.RingGeometry(0.7, 0.82, 24);
+const PAD = new THREE.BoxGeometry(1.8, 0.25, 1.8), CROSS = new THREE.BoxGeometry(1.2, 0.08, 0.36);
 const PILLAR = new THREE.BoxGeometry(0.5, 2.6, 0.5), BEAM = new THREE.CylinderGeometry(1.6, 1.6, 14, 24, 1, true);
 const DARK = fogMaterial(new THREE.MeshLambertMaterial({ color: 0x3a3f4a })), DARK2 = fogMaterial(new THREE.MeshLambertMaterial({ color: 0x2a2d34 }));
 const PORTAL_C = { idle: 0x803028, ready: 0xff9030, boss: 0xff3020, open: 0x60f0ff };
@@ -35,6 +37,12 @@ export function addProp(kind, x, z, data = {}) {
     p.bar.position.y = kind === 'weapon' ? 1.2 : 0.7;
     p.ring = new THREE.Mesh(RING_S, addMat(c, 0.6)); p.ring.rotation.x = -Math.PI / 2; p.ring.position.y = 0.04;
     g.add(p.bar, p.ring);
+  } else if (kind === 'station') {
+    p.box = new THREE.Mesh(PAD, DARK); p.box.position.y = 0.12; p.box.castShadow = true;
+    p.glow = new THREE.Mesh(CROSS, addMat(0x60ff90, 0.9)); p.glow.position.y = 0.3;
+    p.glow2 = new THREE.Mesh(CROSS, p.glow.material); p.glow2.position.y = 0.3; p.glow2.rotation.y = Math.PI / 2;
+    p.ring = new THREE.Mesh(RING_S, addMat(0x60ff90, 0.5)); p.ring.rotation.x = -Math.PI / 2; p.ring.position.y = 0.04; p.ring.scale.setScalar(1.6);
+    g.add(p.box, p.glow, p.glow2, p.ring);
   } else if (kind === 'portal') {
     p.ring = new THREE.Mesh(RING, addMat(PORTAL_C.idle, 0.8)); p.ring.rotation.x = -Math.PI / 2; p.ring.position.y = 0.05;
     p.pillars = [];
@@ -63,8 +71,10 @@ export function setPortal(p, state) {
 export function spendProp(p) {
   p.used = true;
   if (p.glow) p.glow.visible = false;
+  if (p.glow2) p.glow2.visible = false;
+  if (p.kind === 'station') p.ring.visible = false;
   if (p.bar && p.kind === 'weapon') p.bar.visible = p.ring.visible = false;
-  if (p.box) { p.box.rotation.z = 0.25; p.box.position.y = 0.32; }
+  if (p.box && p.kind !== 'station') { p.box.rotation.z = 0.25; p.box.position.y = 0.32; }
 }
 export function removeProp(p) {
   const i = props.indexOf(p);

@@ -8,7 +8,7 @@
 //   ruins 廢墟：一堆矮小的建築散落，中等視線
 //   plaza 廣場：中間一大片空地、外圍一圈建築
 // 遭遇點：每個區域（出發區除外）2～4 個（看面積），離隘口和彼此有一段距離；離出發區越遠（要穿過幾個隘口）越難
-// 補給箱：大約七成的區域有一個（強化模組）、另外 4 個武器箱；傳送門：最深的那一半區域裡挑一個
+// 補給箱：大約七成的區域有一個（強化模組）、另外 4 個武器箱、3 個修復站；傳送門：最深的那一半區域裡挑一個
 // 回傳 { id, seed, W, H, grid, buildings: [[c, r, w, h, 樓層, 風格]], spawn, zones, zoneOf, sites, caches, portal, startZ }
 export const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 
@@ -211,6 +211,7 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 256, H = 
   };
   for (let k = 0; k < NZ; k++) if (rand() < 0.7) place(k, 'mod');
   for (let n = 0; n < 4; n++) { let k; do k = ri(0, NZ - 1); while (k === startZ); place(k, 'weapon'); }
+  for (let n = 0; n < 3; n++) { let k; do k = ri(0, NZ - 1); while (k === startZ); place(k, 'station'); }
 
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) if (grid[r][c] === 'B') grid[r][c] = '.';
   return {

@@ -64,7 +64,7 @@ export function updateMinimap(dt, player, enemies, squads, ex = null) {
     for (const p of props) {
       if (p.kind === 'portal' || !(fs ? exploredAt(p.x, p.z) : seenAt(p.x, p.z))) continue;
       const [x, y] = P(p.x, p.z);
-      g.fillStyle = p.used ? '#5a5e66' : p.kind === 'cache' ? '#c080ff' : '#ffd060';
+      g.fillStyle = p.used ? '#5a5e66' : p.kind === 'cache' ? '#c080ff' : p.kind === 'station' ? '#60ff90' : '#ffd060';
       g.fillRect(x - 2, y - 2, 4, 4);
     }
     if (ex.portalKnown) {
