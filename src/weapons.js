@@ -11,6 +11,7 @@
 import * as THREE from 'three';
 import { UNIT_BOX, addMat, addTrauma, scene } from './core.js';
 import { isBlock, rayBlock } from './arena.js';
+import { blastBuildings, damageBuilding } from './buildings.js';
 import { facing, hitMech, mechs, muzzleOf, slotBroken, useEnergy } from './mech.js';
 import { explosion, flame, hitSparks, muzzleFlash, rampOf, smoke, spawnGlow, spawnPuff, sparks } from './fx.js';
 import { DMG_TYPES, SLOTS, WEAPONS } from './parts.js';
@@ -194,6 +195,7 @@ function impact(s, o, nx, nz, dmg, forced) {
 function blast(s, x, y, z, direct) {
   explosion(x, y, z, 0.38);
   sfx.blast();
+  blastBuildings(x, y, z, s.dmg, s.splash);
   for (const o of mechs) {
     if (!o.alive || o.drop || o.team === s.team || o === direct) continue;
     const dx = o.x - x, dz = o.z - z, dist = Math.hypot(dx, dz);
@@ -228,6 +230,8 @@ function stepBullet(s, i, dt) {
   if (wall < ht) {
     s.x += s.dx * wall; s.z += s.dz * wall;
     hitSparks(s.x, s.y, s.z, -s.dx, -s.dz, s.heavy ? 1.6 : 0.6);
+    if (s.heavy) blastBuildings(s.x, s.y, s.z, s.dmg * 1.5, 0.7);
+    else damageBuilding(s.x, s.y, s.z, s.dmg, s.dx, s.dz);
     smoke(s.x, s.y, s.z, s.heavy ? 3 : 1, 0.7, 0x6a6c72);
     if (s.heavy) explosion(s.x, s.y, s.z, 0.25);
     kill(i); return;

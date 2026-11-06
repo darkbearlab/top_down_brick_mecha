@@ -15,6 +15,7 @@ import { sfx } from './audio.js';
 import { EFFECT, WEAPONS, computeSpec } from './parts.js';
 import { buildMechModel } from './model.js';
 import { collideWrecks, isWreck, startWreck } from './wreck.js';
+import { damageBuilding } from './buildings.js';
 
 export const PART_NAMES = { head: '頭部', torso: '軀幹', armL: '左臂', armR: '右臂', backL: '左背', backR: '右背', legs: '腳部' };
 const ARMOR_OF = { head: 'head', torso: 'torso', armL: 'arms', armR: 'arms', backL: 'torso', backR: 'torso', legs: 'legs' };
@@ -173,6 +174,7 @@ function crash(m, over, nx, nz) {
   damagePart(m, 'legs', dmg * 0.6, nx, nz);
   if (m.alive) damagePart(m, 'torso', dmg * 0.4, nx, nz);
   hitSparks(m.x - nx * m.r, 1, m.z - nz * m.r, nx, nz, 1.2 + over * 0.15);
+  damageBuilding(m.x - nx * (m.r + 0.05), 1, m.z - nz * (m.r + 0.05), over * 30, -nx, -nz);   // 衝撞建築：撞得夠快會撞垮
   burst(m.x - nx * m.r, 0.8, m.z - nz * m.r, [0x7a8090, 0x4a505c], 4, 3);
   sfx.crash();
   if (m.team === 'player') addTrauma(Math.min(0.6, 0.2 + over * 0.06));

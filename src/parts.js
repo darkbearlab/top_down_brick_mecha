@@ -95,7 +95,7 @@ export const ENEMY_PRESETS = [
     armor: { head: 'composite', torso: 'composite', arms: 'composite', legs: 'composite' } },
   { name: '狙擊型', head: 'hunter', core: 'light', legs: 'reverse', armL: null, armR: 'sniper', backL: 'vmissile', backR: null,
     armor: { head: 'mirror', torso: 'mirror', arms: 'mirror', legs: 'mirror' } },
-  { name: '光束型', head: 'std', core: 'light', legs: 'hover', armL: 'beam', armR: 'saber', backL: null, backR: null,
+  { name: '光束型', head: 'std', core: 'std', legs: 'hover', armL: 'beam', armR: 'saber', backL: 'missile', backR: 'split',
     armor: { head: 'ceramic', torso: 'ceramic', arms: 'ceramic', legs: 'ceramic' } },
   { name: '重砲型', head: 'dome', core: 'heavy', legs: 'tread', armL: 'mg', armR: 'mg', backL: 'cannon', backR: 'split',
     armor: { head: 'ceramic', torso: 'composite', arms: 'composite', legs: 'ceramic' } },

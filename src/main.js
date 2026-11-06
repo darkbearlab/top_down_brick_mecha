@@ -4,6 +4,7 @@ import { CAM_PITCH, G, camDist, camTarget, camera, renderer, scene, sun } from '
 import { clearPressed, input, updateInput } from './input.js';
 import { rayBlock } from './arena.js';
 import { ENEMY_COLORS, PLAYER_COLORS, collideMechs, driveMech, facing, makeMech, mechs, poseMech, removeMech, tryBoost } from './mech.js';
+import { resetBuildings, updateBuildings } from './buildings.js';
 import { SLOW_K, clearWrecks, killCam, updateWrecks } from './wreck.js';
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
 import { AI, DIFFS, clearEnemies, enemies, keepEnemies, spawnEnemy, updateEnemy } from './ai.js';
@@ -43,6 +44,7 @@ function resetWorld() {
   clearShots();
   G.paused = false; G.slowMo = 0; G.hitStop = 0;
   clearWrecks();
+  resetBuildings();
   sensors.progress.clear(); sensors.locks = [];
   MODE.endT = 0; MODE.result = null;
   hidePanel();
@@ -330,6 +332,7 @@ function frame(t) {
     collideMechs();
     updateShots(dt);
     updateWrecks(dt, raw);
+    updateBuildings(dt);
     if (!watching) {
       updateSensors(player, enemies, aimPoint, dt);
       if (sensors.locks.length > lastLocks) sfx.lock();
