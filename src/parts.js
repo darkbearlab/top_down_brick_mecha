@@ -82,6 +82,27 @@ export const WEAPONS = {
     model: [[-3, -3, -4, 6, 6, 9, 'f'], [-2, -2, 5, 4, 4, 2, 'w']], muzzle: [0, 0, 7] },
 };
 export const HP_MUL = 1.35;
+
+// ---------- 雜魚機 ----------
+// 一到兩把武器、整台只有一條血（打哪裡都算軀幹）、不能推進、體型小一號、壞了直接炸散（沒有特寫和殘骸）
+// hp = 整台的耐久（不乘 HP_MUL）；armor 每台出場時隨機
+export const GRUNTS = {
+  rifle: { name: '步兵', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'mg', backL: null, backR: null, hp: 110 },
+  rocket: { name: '飛彈兵', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: 'mg', backL: 'missile', backR: null, hp: 110 },
+  heavy: { name: '重步兵', head: 'dome', core: 'std', legs: 'tread', armL: 'shotgun', armR: 'autocannon', backL: null, backR: null, hp: 170 },
+  gun: { name: '砲車', head: 'dome', core: 'std', legs: 'tread', armL: null, armR: null, backL: null, backR: 'cannon', hp: 150 },
+  sniper: { name: '狙擊兵', head: 'hunter', core: 'light', legs: 'reverse', armL: null, armR: 'sniper', backL: null, backR: null, hp: 80 },
+  blade: { name: '劍兵', head: 'std', core: 'light', legs: 'hover', armL: null, armR: 'saber', backL: null, backR: null, hp: 90 },
+};
+// 出場比例：步兵最多，砲車 / 狙擊兵少
+const GRUNT_WEIGHT = { rifle: 5, rocket: 3, heavy: 2, gun: 1.2, sniper: 1.2, blade: 2 };
+export function randomGrunt() {
+  const keys = Object.keys(GRUNTS);
+  let r = Math.random() * keys.reduce((a, k) => a + GRUNT_WEIGHT[k], 0);
+  const k = keys.find(k => (r -= GRUNT_WEIGHT[k]) < 0) ?? 'rifle';
+  const a = Object.keys(ARMORS)[Math.floor(Math.random() * 3)];
+  return { ...GRUNTS[k], id: k, armor: { head: a, torso: a, arms: a, legs: a } };
+}
 export const SLOTS = ['armL', 'armR', 'backL', 'backR'];
 export const SLOT_NAMES = { armL: '左手', armR: '右手', backL: '左背', backR: '右背' };
 export const SLOT_KEYS = { armL: '左鍵', armR: '右鍵', backL: 'Q 切換', backR: 'E 切換' };

@@ -2,14 +2,14 @@ import * as THREE from 'three';
 import { sfx, unlockAudio } from './audio.js';
 import { CAM_PITCH, G, camDist, camTarget, camera, renderer, scene, sun } from './core.js';
 import { clearPressed, input, updateInput } from './input.js';
-import { rayBlock } from './arena.js';
+import { randomOpenSpot, rayBlock } from './arena.js';
 import { ENEMY_COLORS, PLAYER_COLORS, activeSlot, collideMechs, driveMech, facing, makeMech, mechs, poseMech, removeMech, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { resetBuildings, updateBuildings } from './buildings.js';
 import { SLOW_K, clearWrecks, killCam, updateWrecks } from './wreck.js';
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
 import { AI, DIFFS, clearEnemies, enemies, keepEnemies, spawnEnemy, updateEnemy } from './ai.js';
 import { makeLaser, setLaser, updateParticles } from './fx.js';
-import { ARMORS, DMG_TYPES, ENEMY_PRESETS, LEGS, SLOTS, SLOT_KEYS, WEAPONS, loadLoadout, randomLoadout } from './parts.js';
+import { ARMORS, DMG_TYPES, ENEMY_PRESETS, LEGS, SLOTS, SLOT_KEYS, WEAPONS, loadLoadout, randomGrunt, randomLoadout } from './parts.js';
 import { sensors, setSensorsVisible, updateSensors } from './sensors.js';
 import { closeGarage, garage, openGarage } from './garage.js';
 
@@ -20,7 +20,8 @@ const $ = id => document.getElementById(id);
 // duel：一對一，打倒對手或被打倒就結束
 // sandbox：試玩場，敵機一開始停火（T 切換），被打爆會自動重生
 // watch：觀戰，兩台電腦機體互打（現成配裝或隨機組裝），打完自動換一組重開
-const MODE = { name: 'menu', duel: null, endT: 0, round: 0, score: { blue: 0, red: 0 } };
+// watch 有兩種（MODE.kind）：'duel' 一對一、'horde' 王牌 vs 雜魚
+const MODE = { name: 'menu', kind: 'duel', duel: null, endT: 0, round: 0, score: { blue: 0, red: 0 }, horde: null };
 const BLUE_COLORS = { accent: 0x3a8cff, glow: 0x90c0ff };
 // 試玩場從中間偏下出發；對戰 / 觀戰兩邊從競技場左右兩側出發、面對面
 const PLAYER_START = { x: 0, z: 6 }, SIDE_A = { x: -26, z: 0 }, SIDE_B = { x: 26, z: 0 };
@@ -75,7 +76,8 @@ const watchLoadout = () => Math.random() < 0.5 ? ENEMY_PRESETS[Math.floor(Math.r
 function startWatch(fresh = false) {
   resetWorld();
   MODE.name = 'watch';
-  if (fresh) { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
+  if (fresh || MODE.kind !== 'duel') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
+  MODE.kind = 'duel';
   MODE.round++;
   AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.hard;
   if (player) { removeMech(player); player.alive = false; }
@@ -92,16 +94,72 @@ function startWatch(fresh = false) {
   }
   toast(`第 ${MODE.round} 場`);
 }
-AI.onEnemyDeath = () => {
+// ---------- 觀戰：王牌 vs 雜魚 ----------
+// 一台王牌機（強敵難度）從中間降落；雜魚機（新手難度：傷害低、瞄不準、打得慢）一批批從天上隨機撒下來，場上最多 HORDE_MAX 台、總共 HORDE_TOTAL 台
+// 雜魚全滅 → 王牌勝；王牌被打爆 → 雜魚勝
+const HORDE_TOTAL = 18, HORDE_MAX = 5, HORDE_FIRST = 3, HORDE_GAP = 2.2;
+const GRUNT_COLORS = { accent: 0xa8643a, glow: 0xff6a40 };
+function startHorde(fresh = false) {
+  resetWorld();
+  MODE.name = 'watch';
+  if (fresh || MODE.kind !== 'horde') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
+  MODE.kind = 'horde';
+  MODE.round++;
+  AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.hard;
+  if (player) { removeMech(player); player.alive = false; }
+  const ace = spawnEnemy({ x: 0, z: -10 }, watchLoadout(), { x: 0, z: 6 }, { team: 'blue', colors: BLUE_COLORS, diff: DIFFS.hard });
+  MODE.horde = { ace, spawned: 0, killed: 0, t: 1.5 };
+  for (let i = 0; i < HORDE_FIRST; i++) dropGrunt();
+  $('menu').classList.add('hidden'); $('duel').classList.add('hidden'); $('hud').classList.add('hidden');
+  $('watch').classList.remove('hidden');
+  setSensorsVisible(false);
+  $('wBName').textContent = ace.preset.name;
+  $('wBGuns').innerHTML = SLOTS.map(s => ace.preset[s]).filter(Boolean).map(id => `<span class="wt" style="--c:${DMG_TYPES[WEAPONS[id].type].css}">${WEAPONS[id].name}</span>`).join('') +
+    `<span class="wt" style="--c:#8a96a6">${LEGS[ace.preset.legs].name}</span>`;
+  $('wRName').textContent = '雜魚部隊';
+  toast(`第 ${MODE.round} 場・王牌 vs 雜魚`);
+}
+function dropGrunt() {
+  const H = MODE.horde;
+  if (H.spawned >= HORDE_TOTAL) return;
+  H.spawned++;
+  const at = randomOpenSpot(H.ace.x, H.ace.z, 9);
+  const g = spawnEnemy(H.ace, randomGrunt(), at, { team: 'red', colors: GRUNT_COLORS, diff: DIFFS.easy, grunt: true });
+  g.foe = H.ace;
+}
+// 每幀：補雜魚、王牌挑最近的雜魚當目標（現在的目標有 3 格的優勢，不會一直換）
+function updateHorde(dt) {
+  const H = MODE.horde;
+  if (!H || MODE.result) return;
+  const grunts = enemies.filter(e => e.grunt && e.alive);
+  if (grunts.length < HORDE_MAX && (H.t -= dt) <= 0) { H.t = HORDE_GAP * (0.6 + Math.random() * 0.8); dropGrunt(); }
+  let best = null, bd = Infinity;
+  for (const g of grunts) {
+    if (g.drop) continue;
+    const d = Math.hypot(g.x - H.ace.x, g.z - H.ace.z) - (g === H.ace.foe ? 3 : 0);
+    if (d < bd) { bd = d; best = g; }
+  }
+  H.ace.foe = best;
+}
+function endWatch(result) {
+  MODE.result = result;
+  if (result !== 'draw') MODE.score[result]++;
+  MODE.endT = 4.5;
+  const text = MODE.kind === 'horde' ? (result === 'blue' ? '王牌勝利：雜魚全滅' : '王牌被擊墜') : result === 'blue' ? '藍方勝利' : result === 'red' ? '紅方勝利' : '同歸於盡';
+  setTimeout(() => { if (MODE.name === 'watch') toast(text); }, 2000);
+}
+AI.onEnemyDeath = (e) => {
+  if (MODE.name === 'watch' && MODE.kind === 'horde') {
+    const H = MODE.horde;
+    if (MODE.result) return;
+    if (e === H.ace) endWatch('red');
+    else { H.killed++; if (H.killed >= HORDE_TOTAL) endWatch('blue'); }
+    return;
+  }
   if (MODE.name === 'duel' && !enemies.some(e => e.alive) && !MODE.result) { MODE.endT = 3.4; MODE.result = 'win'; }
   if (MODE.name === 'watch' && !MODE.result) {
     const alive = enemies.filter(e => e.alive);
-    if (alive.length <= 1) {
-      MODE.result = alive[0]?.team ?? 'draw';
-      if (MODE.result !== 'draw') MODE.score[MODE.result]++;
-      MODE.endT = 4.5;
-      setTimeout(() => { if (MODE.name === 'watch') toast(MODE.result === 'blue' ? '藍方勝利' : MODE.result === 'red' ? '紅方勝利' : '同歸於盡'); }, 2000);
-    }
+    if (alive.length <= 1) endWatch(alive[0]?.team ?? 'draw');
   }
 };
 function showHud() {
@@ -137,10 +195,11 @@ function showPanel(title, html, buttons) {
 }
 function hidePanel() { $('panel').classList.add('hidden'); }
 const panelOpen = () => !$('panel').classList.contains('hidden');
-function restart() { MODE.name === 'duel' ? startDuel(MODE.duel.preset, MODE.duel.diffKey) : MODE.name === 'watch' ? startWatch() : startSandbox(); }
+function restart() { MODE.name === 'duel' ? startDuel(MODE.duel.preset, MODE.duel.diffKey) : MODE.name === 'watch' ? nextWatch() : startSandbox(); }
+const nextWatch = () => MODE.kind === 'horde' ? startHorde() : startWatch();
 function pause() {
   G.paused = true;
-  showPanel('暫停', MODE.name === 'duel' ? `對戰・${DIFFS[MODE.duel.diffKey].name}` : MODE.name === 'watch' ? `觀戰・第 ${MODE.round} 場` : '試玩場', [
+  showPanel('暫停', MODE.name === 'duel' ? `對戰・${DIFFS[MODE.duel.diffKey].name}` : MODE.name === 'watch' ? `觀戰${MODE.kind === 'horde' ? '（王牌 vs 雜魚）' : ''}・第 ${MODE.round} 場` : '試玩場', [
     { label: '繼續', primary: true, run: () => { hidePanel(); G.paused = false; } },
     { label: MODE.name === 'watch' ? '下一場' : '重新開始', run: restart },
     ...(MODE.name === 'duel' ? [{ label: '換對手', run: openDuelSetup }] : []),
@@ -169,6 +228,7 @@ const HELP = `<div class="help">
 $('mDuel').onclick = () => { unlockAudio(); sfx.click(); openDuelSetup(); };
 $('mSandbox').onclick = () => { unlockAudio(); sfx.click(); startSandbox(); };
 $('mWatch').onclick = () => { unlockAudio(); sfx.click(); startWatch(true); };
+$('mHorde').onclick = () => { unlockAudio(); sfx.click(); startHorde(true); };
 $('mGarage').onclick = () => { unlockAudio(); sfx.click(); openGarageFrom('menu'); };
 $('mHelp').onclick = () => { unlockAudio(); sfx.click(); showPanel('操作說明', HELP, [{ label: '返回', primary: true, run: hidePanel }]); };
 
@@ -330,6 +390,7 @@ function frame(t) {
       if (input.readyR && !toggleReady(player, 'R')) sfx.click();
       updateGuns(player, { L: input.fireL, R: input.fireR }, dt, sensors.locks, aimPoint);
     } else if (MODE.name === 'sandbox' && (respawnT -= dt) <= 0) { spawnPlayer(); toast('重新出擊'); }
+    if (watching && MODE.kind === 'horde') updateHorde(dt);
     for (const e of enemies.slice()) {
       updateEnemy(e, dt, e.foe ?? player);
       if (e.alive && !e.drop) driveMech(e, dt, e.drive.mx, e.drive.mz, e.aimYaw);
@@ -345,7 +406,7 @@ function frame(t) {
       lastLocks = sensors.locks.length;
     }
     // 對戰結束：倒下的動畫播一下再出結果；觀戰：自動下一場
-    if (MODE.endT > 0 && (MODE.endT -= raw) <= 0) watching ? startWatch() : showResult(MODE.result === 'win');
+    if (MODE.endT > 0 && (MODE.endT -= raw) <= 0) watching ? nextWatch() : showResult(MODE.result === 'win');
   }
   if (!playing || dt > 0 || garage.open) updateParticles(playing ? dt : raw);
   for (const m of mechs) poseMech(m, dt);
@@ -378,7 +439,9 @@ function frame(t) {
   // 觀戰：鏡頭看兩台的中間，離得越遠拉得越遠
   let fx = player.x, fz = player.z + REST_Z, distK = 1;
   if (watching) {
-    const live = enemies.filter(e => e.alive && !e.drop), all = live.length ? live : enemies;
+    // 王牌 vs 雜魚：看王牌和它現在的目標
+    const pool = MODE.kind === 'horde' && MODE.horde ? [MODE.horde.ace, MODE.horde.ace.foe].filter(Boolean) : enemies;
+    const live = pool.filter(e => e.alive && !e.drop), all = live.length ? live : pool;
     if (all.length) {
       fx = all.reduce((a, e) => a + e.x, 0) / all.length; fz = all.reduce((a, e) => a + e.z, 0) / all.length - 0.8;
       const sep = all.length > 1 ? Math.hypot(all[0].x - all[1].x, all[0].z - all[1].z) : 0;
@@ -405,8 +468,12 @@ function frame(t) {
 
   if (playing && !watching) updateHud();
   if (watching) {
-    const blue = enemies.find(e => e.team === 'blue'), red = enemies.find(e => e.team === 'red');
+    const blue = enemies.find(e => e.team === 'blue'), red = MODE.kind === 'horde' ? null : enemies.find(e => e.team === 'red');
     paintDoll($('dollB'), blue?.alive ? blue : null); paintDoll($('dollR'), red?.alive ? red : null);
+    if (MODE.kind === 'horde' && MODE.horde) {
+      const H = MODE.horde, onField = enemies.filter(e => e.grunt && e.alive).length;
+      $('wRGuns').innerHTML = `<span class="wt" style="--c:#e08a50">擊破 ${H.killed} / ${HORDE_TOTAL}</span><span class="wt" style="--c:#8a96a6">場上 ${onField}</span>`;
+    }
     $('wScore').innerHTML = `<b class="blue">${MODE.score.blue}</b> : <b class="red">${MODE.score.red}</b>`;
     $('wRound').textContent = `第 ${MODE.round} 場`;
     $('wNext').textContent = MODE.result && MODE.endT > 0 ? `${Math.ceil(MODE.endT)} 秒後下一場` : '';
@@ -415,7 +482,7 @@ function frame(t) {
 }
 addEventListener('pointerdown', unlockAudio);
 addEventListener('keydown', unlockAudio);
-window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, showMenu, paused: false };
+window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, startHorde, showMenu, paused: false };
 showMenu();
 camTarget.set(player.x, 0, player.z);
 nextFrame(frame);

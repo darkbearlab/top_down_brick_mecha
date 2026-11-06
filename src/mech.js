@@ -30,9 +30,14 @@ export const PLAYER_COLORS = { accent: 0x2aa8c8, glow: 0x7ff0ff };
 export const ENEMY_COLORS = { accent: 0xe07a2a, glow: 0xff5040 };
 
 export const mechs = [];
-export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, hpMul = 1, ace = true }) {
+// grunt：雜魚機（{ hp }）：整台一條血、不能推進、體型 GRUNT_SCALE、不是主力機（壞了直接炸散）
+export const GRUNT_SCALE = 0.8;
+export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, hpMul = 1, ace = true, grunt = null }) {
   const spec = computeSpec(loadout);
+  if (grunt) spec.hp.torso = grunt.hp;
   const M = buildMechModel(loadout, colors);
+  const k = grunt ? GRUNT_SCALE : 1;
+  M.root.scale.setScalar(k);
   M.root.position.set(x, 0, z);
   scene.add(M.root);
   const parts = {};
@@ -41,10 +46,10 @@ export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, h
     parts[k] = { ...M.parts[k], hp: max, max, broken: false, flash: 0, smokeT: Math.random(), armor: loadout.armor[ARMOR_OF[k]] };
   }
   const m = {
-    team, colors, loadout, spec, model: M, parts, x, z, vx: 0, vz: 0, r: loadout.legs === 'tread' ? 0.95 : 0.85,
+    team, colors, loadout, spec, model: M, parts, x, z, vx: 0, vz: 0, r: (loadout.legs === 'tread' ? 0.95 : 0.85) * k, k, grunt: !!grunt,
     legYaw: yaw, torsoYaw: yaw, walk: 0, lean: { x: 0, z: 0 }, lastV: { x: 0, z: 0 }, bob: 0,
     energy: 100, energyT: 0, boostT: 0, boostCd: 0, boostDir: { x: 0, z: 0 }, stuckT: 0, stuckMax: 0, stuckN: { x: 0, z: 0 },
-    alive: true, ace, surf: null, guns: null, onDeath: null, swing: null,
+    alive: true, ace: ace && !grunt, surf: null, guns: null, onDeath: null, swing: null,
     // 背部武器準備：ready = 那一邊現在用背部武器、deployT = 展開 / 收回中還剩幾秒（不能開火）、readyK = 動畫 0..1
     ready: { L: false, R: false }, deployT: { L: 0, R: 0 }, readyK: { L: 0, R: 0 },
   };
@@ -55,8 +60,8 @@ export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, h
 export const legK = m => m.parts.legs.broken ? 0.35 : 0.65 + 0.35 * m.parts.legs.hp / m.parts.legs.max;
 export const facing = m => ({ x: Math.sin(m.torsoYaw), z: Math.cos(m.torsoYaw) });
 export function toWorld(m, [lx, ly, lz]) {
-  const s = Math.sin(m.torsoYaw), c = Math.cos(m.torsoYaw);
-  return { x: m.x + lx * c + lz * s, y: m.model.hipY + ly, z: m.z - lx * s + lz * c };
+  const s = Math.sin(m.torsoYaw), c = Math.cos(m.torsoYaw), k = m.k ?? 1;
+  return { x: m.x + (lx * c + lz * s) * k, y: (m.model.hipY + ly) * k, z: m.z + (-lx * s + lz * c) * k };
 }
 export const slotBroken = (m, slot) => !m.parts[slot] || m.parts[slot].broken;
 // 背部武器架上肩膀時往上、往前移的量（方塊單位 1/16）
@@ -117,7 +122,7 @@ export function boostDirOf(m, mx, mz) {
 }
 export const boostKOf = m => m.spec.boost * (m.parts.legs.broken ? 0.75 : 1);
 export function tryBoost(m, mx, mz) {
-  if (!m.alive || m.boostCd > 0 || m.energy < BOOST_COST) return false;
+  if (!m.alive || m.grunt || m.boostCd > 0 || m.energy < BOOST_COST) return false;
   const d = boostDirOf(m, mx, mz), k = boostKOf(m);
   // 噴射只往一個方向：原本的速度只留沿著噴射方向的分量（往反方向跑的會被抵銷），橫向的全部吃掉
   const along = Math.max(0, m.vx * d.x + m.vz * d.z);
@@ -260,8 +265,9 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null)
   const a = Math.abs(angleDiff(m.torsoYaw, Math.atan2(fromX, fromZ)));
   const right = fromX * -f.z + fromZ * f.x > 0;
   const dir = a < 0.7 ? 'front' : a < 2.27 ? 'side' : 'rear';
-  const part = forced ?? pickPart(m, dir, right);
-  const mul = part === 'torso' && !forced ? TORSO_MUL[dir] : 1;
+  // 雜魚機整台算同一個部位
+  const part = m.grunt ? 'torso' : forced ?? pickPart(m, dir, right);
+  const mul = part === 'torso' && !forced && !m.grunt ? TORSO_MUL[dir] : 1;
   const eff = EFFECT[type][m.parts[part].armor] ?? 1;
   m.vx += dx * kb; m.vz += dz * kb;
   damagePart(m, part, dmg * mul * eff, dx, dz);
@@ -269,6 +275,7 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null)
 }
 
 export function damagePart(m, name, dmg, dx = 0, dz = 0) {
+  if (m.grunt) name = 'torso';
   const p = m.parts[name];
   if (!m.alive || !p) return;
   p.flash = 0.07;
@@ -302,6 +309,16 @@ function destroyMech(m, dx, dz) {
   if (m.ace) { startWreck(m, dx, dz); m.onDeath?.(m); return; }
   for (const k in m.parts) if (m.parts[k].g.visible) voxelBurst(m.parts[k].g, 40, 7, m.x, m.z, dx * 3, dz * 3);
   burst(m.x, 1, m.z, [0x2a2a2e, 0x1a1a1e, m.colors.accent], 14, 7);
+  if (m.grunt) {
+    // 雜魚：小爆炸就好（一大群一直死，不要每台都停格慢動作）
+    explosion(m.x, 0.9, m.z, 0.8);
+    burnAt(m.x, 0.25, m.z, 3, 0.8);
+    scene.remove(m.model.root);
+    sfx.explode();
+    addTrauma(0.2);
+    m.onDeath?.(m);
+    return;
+  }
   explosion(m.x, 1.1, m.z, 1.25);
   setTimeout(() => explosion(m.x + (Math.random() - 0.5) * 0.8, 0.8, m.z + (Math.random() - 0.5) * 0.8, 0.6), 160);
   burnAt(m.x, 0.25, m.z, 5, 1.1);
