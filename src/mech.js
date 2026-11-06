@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { G, addTrauma, angleDiff, approachAngle, scene } from './core.js';
 import { collideBlocks, surfaceAt } from './arena.js';
-import { burnAt, burst, explosion, fire, flame, hitSparks, smoke, sparks, spawnPuff, voxelBurst } from './fx.js';
+import { RAMP, burnAt, burst, explosion, fire, flame, hitSparks, smoke, sparks, spawnGlow, spawnPuff, voxelBurst } from './fx.js';
 import { sfx } from './audio.js';
 import { EFFECT, WEAPONS, computeSpec } from './parts.js';
 import { buildMechModel } from './model.js';
@@ -303,6 +303,31 @@ function breakPart(m, name, dx, dz) {
   } else p.g.visible = false;
 }
 
+const RR = (a, b) => a + Math.random() * (b - a);
+function gruntBoom(m, dx, dz) {
+  const x = m.x, z = m.z, y = m.model.hipY * m.k + 0.4;
+  explosion(x, y, z, 1.15);
+  setTimeout(() => explosion(x + RR(-0.5, 0.5), y - 0.2, z + RR(-0.5, 0.5), 0.75), 120);
+  // 火花：很多、很快、往四面八方（偏向被打的方向）噴，落地會彈
+  for (let i = 0; i < 160; i++) {
+    const a = Math.random() * Math.PI * 2, el = RR(0.1, 1.25), sp = RR(6, 17);
+    spawnGlow({ x: x + RR(-0.2, 0.2), y: y + RR(-0.2, 0.3), z: z + RR(-0.2, 0.2),
+      vx: Math.cos(a) * Math.cos(el) * sp + dx * 3, vy: Math.sin(el) * sp, vz: Math.sin(a) * Math.cos(el) * sp + dz * 3,
+      life: RR(0.5, 1.3), s0: RR(0.07, 0.14), s1: 0.02, ramp: RAMP.spark, g: 18, drag: 0.8, bounce: true });
+  }
+  // 火塊：大顆、慢一點、拖著燒
+  for (let i = 0; i < 26; i++) {
+    const a = Math.random() * Math.PI * 2, sp = RR(3, 8);
+    spawnGlow({ x, y, z, vx: Math.cos(a) * sp + dx * 2, vy: RR(3, 8), vz: Math.sin(a) * sp + dz * 2,
+      life: RR(0.7, 1.4), s0: RR(0.2, 0.34), s1: 0.04, ramp: RAMP.fire, g: 10, drag: 0.7, bounce: true });
+  }
+  for (let i = 0; i < 40; i++) {
+    const a = Math.random() * Math.PI * 2, sp = RR(2, 6);
+    spawnGlow({ x, y, z, vx: Math.cos(a) * sp, vy: RR(2, 6), vz: Math.sin(a) * sp, life: RR(0.8, 1.6), s0: 0.06, s1: 0.02, ramp: RAMP.ember, g: 5, drag: 0.6 });
+  }
+  smoke(x, y, z, 6, 1.4, 0x2a2a2e);
+  G.hitStop = Math.max(G.hitStop, 0.03);
+}
 function destroyMech(m, dx, dz) {
   m.alive = false;
   // 主力機體：慢動作特寫 + 留下燒著的殘骸（src/wreck.js）
@@ -310,12 +335,12 @@ function destroyMech(m, dx, dz) {
   for (const k in m.parts) if (m.parts[k].g.visible) voxelBurst(m.parts[k].g, 40, 7, m.x, m.z, dx * 3, dz * 3);
   burst(m.x, 1, m.z, [0x2a2a2e, 0x1a1a1e, m.colors.accent], 14, 7);
   if (m.grunt) {
-    // 雜魚：小爆炸就好（一大群一直死，不要每台都停格慢動作）
-    explosion(m.x, 0.9, m.z, 0.8);
-    burnAt(m.x, 0.25, m.z, 3, 0.8);
+    // 雜魚：不停格、不慢動作（一大群一直死），但要炸得好看：兩段爆炸 + 一大把往外噴的火花和火塊
+    gruntBoom(m, dx, dz);
+    burnAt(m.x, 0.25, m.z, 3.5, 0.9);
     scene.remove(m.model.root);
     sfx.explode();
-    addTrauma(0.2);
+    addTrauma(0.35);
     m.onDeath?.(m);
     return;
   }
