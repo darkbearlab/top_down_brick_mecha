@@ -8,7 +8,7 @@
 // 推進衝刺：直接給一段速度，不受抓地力限制
 // 部位：頭、軀幹、左臂、右臂、左背、右背、腳，各自有血量和裝甲種類
 import * as THREE from 'three';
-import { G, addTrauma, angleDiff, approachAngle, scene } from './core.js';
+import { G, addMat, addTrauma, angleDiff, approachAngle, scene } from './core.js';
 import { collideBlocks, surfaceAt } from './arena.js';
 import { RAMP, burnAt, burst, explosion, fire, flame, hitSparks, smoke, sparks, spawnGlow, spawnPuff, voxelBurst } from './fx.js';
 import { sfx } from './audio.js';
@@ -32,12 +32,20 @@ export const ENEMY_COLORS = { accent: 0xe07a2a, glow: 0xff5040 };
 export const mechs = [];
 // grunt：雜魚機（{ hp }）：整台一條血、不能推進、體型 GRUNT_SCALE、不是主力機（壞了直接炸散）
 export const GRUNT_SCALE = 0.8;
+const TEAM_RING = new THREE.RingGeometry(0.95, 1.2, 28);
 export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, hpMul = 1, ace = true, grunt = null }) {
   const spec = computeSpec(loadout);
   if (grunt) spec.hp.torso = grunt.hp;
   const M = buildMechModel(loadout, colors);
   const k = grunt ? GRUNT_SCALE : 1;
   M.root.scale.setScalar(k);
+  // 雜魚腳下一圈派系色的光環：一群混在一起時一眼分得出誰是哪邊
+  if (grunt) {
+    const ring = new THREE.Mesh(TEAM_RING, addMat(colors.glow, 0.55));
+    ring.rotation.x = -Math.PI / 2;
+    ring.position.y = 0.04;
+    M.root.add(ring);
+  }
   M.root.position.set(x, 0, z);
   scene.add(M.root);
   const parts = {};
@@ -332,7 +340,9 @@ function destroyMech(m, dx, dz) {
   m.alive = false;
   // 主力機體：慢動作特寫 + 留下燒著的殘骸（src/wreck.js）
   if (m.ace) { startWreck(m, dx, dz); m.onDeath?.(m); return; }
-  for (const k in m.parts) if (m.parts[k].g.visible) voxelBurst(m.parts[k].g, 40, 7, m.x, m.z, dx * 3, dz * 3);
+  // 雜魚：碎片燒得焦黑、三成還著火（被火焰籠罩的感覺）
+  const fxOpts = m.grunt ? { char: 0.72, burn: 0.3 } : null;
+  for (const k in m.parts) if (m.parts[k].g.visible) voxelBurst(m.parts[k].g, m.grunt ? 55 : 40, 7, m.x, m.z, dx * 3, dz * 3, fxOpts);
   burst(m.x, 1, m.z, [0x2a2a2e, 0x1a1a1e, m.colors.accent], 14, 7);
   if (m.grunt) {
     // 雜魚：不停格、不慢動作（一大群一直死），但要炸得好看：兩段爆炸 + 一大把往外噴的火花和火塊

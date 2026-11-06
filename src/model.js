@@ -23,7 +23,9 @@ function partGroup(boxes, pal, parent, armor) {
   parent.add(g);
   return { g, mat, base };
 }
-const pal = (armor, team, wtype) => ({ a: ARMORS[armor].hex, f: FRAME, t: team.accent, g: team.glow, w: wtype ? DMG_TYPES[wtype].hex : team.accent });
+// team.tint：裝甲色往隊伍色混多少（雜魚用，整台看起來就是那一邊的顏色）
+const mix = (a, b, k) => k ? new THREE.Color(a).lerp(new THREE.Color(b), k).getHex() : a;
+const pal = (armor, team, wtype) => ({ a: mix(ARMORS[armor].hex, team.accent, team.tint ?? 0), f: mix(FRAME, team.accent, (team.tint ?? 0) * 0.35), t: team.accent, g: team.glow, w: wtype ? DMG_TYPES[wtype].hex : team.accent });
 
 // 腳的模型
 function buildLegs(lo, team, legsG) {

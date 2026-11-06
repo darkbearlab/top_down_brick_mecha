@@ -46,9 +46,19 @@ export function burst(x, y, z, colors, n, power, bx = 0, bz = 0) {
   }
 }
 // 零件炸開：直接拿零件身上的方塊往外噴（cx, cz = 爆炸中心）
-export function voxelBurst(root, n, power, cx, cz, bx = 0, bz = 0) {
+// opts.char：顏色往焦黑壓多少（0..1）；opts.burn：每塊有多少機率是著火的（飛的時候一路冒火）
+const CHAR_C = new THREE.Color(0x16120f), charC = new THREE.Color();
+function charred(c, k) {
+  charC.set(c).lerp(CHAR_C, k);
+  // 量化一下，材質快取不要爆
+  const q = v => Math.round(v * 24) / 24;
+  return charC.setRGB(q(charC.r), q(charC.g), q(charC.b)).getHex();
+}
+export function voxelBurst(root, n, power, cx, cz, bx = 0, bz = 0, opts = null) {
   for (const v of sampleVoxels(root, n)) {
-    const m = new THREE.Mesh(DEBRIS_GEO, debrisMat(v.c));
+    const burning = opts?.burn && Math.random() < opts.burn;
+    const c = opts?.char ? charred(v.c, Math.min(1, opts.char * (0.75 + Math.random() * 0.5) + (burning ? 0.15 : 0))) : v.c;
+    const m = new THREE.Mesh(DEBRIS_GEO, debrisMat(c));
     const s = 0.6 + Math.random() * 0.6;
     m.scale.setScalar(s);
     m.position.set(v.x, v.y, v.z);
@@ -58,9 +68,9 @@ export function voxelBurst(root, n, power, cx, cz, bx = 0, bz = 0) {
     const ol = Math.hypot(ox, oz) || 1;
     ox /= ol; oz /= ol;
     const p = power * (0.4 + Math.random() * 0.8);
-    debris.push({ m, s, life: 2 + Math.random() * 1.5,
+    debris.push({ m, s, life: 2 + Math.random() * 1.5 + (burning ? 0.8 : 0),
       vx: ox * p + (Math.random() - 0.5) * 2 + bx, vy: 2 + Math.random() * power * 0.9, vz: oz * p + (Math.random() - 0.5) * 2 + bz,
-      sx: (Math.random() - 0.5) * 20, sz: (Math.random() - 0.5) * 20 });
+      sx: (Math.random() - 0.5) * 20, sz: (Math.random() - 0.5) * 20, burn: burning ? 1 : 0, burnAcc: 0 });
   }
 }
 // ---------- 方塊粒子（全部用方塊：火花、火焰、爆炸、煙） ----------
@@ -226,6 +236,16 @@ export function updateParticles(dt) {
     if (p.y < 0.08) { p.y = 0.08; d.vy *= -0.35; d.vx *= 0.55; d.vz *= 0.55; d.sx *= 0.5; d.sz *= 0.5; }
     if (wallTest(p.x, p.z) && p.y < WALL_H) { d.vx *= -0.4; d.vz *= -0.4; p.x += d.vx * dt * 2; p.z += d.vz * dt * 2; }
     d.life -= dt;
+    // 著火的碎塊：一路冒火、拖黑煙，火慢慢變小
+    if (d.burn && d.life > 0.3) {
+      d.burnAcc += dt * 28;
+      while (d.burnAcc >= 1) {
+        d.burnAcc--;
+        spawnGlow({ x: p.x + R(-0.06, 0.06), y: p.y + 0.05, z: p.z + R(-0.06, 0.06), vx: R(-0.3, 0.3), vy: R(1, 2.2), vz: R(-0.3, 0.3),
+          life: R(0.25, 0.45), s0: R(0.12, 0.22) * Math.min(1, d.life / 1.5 + 0.3), s1: 0, ramp: RAMP.fire, drag: 1 });
+      }
+      if (Math.random() < dt * 6) spawnPuff({ x: p.x, y: p.y + 0.15, z: p.z, vx: 0, vy: R(0.6, 1.1), vz: 0, life: R(0.8, 1.3), s: R(0.12, 0.2), c0: 0x16161a, c1: 0x3a3c42, drag: 0.6 });
+    }
     if (d.life < 0.4) d.m.scale.setScalar(d.s * Math.max(0, d.life / 0.4));
     if (d.life <= 0) { scene.remove(d.m); debris.splice(i, 1); }
   }

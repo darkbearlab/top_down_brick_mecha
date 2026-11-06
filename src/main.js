@@ -98,7 +98,8 @@ function startWatch(fresh = false) {
 // 一台王牌機（強敵難度）從中間降落；雜魚機（新手難度：傷害低、瞄不準、打得慢）一批批從天上隨機撒下來，場上最多 HORDE_MAX 台、總共 HORDE_TOTAL 台
 // 雜魚全滅 → 王牌勝；王牌被打爆 → 雜魚勝
 const HORDE_TOTAL = 18, HORDE_MAX = 5, HORDE_FIRST = 3, HORDE_GAP = 2.2;
-const GRUNT_COLORS = { accent: 0xa8643a, glow: 0xff6a40 };
+// 雜魚的派系色：裝甲混 78% 隊伍色、腳下一圈光環
+const GRUNT_COLORS = { accent: 0xa8321a, glow: 0xff5a30, tint: 0.78 };
 function startHorde(fresh = false) {
   resetWorld();
   MODE.name = 'watch';
@@ -145,7 +146,7 @@ function updateHorde(dt) {
 // 藍、紅兩隊雜魚（普通難度）各 SK_TOTAL 台，從自己那半邊一批批空投，場上每隊最多 SK_MAX 台；先全滅的輸
 // 每台自動挑最近的敵方雜魚打；鏡頭看所有還活著的雜魚的中間，散得越開拉得越遠
 const SK_TOTAL = 12, SK_MAX = 5, SK_FIRST = 3, SK_GAP = 2.4;
-const GRUNT_BLUE = { accent: 0x3a72b0, glow: 0x80b8ff };
+const GRUNT_BLUE = { accent: 0x2a62c0, glow: 0x70b0ff, tint: 0.78 };
 function spotOnSide(side) {
   for (let i = 0; i < 40; i++) { const p = randomOpenSpot(0, 0, 0); if (side < 0 ? p.x < -8 : p.x > 8) return p; }
   return { x: side * 26, z: 0 };
