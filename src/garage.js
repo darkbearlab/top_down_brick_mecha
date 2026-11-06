@@ -1,7 +1,7 @@
 // ---------- 整備（組裝機體） ----------
 // G 開關；左邊選要換哪個部位，中間列出可以用的零件和數值，右邊是整台機體的數值與負重
 // 改了馬上換到場上的機體上看得到；配裝存在瀏覽器裡
-import { ARMORS, ARMOR_PARTS, CORES, DMG_TYPES, EFFECT, HEADS, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, WEAPONS, computeSpec, saveLoadout } from './parts.js';
+import { ARMORS, ARMOR_PARTS, CORES, DMG_TYPES, EFFECT, HEADS, HP_MUL, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, WEAPONS, computeSpec, saveLoadout } from './parts.js';
 import { sfx } from './audio.js';
 
 const $ = id => document.getElementById(id);
@@ -30,11 +30,11 @@ function options(key) {
     return { id, name: A.name, html: `${armorTag(id)} 擋 ${typeTag(good)}・怕 ${typeTag(bad)}` };
   });
   if (key === 'head') return Object.entries(HEADS).map(([id, H]) => ({ id, name: H.name,
-    html: `視野 ${H.vision}°・${H.range} 格・雷達 ${H.radar}<br>鎖定 ${H.lockCount} 台・${H.lockTime}s・${H.lockRange} 格${H.intel ? '・敵情' : ''}<br>耐久 ${H.hp}・重 ${H.weight}` }));
+    html: `視野 ${H.vision}°・${H.range} 格・雷達 ${H.radar}<br>鎖定 ${H.lockCount} 台・${H.lockTime}s・${H.lockRange} 格${H.intel ? '・敵情' : ''}<br>耐久 ${Math.round(H.hp * HP_MUL)}・重 ${H.weight}` }));
   if (key === 'core') return Object.entries(CORES).map(([id, C]) => ({ id, name: C.name,
-    html: `耐久 ${C.hp}・轉速 ${C.turn}<br>手臂負重 ${C.armLoad}・背部負重 ${C.backLoad}・重 ${C.weight}` }));
+    html: `耐久 ${Math.round(C.hp * HP_MUL)}・轉速 ${C.turn}<br>手臂負重 ${C.armLoad}・背部負重 ${C.backLoad}・重 ${C.weight}` }));
   if (key === 'legs') return Object.entries(LEGS).map(([id, L]) => ({ id, name: L.name,
-    html: `極速 ${L.vmax}・加速 ${L.acc}・轉向 ${L.legTurn}<br>負重 ${L.maxLoad}・衝刺 ×${L.boost}・耐久 ${L.hp}${L.type === 'tread' ? '<br>只能前後開＋旋轉' : L.type === 'hover' ? '<br>到處都滑、不怕泥地' : ''}` }));
+    html: `極速 ${L.vmax}・加速 ${L.acc}・轉向 ${L.legTurn}<br>負重 ${L.maxLoad}・衝刺 ×${L.boost}・耐久 ${Math.round(L.hp * HP_MUL)}${L.type === 'tread' ? '<br>只能前後開＋旋轉' : L.type === 'hover' ? '<br>到處都滑、不怕泥地' : ''}` }));
   const mount = key.startsWith('arm') ? 'arm' : 'back';
   return [{ id: null, name: '（空）', html: '不裝武器' }, ...Object.entries(WEAPONS).filter(([, W]) => W.mount === mount).map(([id, W]) => ({ id, name: W.name,
     html: `${typeTag(W.type)} 傷害 ${W.dmg}${W.pellets ? '×' + W.pellets : W.salvo > 1 ? '×' + W.salvo : ''}・${(1 / W.interval).toFixed(1)} 發/秒<br>` +

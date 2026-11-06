@@ -78,6 +78,7 @@ export const WEAPONS = {
   split: { name: '分裂飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'split', interval: 1.8, mag: 4, reload: 3.4, dmg: 11, salvo: 1, bomblets: 6, speed: 12, accel: 10, maxSpeed: 17, turn: 1.6, life: 2.4, size: 0.18, splash: 1.0,
     model: [[-3, -3, -4, 6, 6, 9, 'f'], [-2, -2, 5, 4, 4, 2, 'w']], muzzle: [0, 0, 7] },
 };
+export const HP_MUL = 1.35;
 export const SLOTS = ['armL', 'armR', 'backL', 'backR'];
 export const SLOT_NAMES = { armL: '左手', armR: '右手', backL: '左背', backR: '右背' };
 export const SLOT_KEYS = { armL: '左鍵', armR: '右鍵', backL: 'Q 切換', backR: 'E 切換' };
@@ -137,7 +138,8 @@ export function computeSpec(lo) {
     vmax: legs.vmax * moveK, acc: legs.acc * moveK, legTurn: legs.legTurn * (loadK > 1 ? 0.8 : 1),
     turn: core.turn * (armOver ? 0.7 : 1), spreadMul: armOver ? 1.6 : 1,
     regen: backOver ? 0.6 : 1, boost: legs.boost * (loadK > 1 ? 0.8 : 1),
-    hp: { head: head.hp, torso: core.hp, armL: Math.round(core.hp * 0.38), armR: Math.round(core.hp * 0.38), legs: legs.hp },
+    // 整體耐久 ×HP_MUL（節奏放慢、多打幾輪）；背部武器的掛架也有自己的耐久
+    hp: { head: head.hp * HP_MUL, torso: core.hp * HP_MUL, armL: Math.round(core.hp * 0.38 * HP_MUL), armR: Math.round(core.hp * 0.38 * HP_MUL), backL: 70 * HP_MUL, backR: 70 * HP_MUL, legs: legs.hp * HP_MUL },
   };
 }
 

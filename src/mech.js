@@ -235,29 +235,33 @@ function crash(m, over, nx, nz) {
 }
 
 // ---------- 被打中 ----------
-// 依子彈打來的方向決定打到哪：
-//   正面 ±40°：軀幹（正面減傷 ×0.75），兩成打到頭
-//   側面：那一側的手臂（手臂沒了打軀幹）
-//   背面：一半打到那一側的背部武器，其他打軀幹弱點（×1.4）
-//   另外一成五機率打到腳
+// 依子彈打來的方向，照權重抽打到哪個部位（被打掉的部位改打軀幹）：
+//   正面 ±40°：軀幹 55%（正面裝甲最厚 ×0.6）、頭 12%、左右手各 9%（手臂擋在前面）、腳 15%
+//   側面：靠這邊的手臂 45%、軀幹 25%（×0.85）、靠這邊的背部 6%、頭 8%、腳 16%
+//   背面：軀幹 40%（弱點 ×1.35）、靠這邊的背部 30%、頭 8%、腳 22%
 // 再乘上 武器屬性 × 裝甲種類 的剋制倍率
 // 回傳 { part, eff }：eff < 1 = 被裝甲擋下、> 1 = 剋制
+const HIT_TABLE = {
+  front: { torso: 55, head: 12, armL: 9, armR: 9, legs: 15 },
+  side: { arm: 45, torso: 25, back: 6, head: 8, legs: 16 },
+  rear: { torso: 40, back: 30, head: 8, legs: 22 },
+};
+const TORSO_MUL = { front: 0.6, side: 0.85, rear: 1.35 };
+function pickPart(m, dir, right) {
+  const T = HIT_TABLE[dir], near = right ? 'R' : 'L';
+  let r = Math.random() * Object.values(T).reduce((a, b) => a + b, 0), k = 'torso';
+  for (const key in T) { if ((r -= T[key]) < 0) { k = key; break; } }
+  const part = k === 'arm' ? 'arm' + near : k === 'back' ? 'back' + near : k;
+  return !m.parts[part] || m.parts[part].broken ? 'torso' : part;
+}
 export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null) {
   if (!m.alive) return null;
   const fromX = -dx, fromZ = -dz, f = facing(m);
   const a = Math.abs(angleDiff(m.torsoYaw, Math.atan2(fromX, fromZ)));
   const right = fromX * -f.z + fromZ * f.x > 0;
-  let part = forced, mul = 1;
-  if (!part) {
-    if (!m.parts.legs.broken && Math.random() < 0.15) part = 'legs';
-    else if (a < 0.7) { part = !m.parts.head.broken && Math.random() < 0.2 ? 'head' : 'torso'; if (part === 'torso') mul = 0.75; }
-    else if (a < 2.27) { part = right ? 'armR' : 'armL'; if (m.parts[part].broken) part = 'torso'; }
-    else {
-      const back = right ? 'backR' : 'backL';
-      if (m.parts[back] && !m.parts[back].broken && Math.random() < 0.5) part = back;
-      else { part = 'torso'; mul = 1.4; }
-    }
-  }
+  const dir = a < 0.7 ? 'front' : a < 2.27 ? 'side' : 'rear';
+  const part = forced ?? pickPart(m, dir, right);
+  const mul = part === 'torso' && !forced ? TORSO_MUL[dir] : 1;
   const eff = EFFECT[type][m.parts[part].armor] ?? 1;
   m.vx += dx * kb; m.vz += dz * kb;
   damagePart(m, part, dmg * mul * eff, dx, dz);
