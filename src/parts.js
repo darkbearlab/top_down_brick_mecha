@@ -1,6 +1,6 @@
 // ---------- 零件目錄 ----------
 // 機體 = 頭 + 軀幹（含雙臂）+ 腳 + 四個掛載點（左手、右手、左背、右背）+ 各部位的裝甲種類
-// 頭：視野（角度、距離）、雷達、鎖定（時間、數量、距離）、敵情顯示
+// 頭：只管鎖定（時間、數量、距離、鎖定角度）和敵情顯示；視野一律 360°、不限距離（被牆擋住也看得到）
 // 軀幹：血量、手臂負重、背部負重、上半身轉速
 // 腳：類型（雙足 / 逆關節 / 履帶 / 懸浮）、總負重上限、極速、加速、下半身轉速、衝刺強度
 // 武器：屬性（動能 / 化學 / 能量），手臂或背部用
@@ -27,16 +27,16 @@ export const EFFECT = {
 
 // 方塊模型：[x, y, z, w, h, d, 顏色鍵]，單位 = 1/16；顏色鍵：a 裝甲、f 骨架、t 隊伍色、g 發光、w 武器屬性色
 export const HEADS = {
-  std: { name: '標準感測頭', hp: 60, vision: 150, range: 16, radar: 22, lockTime: 0.9, lockCount: 2, lockRange: 18, intel: true, weight: 2,
+  std: { name: '標準感測頭', hp: 60, lockArc: 40, lockTime: 0.9, lockCount: 2, lockRange: 18, intel: true, weight: 2,
     model: [[-3, 0, -2, 6, 4, 6, 'a'], [-2, 2, 4, 4, 1, 1, 'g'], [2, 4, -1, 1, 3, 1, 'f']] },
-  dome: { name: '全周雷達頭', hp: 55, vision: 360, range: 13, radar: 26, lockTime: 1.1, lockCount: 2, lockRange: 16, intel: true, weight: 3,
+  dome: { name: '廣角鎖定頭', hp: 55, lockArc: 130, lockTime: 1.1, lockCount: 3, lockRange: 16, intel: true, weight: 3,
     model: [[-3, 0, -3, 6, 3, 6, 'a'], [-2, 3, -2, 4, 1, 4, 'a'], [-3, 1, 3, 6, 1, 1, 'g'], [-3, 1, -4, 6, 1, 1, 'g'], [3, 1, -2, 1, 1, 4, 'g'], [-4, 1, -2, 1, 1, 4, 'g']] },
-  hunter: { name: '狙擊感測頭', hp: 45, vision: 80, range: 24, radar: 16, lockTime: 0.6, lockCount: 1, lockRange: 26, intel: true, weight: 2,
+  hunter: { name: '狙擊感測頭', hp: 45, lockArc: 24, lockTime: 0.6, lockCount: 1, lockRange: 26, intel: true, weight: 2,
     model: [[-2, 0, -2, 4, 3, 5, 'a'], [-1, 1, 3, 2, 2, 3, 'f'], [-1, 1, 6, 2, 2, 1, 'g']] },
-  array: { name: '多重鎖定頭', hp: 60, vision: 120, range: 15, radar: 20, lockTime: 0.55, lockCount: 6, lockRange: 20, intel: false, weight: 4,
+  array: { name: '多重鎖定頭', hp: 60, lockArc: 50, lockTime: 0.55, lockCount: 6, lockRange: 20, intel: false, weight: 4,
     model: [[-4, 0, -2, 8, 3, 5, 'a'], [-3, 1, 3, 1, 1, 1, 'g'], [-1, 1, 3, 1, 1, 1, 'g'], [1, 1, 3, 1, 1, 1, 'g'], [3, 1, 3, 1, 1, 1, 'g'], [-4, 3, -1, 1, 4, 1, 'f'], [3, 3, -1, 1, 4, 1, 'f']] },
-  // 長距鎖定頭：雷達範圍內、準星附近的目標，看不到（被牆擋、在視野外）也能慢慢鎖上 → 配垂直飛彈越過掩體遠距離打
-  radar: { name: '長距鎖定頭', hp: 50, vision: 110, range: 18, radar: 36, lockTime: 1.5, lockCount: 2, lockRange: 34, radarLock: true, intel: true, weight: 4,
+  // 長距鎖定頭：隔著牆也能慢慢鎖上（其他頭要射線沒被擋）→ 配垂直飛彈越過掩體遠距離打
+  radar: { name: '長距鎖定頭', hp: 50, lockArc: 36, lockTime: 1.5, lockCount: 2, lockRange: 34, radarLock: true, intel: true, weight: 4,
     model: [[-3, 0, -2, 6, 3, 5, 'a'], [-1, 1, 3, 2, 1, 1, 'g'], [-1, 3, -1, 1, 4, 1, 'f'], [-4, 7, -2, 7, 1, 3, 'a'], [-3, 8, -1, 5, 1, 1, 'g']] },
 };
 // 軀幹：halfW = 半寬、top = 頂部高度（放頭）；手臂接在 ±(halfW + 3)，背部掛點在 ±(halfW - 2)
@@ -87,6 +87,16 @@ export const WEAPONS = {
   split: { name: '分裂飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'split', interval: 1.8, ammo: 8, dmg: 11, salvo: 1, bomblets: 6, speed: 16, accel: 16, maxSpeed: 25, turn: 1.2, life: 1.9, size: 0.18, splash: 1.0,
     model: [[-3, -3, -4, 6, 6, 9, 'f'], [-2, -2, 5, 4, 4, 2, 'w']], muzzle: [0, 0, 7] },
 };
+// 低階武器（只給雜魚用，整備和隨機組裝不會出現）：外型沿用原本那把，威力、射速、彈藥都打折
+const low = (base, name, o) => { WEAPONS[base + '_l'] = { ...WEAPONS[base], name, low: true, ...o }; };
+low('mg', '輕機槍', { dmg: 3, interval: 0.11, spread: 0.1, speed: 30, ammo: 400 });
+low('autocannon', '輕機砲', { dmg: 8, interval: 0.24, spread: 0.05, speed: 28, ammo: 160 });
+low('shotgun', '短霰彈槍', { dmg: 5, pellets: 5, interval: 1.1, spread: 0.26, ammo: 16 });
+low('sniper', '步槍', { dmg: 30, interval: 2.2, speed: 58, ammo: 10, trail: false });
+low('saber', '電擊棒', { dmg: 32, interval: 0.85, reach: 1.9, lunge: 4, blade: 15 });
+low('cannon', '迫擊砲', { dmg: 48, interval: 3.4, speed: 30, splash: 1.6, kb: 4, ammo: 10 });
+low('missile', '小型飛彈', { dmg: 22, salvo: 1, interval: 1.9, turn: 1.4, maxSpeed: 26, ammo: 20 });
+low('rocket', '火箭筒', { dmg: 38, salvo: 1, interval: 2.0, ammo: 10, spread: 0.07 });
 export const HP_MUL = 1.35;
 
 // ---------- 雜魚機 ----------
@@ -100,14 +110,26 @@ export const GRUNTS = {
   sniper: { name: '狙擊兵', head: 'hunter', core: 'light', legs: 'reverse', armL: null, armR: 'sniper', backL: null, backR: null, hp: 80 },
   blade: { name: '劍兵', head: 'std', core: 'light', legs: 'hover', armL: null, armR: 'saber', backL: null, backR: null, hp: 90 },
 };
+// 低階雜魚（無盡模式前期的主力）：武器都是低階版，血也少一點
+export const GRUNTS_LOW = {
+  scout: { name: '巡邏兵', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'mg_l', backL: null, backR: null, hp: 70 },
+  trooper: { name: '機砲兵', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'autocannon_l', backL: null, backR: null, hp: 80 },
+  launcher: { name: '小飛彈兵', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: 'mg_l', backL: 'missile_l', backR: null, hp: 75 },
+  brawler: { name: '突擊兵', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: 'shotgun_l', backL: null, backR: null, hp: 80 },
+  stick: { name: '電擊兵', head: 'std', core: 'light', legs: 'hover', armL: null, armR: 'saber_l', backL: null, backR: null, hp: 65 },
+  marksman: { name: '射手', head: 'hunter', core: 'light', legs: 'reverse', armL: null, armR: 'sniper_l', backL: null, backR: null, hp: 60 },
+  mortar: { name: '迫擊砲車', head: 'dome', core: 'std', legs: 'tread', armL: null, armR: null, backL: null, backR: 'cannon_l', hp: 110 },
+  bazooka: { name: '火箭兵', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'mg_l', backL: null, backR: 'rocket_l', hp: 85 },
+};
 // 出場比例：步兵最多，砲車 / 狙擊兵少
-const GRUNT_WEIGHT = { rifle: 5, rocket: 3, heavy: 2, gun: 1.2, sniper: 1.2, blade: 2 };
-export function randomGrunt() {
-  const keys = Object.keys(GRUNTS);
+const GRUNT_WEIGHT = { rifle: 5, rocket: 3, heavy: 2, gun: 1.2, sniper: 1.2, blade: 2,
+  scout: 5, trooper: 3, launcher: 2.5, brawler: 2, stick: 1.8, marksman: 1.2, mortar: 1, bazooka: 1.5 };
+export function randomGrunt(pool = GRUNTS) {
+  const keys = Object.keys(pool);
   let r = Math.random() * keys.reduce((a, k) => a + GRUNT_WEIGHT[k], 0);
-  const k = keys.find(k => (r -= GRUNT_WEIGHT[k]) < 0) ?? 'rifle';
+  const k = keys.find(k => (r -= GRUNT_WEIGHT[k]) < 0) ?? keys[0];
   const a = Object.keys(ARMORS)[Math.floor(Math.random() * 3)];
-  return { ...GRUNTS[k], id: k, armor: { head: a, torso: a, arms: a, legs: a } };
+  return { ...pool[k], id: k, armor: { head: a, torso: a, arms: a, legs: a } };
 }
 // 連射多久會打光（秒）：總彈藥 ÷ 一次幾發 × 射擊間隔；能量武器 Infinity
 export const fireTime = W => W.ammo ? W.ammo / (W.salvo ?? 1) * W.interval : Infinity;
@@ -141,7 +163,7 @@ const pickOf = obj => { const k = Object.keys(obj); return k[Math.floor(Math.ran
 // 隨機組裝：先抽 12 套合法的（至少兩把武器、不超重），照「相性」打分、加一點隨機，挑最高的
 //   飛彈類：頭要能多鎖、鎖得遠；垂直飛彈 + 長距鎖定頭最搭（越過掩體遠距離打）
 //   沒有飛彈卻帶多重鎖定頭 / 長距鎖定頭：浪費
-//   狙擊：配狙擊頭 / 長距鎖定頭；近戰（劍、霰彈）：不要窄視野的狙擊頭、不要履帶，快的腳加分；狙擊和近戰混搭扣分
+//   狙擊：配狙擊頭 / 長距鎖定頭；近戰（劍、霰彈）：不要窄角度的狙擊頭、不要履帶，快的腳加分；狙擊和近戰混搭扣分
 export function synergy(lo) {
   const ws = SLOTS.map(s => lo[s]).filter(Boolean), H = HEADS[lo.head];
   const has = k => ws.some(w => WEAPONS[w].kind === k || w === k);
@@ -163,7 +185,7 @@ export function synergy(lo) {
   return sc;
 }
 export function randomLoadout() {
-  const armW = Object.keys(WEAPONS).filter(k => WEAPONS[k].mount === 'arm'), backW = Object.keys(WEAPONS).filter(k => WEAPONS[k].mount === 'back');
+  const armW = Object.keys(WEAPONS).filter(k => WEAPONS[k].mount === 'arm' && !WEAPONS[k].low), backW = Object.keys(WEAPONS).filter(k => WEAPONS[k].mount === 'back' && !WEAPONS[k].low);
   const r = a => a[Math.floor(Math.random() * a.length)];
   let best = null, bestSc = -Infinity;
   for (let tries = 0, found = 0; tries < 200 && found < 12; tries++) {
@@ -211,7 +233,7 @@ export function loadLoadout() {
   try {
     const lo = JSON.parse(localStorage.getItem(KEY));
     if (lo && HEADS[lo.head] && CORES[lo.core] && LEGS[lo.legs] && lo.armor) {
-      for (const s of SLOTS) if (lo[s] && !WEAPONS[lo[s]]) lo[s] = null;
+      for (const s of SLOTS) if (lo[s] && (!WEAPONS[lo[s]] || WEAPONS[lo[s]].low)) lo[s] = null;
       return lo;
     }
   } catch { /* 用預設 */ }

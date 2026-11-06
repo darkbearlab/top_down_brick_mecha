@@ -39,9 +39,10 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   e.guns = makeGuns(P);
   e.preset = P;
   const ws = SLOTS.map(s => P[s]).filter(Boolean);
+  const has = k => ws.includes(k) || ws.includes(k + '_l');   // 低階版也算
   e.ai = {
     strafe: Math.random() < 0.5 ? -1 : 1, t: 1, burst: 0, rest: 1 + Math.random(), reposition: 3 + Math.random() * 3, lockT: 0, snipeT: 0, hold: { L: Math.random(), R: Math.random() },
-    want: ws.includes('saber') || ws.includes('shotgun') ? 3 : ws.includes('sniper') ? 13 : 8,
+    want: has('saber') || has('shotgun') ? 3 : has('sniper') ? 13 : 8,
   };
   e.laser = makeLaser(0xff3020);
   const ring = new THREE.Mesh(RING_GEO, addMat(0xff4030, 0.8));
@@ -125,7 +126,7 @@ export function updateEnemy(e, dt, player) {
   // 推進：重的子彈 / 飛彈飛過來往旁邊噴；偶爾推進換位置；近戰型推進衝過去
   A.reposition -= dt;
   let boost = false, bx = mx, bz = mz;
-  for (const s of shots) {
+  if (DF.dodge) for (const s of shots) {
     if (s.team === e.team || !(s.heavy || s.kind !== 'bullet' || s.dmg > 20)) continue;
     const sdx = s.dx ?? s.vx / s.speed, sdz = s.dz ?? s.vz / s.speed;
     const ox = e.x - s.x, oz = e.z - s.z, t = ox * sdx + oz * sdz;
@@ -157,9 +158,9 @@ export function updateEnemy(e, dt, player) {
   const H = headStats(e);   // 頭受損鎖定也會變差（sensors.js）
   if (e.lockBreak) { A.lockT = 0; e.lockBreak = false; }   // 失衡：鎖定被打斷
   updateReadyChoice(e, dt, dist, canShoot, player);
-  // 長距鎖定頭：看不到（隔著牆）也能靠雷達鎖
-  const lockable = player.alive && !AI.passive && (los || (H.radarLock && dist < H.radar));
-  A.lockT = lockable && wantsLock(e) && dist < H.lockRange && !e.parts.head.broken ? A.lockT + dt : Math.max(0, A.lockT - dt * 2);
+  // 長距鎖定頭：隔著牆也能鎖；頭被打掉還是能鎖（距離短、慢）
+  const lockable = player.alive && !AI.passive && (los || H.radarLock);
+  A.lockT = lockable && wantsLock(e) && dist < H.lockRange ? A.lockT + dt : Math.max(0, A.lockT - dt * 2);
   const locks = A.lockT >= H.lockTime * DF.lock ? [player] : [];
 
   // 手臂：連射武器一陣一陣打；狙擊先亮雷射；劍貼近才揮；飛彈有鎖定才射

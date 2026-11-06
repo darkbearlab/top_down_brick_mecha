@@ -23,7 +23,7 @@ export const ENEMY_SPEED = 0.55;
 export function makeGuns(lo) {
   const g = {};
   // ammo：總彈藥，打完就沒了；能量武器 Infinity
-  for (const s of SLOTS) if (lo[s]) g[s] = { def: WEAPONS[lo[s]], cd: 0, ammo: WEAPONS[lo[s]].ammo ?? Infinity };
+  for (const s of SLOTS) if (lo[s]) g[s] = { def: WEAPONS[lo[s]], cd: 0, ammo: WEAPONS[lo[s]].ammo ?? Infinity, max: WEAPONS[lo[s]].ammo ?? Infinity };
   return g;
 }
 
@@ -47,7 +47,7 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
     if (gun.ammo <= 0) { gun.cd = 0.3; if (m.team === 'player') sfx.click(); continue; }   // 彈盡
     if (d.needLock && !locks.length && m.team === 'player') { gun.cd = 0.3; sfx.click(); continue; }
     if (d.energy && !useEnergy(m, d.energy)) continue;
-    gun.cd = d.interval;
+    gun.cd = d.interval * (m.rateMul ?? 1);   // rateMul：無盡模式的射速強化
     // 飛彈 / 火箭一次好幾發，剩不夠就只射剩下的
     const n = Math.min(d.salvo ?? 1, gun.ammo);
     fire(m, slot, d, locks, aim, n);

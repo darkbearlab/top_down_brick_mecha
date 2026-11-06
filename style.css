@@ -52,7 +52,11 @@ html, body {
   background: rgba(8,10,14,.55); border: 1px solid rgba(255,140,60,.35); border-radius: 10px;
 }
 #target .label { font-size: 11px; letter-spacing: 3px; color: #ffa060; margin-bottom: 6px; }
-#target.hidden, #passive.hidden, #help.hidden, #hud.hidden { display: none; }
+#target.hidden, #passive.hidden, #help.hidden, #hud.hidden, #endless.hidden { display: none; }
+#endless { position: absolute; left: 50%; top: 10px; transform: translateX(-50%); text-align: center; text-shadow: 0 1px 3px #000; max-width: min(92vw, 640px); }
+#enTime { font-size: 28px; font-weight: 900; letter-spacing: 2px; color: #fff; }
+#enInfo { font-size: 12px; color: #c8d0dc; margin-top: 2px; }
+#enMods { justify-content: center; margin-top: 4px; max-width: none; }
 #passive { position: absolute; right: 16px; top: 14px; font-size: 13px; font-weight: 800; color: #ffd060; }
 
 #toast {

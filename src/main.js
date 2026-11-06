@@ -9,7 +9,8 @@ import { SLOW_K, clearWrecks, killCam, updateWrecks } from './wreck.js';
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
 import { AI, DIFFS, clearEnemies, enemies, keepEnemies, spawnEnemy, updateEnemy } from './ai.js';
 import { makeLaser, setLaser, updateParticles } from './fx.js';
-import { ARMORS, DMG_TYPES, ENEMY_PRESETS, LEGS, SLOTS, SLOT_KEYS, WEAPONS, loadLoadout, randomGrunt, randomLoadout } from './parts.js';
+import { ARMORS, DMG_TYPES, ENEMY_PRESETS, GRUNTS, GRUNTS_LOW, LEGS, SLOTS, SLOT_KEYS, WEAPONS, loadLoadout, randomGrunt, randomLoadout } from './parts.js';
+import { clearPickups, spawnPickup, updatePickups } from './pickups.js';
 import { sensors, setSensorsVisible, updateSensors } from './sensors.js';
 import { closeGarage, garage, openGarage } from './garage.js';
 
@@ -19,6 +20,7 @@ const $ = id => document.getElementById(id);
 // menu：主選單（機體站在場中間、鏡頭慢慢繞）
 // duel：一對一，打倒對手或被打倒就結束
 // sandbox：試玩場，敵機一開始停火（T 切換），被打爆會自動重生
+// endless：無盡模式，雜魚越來越多越來越強，打爆會掉彈藥 / 修理 / 強化模組，撐越久越好（被打爆就結束）
 // watch：觀戰，兩台電腦機體互打（現成配裝或隨機組裝），打完自動換一組重開
 // watch 有三種（MODE.kind）：'duel' 一對一、'horde' 王牌 vs 雜魚、'skirmish' 雜魚 vs 雜魚
 const MODE = { name: 'menu', kind: 'duel', duel: null, endT: 0, round: 0, score: { blue: 0, red: 0 }, horde: null, sk: null };
@@ -33,8 +35,9 @@ function spawnPlayer(x = PLAYER_START.x, z = PLAYER_START.z, yaw = Math.PI) {
   if (player) removeMech(player);
   player = makeMech({ team: 'player', colors: PLAYER_COLORS, loadout, x, z, yaw });
   player.guns = makeGuns(loadout);
+  player.dmgMul = 1; player.rateMul = 1; player.lockMul = 1;
   player.onDeath = () => {
-    if (MODE.name === 'duel') { MODE.endT = 3.4; MODE.result = 'lose'; }
+    if (MODE.name === 'duel' || MODE.name === 'endless') { MODE.endT = 3.4; MODE.result = 'lose'; }
     else { respawnT = 2.5; toast('機體損毀'); }
   };
   return player;
@@ -46,7 +49,9 @@ function resetWorld() {
   clearShots();
   G.paused = false; G.slowMo = 0; G.hitStop = 0;
   clearWrecks();
+  clearPickups();
   resetBuildings();
+  $('endless').classList.add('hidden');
   sensors.progress.clear(); sensors.locks = [];
   MODE.endT = 0; MODE.result = null; MODE.clock = 0;
   hidePanel();
@@ -194,6 +199,115 @@ function updateSkirmish(dt) {
     e.foe = best;
   }
 }
+// ---------- 無盡模式 ----------
+// 雜魚從天上一直空投，時間越久：場上上限越高（4 台起，每 12 秒 +1，最多 40）、空投越快、傷害和耐久越高
+//   前期全是低階雜魚（GRUNTS_LOW），1 分半後開始混進精英雜魚（觀戰用的那批，最多一半）；每 150 秒來一台王牌機
+// 掉落：雜魚 彈藥 14%、修理 8%、模組 5%（精英 18 / 12 / 22%）；王牌掉彈藥、修理各一、模組兩個
+// 強化模組會疊加，被打爆就結束（記錄最久撐了多久）
+const EN_MAX = 40, EN_ACE = 150;
+const MODS = {
+  armor: { name: '追加裝甲', desc: '全部位耐久 +10%', apply: p => { for (const k in p.parts) { const q = p.parts[k]; const add = q.max * 0.1; q.max += add; if (!q.broken) q.hp += add; } } },
+  rate: { name: '射控晶片', desc: '射速 +8%', apply: p => { p.rateMul /= 1.08; } },
+  dmg: { name: '高爆彈頭', desc: '傷害 +10%', apply: p => { p.dmgMul *= 1.1; } },
+  lock: { name: '鎖定演算', desc: '鎖定時間 -12%', apply: p => { p.lockMul *= 0.88; } },
+  speed: { name: '強化致動器', desc: '移動速度 +6%', apply: p => { p.spec.vmax *= 1.06; p.spec.acc *= 1.06; } },
+  mag: { name: '擴充彈倉', desc: '彈藥上限 +25%', apply: p => { for (const s in p.guns) { const g = p.guns[s]; if (g.max === Infinity) continue; const add = Math.round(g.def.ammo * 0.25); g.max += add; g.ammo += add; } } },
+  cap: { name: '高效電容', desc: '能量回復 +15%', apply: p => { p.spec.regen *= 1.15; } },
+};
+let EN = null;
+const enLevel = () => 1 + EN.t / 60;
+// 雜魚的難度：從新手開始，每分鐘傷害 +15%、耐久 +12%、打得更勤、瞄得更準
+function enDiff() {
+  const L = enLevel() - 1, D = DIFFS.easy;
+  return { ...D, dmg: D.dmg * (1 + 0.15 * L), hp: D.hp * (1 + 0.12 * L), rest: Math.max(1.2, D.rest - 0.1 * L), err: Math.max(0.05, D.err - 0.015 * L) };
+}
+function startEndless() {
+  resetWorld();
+  MODE.name = 'endless';
+  AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.easy;
+  spawnPlayer(0, 0, Math.PI);
+  let best = 0;
+  try { best = +(localStorage.getItem('brickmecha.endlessBest') ?? 0) || 0; } catch { /* 沒有就 0 */ }
+  EN = { t: 0, kills: 0, spawnT: 2, aceT: EN_ACE, mods: {}, best };
+  for (let i = 0; i < 3; i++) enDrop();
+  showHud();
+  $('endless').classList.remove('hidden');
+  toast('無盡模式・撐越久越好');
+}
+function enDrop(ace = false) {
+  const at = randomOpenSpot(player.x, player.z, ace ? 16 : 11);
+  if (ace) {
+    const P = randomLoadout();
+    const e = spawnEnemy(player, P, at, { diff: EN.t > 400 ? DIFFS.hard : DIFFS.normal });
+    e.enAce = true;
+    toast(`王牌機接近！・${P.name}`);
+    return;
+  }
+  const elite = Math.random() < Math.min(0.5, Math.max(0, (EN.t - 90) / 300));
+  const e = spawnEnemy(player, randomGrunt(elite ? GRUNTS : GRUNTS_LOW), at, { colors: GRUNT_COLORS, diff: enDiff(), grunt: true });
+  e.enElite = elite;
+}
+function updateEndless(dt) {
+  if (!EN || MODE.result) return;
+  EN.t += dt;
+  const cap = Math.min(EN_MAX, 4 + Math.floor(EN.t / 12));
+  const onField = enemies.filter(e => e.alive).length;
+  if (onField < cap && (EN.spawnT -= dt) <= 0) {
+    EN.spawnT = Math.max(0.35, 2.2 - EN.t / 100) * (0.6 + Math.random() * 0.8);
+    enDrop(); if (cap - onField > 6) enDrop();   // 少很多的時候一次補兩台
+  }
+  if ((EN.aceT -= dt) <= 0) { EN.aceT = EN_ACE; enDrop(true); }
+  updatePickups(dt, player, takePickup);
+}
+function enLoot(e) {
+  const x = e.x, z = e.z;
+  if (e.enAce) { for (const k of ['ammo', 'repair', 'mod', 'mod']) spawnPickup(k, x, z); return; }
+  const [a, r, m] = e.enElite ? [0.18, 0.12, 0.22] : [0.14, 0.08, 0.05];
+  if (Math.random() < a) spawnPickup('ammo', x, z);
+  if (Math.random() < r) spawnPickup('repair', x, z);
+  if (Math.random() < m) spawnPickup('mod', x, z);
+}
+// 撿到：彈藥每把補 30%（全滿就不撿）、修理沒壞的部位各 +25%（全滿就不撿）、模組隨機一種
+function takePickup(kind) {
+  const p = player;
+  if (kind === 'ammo') {
+    let any = false;
+    for (const s in p.guns) { const g = p.guns[s]; if (g.max === Infinity || g.ammo >= g.max) continue; g.ammo = Math.min(g.max, g.ammo + Math.ceil(g.max * 0.3)); any = true; }
+    if (!any) return false;
+    toast('彈藥補給'); sfx.reload();
+  } else if (kind === 'repair') {
+    let any = false;
+    for (const k in p.parts) { const q = p.parts[k]; if (q.broken || q.hp >= q.max) continue; q.hp = Math.min(q.max, q.hp + q.max * 0.25); any = true; }
+    if (!any) return false;
+    toast('機體修理 +25%'); sfx.lock();
+  } else {
+    const keys = Object.keys(MODS), k = keys[Math.floor(Math.random() * keys.length)];
+    MODS[k].apply(p);
+    EN.mods[k] = (EN.mods[k] ?? 0) + 1;
+    toast(`強化模組：${MODS[k].name}（${MODS[k].desc}）`); sfx.lock();
+  }
+}
+const mmss = t => `${Math.floor(t / 60)}:${String(Math.floor(t % 60)).padStart(2, '0')}`;
+function updateEndlessHud() {
+  if (!EN) return;
+  const onField = enemies.filter(e => e.alive).length;
+  $('enTime').textContent = mmss(EN.t);
+  $('enInfo').textContent = `威脅 ${enLevel().toFixed(1)}・擊破 ${EN.kills}・場上 ${onField}・王牌 ${Math.ceil(EN.aceT)} 秒`;
+  const mods = Object.entries(EN.mods).map(([k, n]) => `<span class="wt" style="--c:#c080ff">${MODS[k].name}${n > 1 ? ' ×' + n : ''}</span>`).join('');
+  if (EN.modsHtml !== mods) { EN.modsHtml = mods; $('enMods').innerHTML = mods; }
+}
+function showEndlessResult() {
+  G.paused = true;
+  sfx.click();
+  const best = Math.max(EN.best, EN.t), rec = EN.t > EN.best;
+  try { localStorage.setItem('brickmecha.endlessBest', String(best)); } catch { /* 存不了就算了 */ }
+  const mods = Object.entries(EN.mods).map(([k, n]) => `${MODS[k].name}${n > 1 ? ' ×' + n : ''}`).join('、') || '無';
+  showPanel(rec ? '新紀錄' : '機體損毀', `撐了 <b>${mmss(EN.t)}</b>（最佳 ${mmss(best)}）・擊破 <b>${EN.kills}</b> 台・威脅 ${enLevel().toFixed(1)}<br>強化：${mods}`, [
+    { label: '再來一次', primary: true, run: startEndless },
+    { label: '整備', run: () => { hidePanel(); openGarageFrom('result'); } },
+    { label: '回主選單', run: showMenu },
+  ]);
+}
 function endWatch(result) {
   MODE.result = result;
   if (result !== 'draw') MODE.score[result]++;
@@ -202,6 +316,7 @@ function endWatch(result) {
   setTimeout(() => { if (MODE.name === 'watch') toast(text); }, 2000);
 }
 AI.onEnemyDeath = (e) => {
+  if (MODE.name === 'endless') { if (!MODE.result) { EN.kills++; enLoot(e); } return; }
   if (MODE.name === 'watch' && MODE.kind === 'skirmish') {
     if (MODE.result) return;
     const T = MODE.sk[e.team];
@@ -255,12 +370,12 @@ function showPanel(title, html, buttons) {
 }
 function hidePanel() { $('panel').classList.add('hidden'); }
 const panelOpen = () => !$('panel').classList.contains('hidden');
-function restart() { MODE.name === 'duel' ? startDuel(MODE.duel.preset, MODE.duel.diffKey) : MODE.name === 'watch' ? nextWatch() : startSandbox(); }
+function restart() { MODE.name === 'endless' ? startEndless() : MODE.name === 'duel' ? startDuel(MODE.duel.preset, MODE.duel.diffKey) : MODE.name === 'watch' ? nextWatch() : startSandbox(); }
 const WATCH_LIMIT = 180;   // 觀戰一場最多幾秒（遊戲時間）
 const nextWatch = () => MODE.kind === 'horde' ? startHorde() : MODE.kind === 'skirmish' ? startSkirmish() : startWatch();
 function pause() {
   G.paused = true;
-  showPanel('暫停', MODE.name === 'duel' ? `對戰・${DIFFS[MODE.duel.diffKey].name}` : MODE.name === 'watch' ? `觀戰${MODE.kind === 'horde' ? '（王牌 vs 雜魚）' : MODE.kind === 'skirmish' ? '（雜魚 vs 雜魚）' : ''}・第 ${MODE.round} 場` : '試玩場', [
+  showPanel('暫停', MODE.name === 'endless' ? `無盡模式・${mmss(EN.t)}・擊破 ${EN.kills}` : MODE.name === 'duel' ? `對戰・${DIFFS[MODE.duel.diffKey].name}` : MODE.name === 'watch' ? `觀戰${MODE.kind === 'horde' ? '（王牌 vs 雜魚）' : MODE.kind === 'skirmish' ? '（雜魚 vs 雜魚）' : ''}・第 ${MODE.round} 場` : '試玩場', [
     { label: '繼續', primary: true, run: () => { hidePanel(); G.paused = false; } },
     { label: MODE.name === 'watch' ? '下一場' : '重新開始', run: restart },
     ...(MODE.name === 'duel' ? [{ label: '換對手', run: openDuelSetup }] : []),
@@ -283,10 +398,11 @@ const HELP = `<div class="help">
 <b>移動</b>有慣性：放開方向鍵會滑一段。冰面很滑、泥地很慢。衝刺吃能量，不受摩擦限制<br>
 <b>屬性</b>動能剋鏡面、化學剋複合、能量剋陶瓷；反過來會被擋下（藍白色火花）<br>
 <b>部位</b>打到哪看子彈從哪個方向來：正面是軀幹裝甲、側面是手臂、背面是弱點和背部武器<br>
-<b>視野</b>地上淡淡的扇形是頭的視野，視野外的敵機看不到，只有雷達光點。飛彈要先鎖定（準星附近慢慢鎖上）</div>`;
+<b>鎖定</b>敵機永遠看得到。地上淡淡的扇形是頭的鎖定範圍，架起飛彈後扇形裡（或準星附近）的敵機會慢慢鎖上；頭被打掉還能鎖，只是範圍變小</div>`;
 
 // ---------- 主選單與對戰設定 ----------
 $('mDuel').onclick = () => { unlockAudio(); sfx.click(); openDuelSetup(); };
+$('mEndless').onclick = () => { unlockAudio(); sfx.click(); startEndless(); };
 $('mSandbox').onclick = () => { unlockAudio(); sfx.click(); startSandbox(); };
 $('mWatch').onclick = () => { unlockAudio(); sfx.click(); startWatch(true); };
 $('mHorde').onclick = () => { unlockAudio(); sfx.click(); startHorde(true); };
@@ -381,7 +497,7 @@ function gunState(m, slot) {
   if (m.deployT[slot.slice(-1)] > 0 && activeSlot(m, slot.slice(-1)) === slot) return '展開中';
   if (g.def.energy) return m.energy < g.def.energy ? '<span class="bad">能量不足</span>' : g.cd > 0 ? '冷卻' : '就緒';
   if (g.def.needLock && !sensors.locks.length) return '需要鎖定';
-  return g.def.ammo ? `${g.ammo}/${g.def.ammo}` : g.cd > 0 ? '冷卻' : '就緒';
+  return g.def.ammo ? `${g.ammo}/${g.max}` : g.cd > 0 ? '冷卻' : '就緒';
 }
 let gunsKey = '';
 function updateHud() {
@@ -401,11 +517,11 @@ function updateHud() {
   const H = sensors.head;
   $('lockInfo').textContent = (!H?.lockCount ? '無法鎖定' : wantsLock(p) ? `鎖定 ${sensors.locks.length}/${H.lockCount}` : '鎖定待命（未備飛彈）') + (H?.health != null && H.lockCount ? `・感測受損 ${Math.round((1 - H.health) * 100)}%` : '');
   const S = p.spec;
-  $('warn').textContent = [p.staggerT > 0 && '失衡！', S.loadK > 1 && '超重', S.armOver && '手臂超重', S.backOver && '背部超重', p.parts.head.broken && '頭部損毀：視野縮小'].filter(Boolean).join('・');
+  $('warn').textContent = [p.staggerT > 0 && '失衡！', S.loadK > 1 && '超重', S.armOver && '手臂超重', S.backOver && '背部超重', p.parts.head.broken && '頭部損毀：鎖定距離縮短'].filter(Boolean).join('・');
   // 準星附近、看得到的敵機；對戰中一直顯示對手
   let best = null, bd = MODE.name === 'duel' ? Infinity : 6;
   for (const e of enemies) {
-    if (!e.alive || e.drop || (!e.seen && MODE.name !== 'duel')) continue;
+    if (!e.alive || e.drop) continue;
     const d = Math.hypot(e.x - aimPoint.x, e.z - aimPoint.z);
     if (d < bd) { bd = d; best = e; }
   }
@@ -444,7 +560,7 @@ function frame(t) {
   G.now += raw;
   updateInput();
   const playing = MODE.name !== 'menu', watching = MODE.name === 'watch';
-  if (input.garagePressed && !watching) { if (garage.open) leaveGarage(); else if (playing && !panelOpen()) openGarageFrom('play'); }
+  if (input.garagePressed && !watching && MODE.name !== 'endless') { if (garage.open) leaveGarage(); else if (playing && !panelOpen()) openGarageFrom('play'); }
   if (input.pausePressed) {
     if (garage.open) leaveGarage();
     else if (playing && (!MODE.result || watching)) { if (G.paused) { hidePanel(); G.paused = false; } else pause(); }
@@ -467,6 +583,7 @@ function frame(t) {
       if (input.readyR && !toggleReady(player, 'R')) sfx.click();
       updateGuns(player, { L: input.fireL, R: input.fireR }, dt, sensors.locks, aimPoint);
     } else if (MODE.name === 'sandbox' && (respawnT -= dt) <= 0) { spawnPlayer(); toast('重新出擊'); }
+    if (MODE.name === 'endless') updateEndless(dt);
     if (watching && MODE.kind === 'horde') updateHorde(dt);
     if (watching && MODE.kind === 'skirmish') updateSkirmish(dt);
     for (const e of enemies.slice()) {
@@ -496,15 +613,15 @@ function frame(t) {
       toast('時間到');
     }
     // 對戰結束：倒下的動畫播一下再出結果；觀戰：自動下一場
-    if (MODE.endT > 0 && (MODE.endT -= raw) <= 0) watching ? nextWatch() : showResult(MODE.result === 'win');
+    if (MODE.endT > 0 && (MODE.endT -= raw) <= 0) watching ? nextWatch() : MODE.name === 'endless' ? showEndlessResult() : showResult(MODE.result === 'win');
   }
   if (!playing || dt > 0 || garage.open) updateParticles(playing ? dt : raw);
   for (const m of mechs) poseMech(m, dt);
   if (!playing) { player.torsoYaw = player.legYaw = G.now * 0.25; poseMech(player, 0); }
   clearPressed();
 
-  // 瞄準線：從上半身正前方射出（頭部壞了就沒有）
-  if (playing && !watching && player.alive && !player.parts.head.broken && !garage.open) {
+  // 瞄準線：從上半身正前方射出
+  if (playing && !watching && player.alive && !garage.open) {
     const f = facing(player), ox = player.x + f.x * 0.9, oz = player.z + f.z * 0.9;
     const len = rayBlock(ox, oz, f.x, f.z, 22);
     setLaser(guide, ox, oz, f.x, f.z, len, 1.4, 0.3, 0.03);
@@ -517,7 +634,7 @@ function frame(t) {
   const REST_Z = -1.2 * (1 - garageK);
   let lx = 0, lz = 0, zoomWant = 1;
   if (playing && !watching && player.alive && !garage.open) {
-    const H = sensors.head, R = player.parts.head.broken ? 9 : Math.max(10, H?.lockRange ?? 18), M = 2.5;
+    const H = sensors.head, R = Math.max(8, H?.lockRange ?? 18), M = 2.5;
     // 偏移方向看「游標在畫面上相對畫面中心」（手把看右搖桿），不看瞄準角度：
     // 瞄準角度又跟玩家在畫面上的位置有關，用它會跟鏡頭偏移互相拉扯、卡在錯的方向
     let dx, dz, gate = 1;
@@ -578,6 +695,7 @@ function frame(t) {
   sun.target.position.set(camTarget.x, 0, camTarget.z);
 
   if (playing && !watching) updateHud();
+  if (MODE.name === 'endless') updateEndlessHud();
   if (watching) {
     const one = MODE.kind === 'duel', blue = MODE.kind !== 'skirmish' ? enemies.find(e => e.team === 'blue') : null, red = one ? enemies.find(e => e.team === 'red') : null;
     paintDoll($('dollB'), blue?.alive ? blue : null); paintDoll($('dollR'), red?.alive ? red : null);
@@ -599,7 +717,7 @@ function frame(t) {
 }
 addEventListener('pointerdown', unlockAudio);
 addEventListener('keydown', unlockAudio);
-window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, startHorde, startSkirmish, showMenu, paused: false };
+window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, startHorde, startSkirmish, startEndless, get EN() { return EN; }, showMenu, paused: false };
 showMenu();
 camTarget.set(player.x, 0, player.z);
 nextFrame(frame);
