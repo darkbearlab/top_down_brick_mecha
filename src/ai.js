@@ -95,7 +95,7 @@ function updateDrop(e, dt, player) {
 }
 
 // 這把武器打得到多遠
-const reachOf = d => d.kind === 'saber' ? d.reach + 1.2 : d.kind === 'bullet' || d.kind === 'beam' ? d.speed * d.life : 18;   // 敵人子彈慢，但飛得一樣久 → 射程一樣
+const reachOf = d => d.kind === 'saber' ? d.reach + 1.2 : d.kind === 'bullet' || d.kind === 'beam' ? d.speed * d.life : d.kind === 'rocket' ? 26 : 18;   // 敵人子彈慢，但飛得一樣久 → 射程一樣
 
 export function updateEnemy(e, dt, player) {
   if (!e.alive) return;
@@ -155,6 +155,7 @@ export function updateEnemy(e, dt, player) {
   const onTarget = Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.14 && canShoot;
   // 鎖定玩家（給飛彈用）：在範圍內、看得到就慢慢鎖上
   const H = headStats(e);   // 頭受損鎖定也會變差（sensors.js）
+  if (e.lockBreak) { A.lockT = 0; e.lockBreak = false; }   // 失衡：鎖定被打斷
   updateReadyChoice(e, dt, dist, canShoot, player);
   // 長距鎖定頭：看不到（隔著牆）也能靠雷達鎖
   const lockable = player.alive && !AI.passive && (los || (H.radarLock && dist < H.radar));

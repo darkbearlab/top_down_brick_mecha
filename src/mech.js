@@ -60,6 +60,7 @@ export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, h
     alive: true, ace: ace && !grunt, surf: null, guns: null, onDeath: null, swing: null,
     // 背部武器準備：ready = 那一邊現在用背部武器、deployT = 展開 / 收回中還剩幾秒（不能開火）、readyK = 動畫 0..1
     ready: { L: false, R: false }, deployT: { L: 0, R: 0 }, readyK: { L: 0, R: 0 },
+    staggerT: 0, staggerMax: 0, staggerImm: 0, stagDir: { x: 0, z: 0 },
   };
   mechs.push(m);
   return m;
@@ -130,7 +131,7 @@ export function boostDirOf(m, mx, mz) {
 }
 export const boostKOf = m => m.spec.boost * (m.parts.legs.broken ? 0.75 : 1);
 export function tryBoost(m, mx, mz) {
-  if (!m.alive || m.grunt || m.boostCd > 0 || m.energy < BOOST_COST) return false;
+  if (!m.alive || m.grunt || m.staggerT > 0 || m.boostCd > 0 || m.energy < BOOST_COST) return false;
   const d = boostDirOf(m, mx, mz), k = boostKOf(m);
   // 噴射只往一個方向：原本的速度只留沿著噴射方向的分量（往反方向跑的會被抵銷），橫向的全部吃掉
   const along = Math.max(0, m.vx * d.x + m.vz * d.z);
@@ -157,6 +158,9 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   m.boostCd -= dt;
   m.energyT -= dt;
   if (m.energyT <= 0) m.energy = Math.min(100, m.energy + ENERGY_REGEN * S.regen * dt);
+  // 失衡：腳不出力、轉不太動
+  if (m.staggerT > 0) { if ((m.staggerT -= dt) <= 0) m.staggerImm = STAGGER_IMM; mx = 0; mz = 0; }
+  else if (m.staggerImm > 0) m.staggerImm -= dt;
   const ml = Math.hypot(mx, mz);
 
   // 履帶：只能沿車身前後開，方向鍵決定車身要轉去哪；往後按就倒車
@@ -208,7 +212,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   const wh = collideWrecks(m);
   if (wh.hit > STICK_SPEED) stick(m, wh.hit, wh.nx, wh.nz);
 
-  m.torsoYaw = approachAngle(m.torsoYaw, aimYaw, S.turn * (m.parts.head.broken ? 0.7 : 1) * dt);
+  m.torsoYaw = approachAngle(m.torsoYaw, aimYaw, S.turn * (m.parts.head.broken ? 0.7 : 1) * (m.staggerT > 0 ? 0.2 : 1) * dt);
   const prev = m.walk;
   m.walk += dt * (L.type === 'tread' || L.type === 'hover' ? 0 : ml * 9 * lk * (L.type === 'reverse' ? 1.15 : 1));
   m.bob += dt;
@@ -267,7 +271,8 @@ function pickPart(m, dir, right) {
   const part = k === 'arm' ? 'arm' + near : k === 'back' ? 'back' + near : k;
   return !m.parts[part] || m.parts[part].broken ? 'torso' : part;
 }
-export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null) {
+// power：拿來判斷失衡的武器原始威力（不吃難度倍率）；沒給就用 dmg
+export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null, power = dmg) {
   if (!m.alive) return null;
   const fromX = -dx, fromZ = -dz, f = facing(m);
   const a = Math.abs(angleDiff(m.torsoYaw, Math.atan2(fromX, fromZ)));
@@ -279,7 +284,25 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null)
   const eff = EFFECT[type][m.parts[part].armor] ?? 1;
   m.vx += dx * kb; m.vz += dz * kb;
   damagePart(m, part, dmg * mul * eff, dx, dz);
+  if (m.alive && power >= (m.spec.legs.stagger ?? Infinity)) stagger(m, power, dx, dz);
   return { part, eff };
+}
+
+// ---------- 失衡 ----------
+// 單發傷害（打中前的原始威力）超過腳的門檻就失衡：雙足 50、逆關節 30、懸浮 25、履帶不會
+// 失衡中：腳不出力（只剩摩擦剎車）、不能推進、不能開火、上半身轉得很慢、鎖定被打斷；整台往被打的方向歪、晃
+// 時間 0.35～0.6 秒（超過門檻越多越久）；恢復後 1 秒內不會再失衡（避免被連鎖定身）
+export const STAGGER_IMM = 1.0;
+export function stagger(m, dmg, dx, dz) {
+  if (m.staggerT > 0 || m.staggerImm > 0) return;
+  const th = m.spec.legs.stagger, over = Math.min(1, dmg / th - 1);
+  m.staggerT = m.staggerMax = 0.35 + 0.25 * over;
+  m.stagDir = { x: dx, z: dz };
+  m.boostT = 0;
+  m.lockBreak = true;   // 鎖定進度歸零（玩家：sensors；電腦：ai.lockT）
+  sparks(m.x, 0.3, m.z, 0xffd060, 14, 0, 0, 0.8);
+  burst(m.x, 0.2, m.z, [0x8a8478, 0x5a5650], 5, 2);
+  if (m.team === 'player') addTrauma(0.35);
 }
 
 export function damagePart(m, name, dmg, dx = 0, dz = 0) {
@@ -405,6 +428,11 @@ export function poseMech(m, dt) {
   const M = m.model, L = m.spec.legs;
   const hover = L.type === 'hover' ? Math.sin(m.bob * 3) * 0.04 + 0.06 : 0;
   M.root.position.set(m.x, hover, m.z);
+  // 失衡：整台往被打的方向歪、快速晃
+  if (m.staggerT > 0) {
+    const k = m.staggerT / m.staggerMax, e = Math.sin((1 - k) * Math.PI) * 0.22 + Math.sin(m.bob * 38) * 0.04 * k;
+    M.root.rotation.set(m.stagDir.z * e, 0, -m.stagDir.x * e);
+  } else if (M.root.rotation.x || M.root.rotation.z) M.root.rotation.set(0, 0, 0);
   // 卡住時整台往撞到的方向陷進去一點、微微顫動（像在用力拔出來）
   if (m.stuckT > 0) {
     const k = m.stuckT / m.stuckMax, dent = 0.14 * m.stuckHit * k, sh = 0.025 * k * Math.sin(m.bob * 70);

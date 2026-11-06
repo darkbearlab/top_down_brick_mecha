@@ -8,6 +8,7 @@
 //   missile 直射飛彈：有鎖定就追目標
 //   vmissile 垂直飛彈：先往上飛再從上方砸下來（越過掩體），要鎖定
 //   split   分裂飛彈：飛一段後分裂成好幾顆小飛彈
+//   rocket  火箭莢艙：不追蹤的直射火箭，一次好幾發
 // 敵人的子彈和光束比較慢，看得到、閃得掉
 import * as THREE from 'three';
 import { UNIT_BOX, addMat, addTrauma, scene } from './core.js';
@@ -46,7 +47,7 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
       if (gun.reloadT <= 0) { gun.ammo = d.mag; if (m.team === 'player') sfx.reloadDone(); }
       continue;
     }
-    if (!triggers[slot.slice(-1)] || !slotLive(m, slot) || gun.cd > 0 || !m.alive || slotBroken(m, slot) || m.swing) continue;
+    if (!triggers[slot.slice(-1)] || !slotLive(m, slot) || gun.cd > 0 || !m.alive || slotBroken(m, slot) || m.swing || m.staggerT > 0) continue;
     if (d.needLock && !locks.length && m.team === 'player') { gun.cd = 0.3; sfx.click(); continue; }
     if (d.energy && !useEnergy(m, d.energy)) continue;
     gun.cd = d.interval;
@@ -84,15 +85,15 @@ function fire(m, slot, d, locks, aim) {
   sfx.missile();
   m.salvo ??= [];
   for (let i = 0; i < n; i++) {
-    m.salvo.push({ t: i * 0.09, fn: () => {
+    m.salvo.push({ t: i * (d.kind === 'rocket' ? 0.07 : 0.09), fn: () => {
       const p = muzzleOf(m, slot), ff = facing(m);
-      const target = locks.length ? locks[i % locks.length] : null;
+      const target = d.kind === 'rocket' ? null : locks.length ? locks[i % locks.length] : null;
       const side = (i % 2 ? 1 : -1) * (0.15 + 0.1 * Math.floor(i / 2));
       if (d.kind === 'vmissile') {
         const tp = target ?? (aim ? { x: aim.x, z: aim.z } : { x: m.x + ff.x * 8, z: m.z + ff.z * 8 });
         spawnMissile(m, d, p.x + R(-0.15, 0.15), p.y, p.z + R(-0.15, 0.15), { vx: R(-1, 1) + ff.x * 3, vy: R(14, 16), vz: R(-1, 1) + ff.z * 3 }, target, { x: tp.x, z: tp.z });
       } else {
-        const a = Math.atan2(ff.x, ff.z) + side;
+        const a = Math.atan2(ff.x, ff.z) + (d.kind === 'rocket' ? R(-1, 1) * d.spread : side);
         spawnMissile(m, d, p.x, p.y, p.z, { vx: Math.sin(a) * d.speed, vy: 0, vz: Math.cos(a) * d.speed }, target, null);
       }
       smoke(p.x, p.y, p.z, 1, 0.6, 0x9a9ca2);
@@ -114,7 +115,7 @@ function spawnShot(m, d, x, y, z, dx, dz, speed) {
   const len = beam ? 1.1 : d === WEAPONS.sniper ? 1.6 : (d.size ?? 0.1) * (enemy ? 2.5 : 6);
   const g = shotMesh(color, d.size ?? 0.1, len);
   g.position.set(x, y, z); g.rotation.y = Math.atan2(dx, dz);
-  shots.push({ kind: 'bullet', g, owner: m, team: m.team, x, y, z, dx, dz, speed, life: d.life * d.speed / speed, dmg: d.dmg * (m.dmgMul ?? 1), kb: d.kb, type: d.type, trail: d.trail, heavy: d.heavy, splash: d.splash });
+  shots.push({ kind: 'bullet', g, owner: m, team: m.team, x, y, z, dx, dz, speed, life: d.life * d.speed / speed, dmg: d.dmg * (m.dmgMul ?? 1), power: d.dmg, kb: d.kb, type: d.type, trail: d.trail, heavy: d.heavy, splash: d.splash });
 }
 function spawnMissile(m, d, x, y, z, v, target, point) {
   const g = new THREE.Group();
@@ -126,7 +127,7 @@ function spawnMissile(m, d, x, y, z, v, target, point) {
   g.position.set(x, y, z);
   scene.add(g);
   shots.push({ kind: d.kind, g, owner: m, team: m.team, x, y, z, vx: v.vx, vy: v.vy, vz: v.vz, speed: Math.hypot(v.vx, v.vz) || 1, life: d.life, age: 0,
-    dmg: d.dmg * (m.dmgMul ?? 1), kb: 1.2, type: d.type, target, point, d, splash: d.splash });
+    dmg: d.dmg * (m.dmgMul ?? 1), power: d.dmg, kb: 1.2, type: d.type, target, point, d, splash: d.splash });
 }
 
 // ---------- 光束劍 ----------
@@ -163,7 +164,7 @@ function updateSwing(m, dt) {
       if (dist > d.reach + o.r || Math.abs(da) > d.arc / 2 + 0.2) continue;
       s.done.add(o);
       const nx = ox / dist, nz = oz / dist;
-      const r = hitMech(o, d.dmg * (m.dmgMul ?? 1), nx, nz, d.kb, 'energy');
+      const r = hitMech(o, d.dmg * (m.dmgMul ?? 1), nx, nz, d.kb, 'energy', null, d.dmg);
       hitSparks(o.x - nx * o.r, 1.2, o.z - nz * o.r, -nx, -nz, 2.2, r && r.eff < 1);
       sparks(o.x - nx * o.r, 1.2, o.z - nz * o.r, 0x60e0ff, 14, nx, nz);
       sfx.saberHit();
@@ -185,7 +186,7 @@ function updateSwing(m, dt) {
 // ---------- 命中 ----------
 // 火花依剋制關係：被裝甲擋下 = 藍白、剋制 = 更多更大
 function impact(s, o, nx, nz, dmg, forced) {
-  const r = hitMech(o, dmg, nx, nz, s.kb, s.type, forced);
+  const r = hitMech(o, dmg, nx, nz, s.kb, s.type, forced, s.power ?? dmg);
   const p = (s.heavy ? 2 : 1) * (r && r.eff > 1 ? 1.4 : 1);
   hitSparks(s.x, s.y, s.z, -nx, -nz, p, r && r.eff < 1);
   if (s.type === 'energy') sparks(s.x, s.y, s.z, 0x60e0ff, 6, -nx, -nz);
@@ -205,7 +206,7 @@ function blast(s, x, y, z, direct) {
     const dx = o.x - x, dz = o.z - z, dist = Math.hypot(dx, dz);
     if (dist > s.splash + o.r) continue;
     const fall = shell ? 1 - 0.5 * Math.max(0, dist - o.r) / s.splash : 1;   // 砲彈爆風越外圈越弱；飛彈維持原樣
-    hitMech(o, s.dmg * 0.4 * fall, dx / (dist || 1), dz / (dist || 1), shell ? 3 : 0.6, s.type, 'torso');
+    hitMech(o, s.dmg * 0.4 * fall, dx / (dist || 1), dz / (dist || 1), shell ? 3 : 0.6, s.type, 'torso', (s.power ?? s.dmg) * 0.4 * fall);
   }
 }
 

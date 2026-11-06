@@ -50,10 +50,11 @@ export const CORES = {
 };
 // 腳：hipY = 髖部高度（上半身架在這）
 export const LEGS = {
-  biped: { name: '雙足', type: 'biped', hp: 170, maxLoad: 42, vmax: 6.5, acc: 11, legTurn: 8, boost: 1, hipY: 1.0, weight: 10 },
-  reverse: { name: '逆關節', type: 'reverse', hp: 140, maxLoad: 34, vmax: 7.4, acc: 13, legTurn: 9, boost: 1.3, hipY: 1.05, weight: 8 },
-  tread: { name: '履帶', type: 'tread', hp: 260, maxLoad: 62, vmax: 5.0, acc: 9, legTurn: 2.4, boost: 0.6, hipY: 0.75, weight: 16, grip: 1.6 },
-  hover: { name: '懸浮', type: 'hover', hp: 130, maxLoad: 36, vmax: 8.2, acc: 7, legTurn: 6, boost: 1.2, hipY: 0.85, weight: 9, slide: 0.35, noMud: true },
+  // stagger：單發傷害到這個值就失衡（履帶不會失衡）
+  biped: { name: '雙足', type: 'biped', stagger: 50, hp: 170, maxLoad: 42, vmax: 6.5, acc: 11, legTurn: 8, boost: 1, hipY: 1.0, weight: 10 },
+  reverse: { name: '逆關節', type: 'reverse', stagger: 30, hp: 140, maxLoad: 34, vmax: 7.4, acc: 13, legTurn: 9, boost: 1.3, hipY: 1.05, weight: 8 },
+  tread: { name: '履帶', type: 'tread', stagger: Infinity, hp: 260, maxLoad: 62, vmax: 5.0, acc: 9, legTurn: 2.4, boost: 0.6, hipY: 0.75, weight: 16, grip: 1.6 },
+  hover: { name: '懸浮', type: 'hover', stagger: 25, hp: 130, maxLoad: 36, vmax: 8.2, acc: 7, legTurn: 6, boost: 1.2, hipY: 0.85, weight: 9, slide: 0.35, noMud: true },
 };
 // 武器
 //   interval 射擊間隔、mag 彈匣（0 = 不用換彈）、reload、dmg、speed 彈速、spread 散布、pellets 一次幾發、kb 擊退、recoil 後座力、life 射程（秒）
@@ -76,6 +77,9 @@ export const WEAPONS = {
     model: [[-2, -2, -4, 5, 5, 8, 'f'], [-1, -1, 4, 3, 3, 12, 'f'], [-2, -2, 15, 5, 5, 1, 'w']], muzzle: [0.5, 0.5, 17] },
   missile: { name: '直射飛彈', type: 'chemical', mount: 'back', weight: 6, kind: 'missile', interval: 1.2, mag: 8, reload: 3.0, dmg: 30, salvo: 2, speed: 18, accel: 26, maxSpeed: 32, turn: 1.9, life: 1.6, size: 0.12, splash: 1.3,
     model: [[-3, -3, -4, 6, 6, 8, 'f'], [-2, -2, 4, 2, 2, 1, 'w'], [0, -2, 4, 2, 2, 1, 'w'], [-2, 0, 4, 2, 2, 1, 'w'], [0, 0, 4, 2, 2, 1, 'w']], muzzle: [0, 0, 5] },
+  // 火箭莢艙：不追蹤、不用鎖定的直射火箭，一次 3 發；每發威力剛好讓雙足失衡
+  rocket: { name: '火箭莢艙', type: 'chemical', mount: 'back', weight: 6, kind: 'rocket', interval: 1.0, mag: 9, reload: 3.6, dmg: 52, salvo: 3, speed: 24, accel: 30, maxSpeed: 38, life: 1.1, size: 0.11, splash: 1.0, spread: 0.05,
+    model: [[-3, -3, -4, 6, 6, 9, 'f'], [-2, -2, 5, 1, 1, 1, 'w'], [0, -2, 5, 1, 1, 1, 'w'], [2, -2, 5, 1, 1, 1, 'w'], [-2, 0, 5, 1, 1, 1, 'w'], [0, 0, 5, 1, 1, 1, 'w'], [2, 0, 5, 1, 1, 1, 'w']], muzzle: [0, -1, 6] },
   vmissile: { name: '垂直飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'vmissile', interval: 1.6, mag: 8, reload: 3.4, dmg: 22, salvo: 4, speed: 9, accel: 30, maxSpeed: 26, turn: 1.8, life: 3.2, size: 0.12, splash: 1.5, needLock: true,
     model: [[-3, -3, -4, 6, 5, 8, 'f'], [-2, 2, -3, 2, 1, 2, 'w'], [0, 2, -3, 2, 1, 2, 'w'], [-2, 2, 0, 2, 1, 2, 'w'], [0, 2, 0, 2, 1, 2, 'w']], muzzle: [0, 3, 0] },
   split: { name: '分裂飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'split', interval: 1.8, mag: 4, reload: 3.4, dmg: 11, salvo: 1, bomblets: 6, speed: 16, accel: 16, maxSpeed: 25, turn: 1.2, life: 1.9, size: 0.18, splash: 1.0,
@@ -116,7 +120,7 @@ export const DEFAULT_LOADOUT = {
 
 // 敵機的配裝（試玩場隨機挑）
 export const ENEMY_PRESETS = [
-  { name: '突擊型', head: 'std', core: 'std', legs: 'biped', armL: 'autocannon', armR: 'shotgun', backL: 'missile', backR: null,
+  { name: '突擊型', head: 'std', core: 'std', legs: 'biped', armL: 'autocannon', armR: 'shotgun', backL: 'missile', backR: 'rocket',
     armor: { head: 'composite', torso: 'composite', arms: 'composite', legs: 'composite' } },
   { name: '狙擊型', head: 'hunter', core: 'light', legs: 'reverse', armL: null, armR: 'sniper', backL: 'vmissile', backR: null,
     armor: { head: 'mirror', torso: 'mirror', arms: 'mirror', legs: 'mirror' } },

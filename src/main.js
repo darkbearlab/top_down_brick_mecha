@@ -400,7 +400,7 @@ function updateHud() {
   const H = sensors.head;
   $('lockInfo').textContent = (!H?.lockCount ? '無法鎖定' : wantsLock(p) ? `鎖定 ${sensors.locks.length}/${H.lockCount}` : '鎖定待命（未備飛彈）') + (H?.health != null && H.lockCount ? `・感測受損 ${Math.round((1 - H.health) * 100)}%` : '');
   const S = p.spec;
-  $('warn').textContent = [S.loadK > 1 && '超重', S.armOver && '手臂超重', S.backOver && '背部超重', p.parts.head.broken && '頭部損毀：視野縮小'].filter(Boolean).join('・');
+  $('warn').textContent = [p.staggerT > 0 && '失衡！', S.loadK > 1 && '超重', S.armOver && '手臂超重', S.backOver && '背部超重', p.parts.head.broken && '頭部損毀：視野縮小'].filter(Boolean).join('・');
   // 準星附近、看得到的敵機；對戰中一直顯示對手
   let best = null, bd = MODE.name === 'duel' ? Infinity : 6;
   for (const e of enemies) {
@@ -464,6 +464,7 @@ function frame(t) {
     updateBuildings(dt);
     if (!watching) {
       updateSensors(player, enemies, aimPoint, dt);
+      if (player.lockBreak) { sensors.progress.clear(); sensors.locks = []; player.lockBreak = false; }   // 失衡：鎖定被打斷
       if (sensors.locks.length > lastLocks) sfx.lock();
       lastLocks = sensors.locks.length;
     }
