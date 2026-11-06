@@ -169,7 +169,7 @@ export function updateEnemy(e, dt, player) {
   let laserSlot = null, anyClear = false, blockedSide = null;
   for (const side of ['L', 'R']) {
     const slot = activeSlot(e, side), g = e.guns[slot];
-    if (!g || slotBroken(e, slot) || e.deployT[side] > 0) continue;
+    if (!g || slotBroken(e, slot) || e.deployT[side] > 0 || g.ammo <= 0) continue;
     const d = g.def;
     // 這把的射線會不會馬上被擋住（轉角游擊時槍口常常在牆後）
     const clear = !canShoot || lineClear(e, slot, d, player);
@@ -181,7 +181,7 @@ export function updateEnemy(e, dt, player) {
     else if (d.kind === 'vmissile') t = clear && locks.length > 0 && dist > 6 && Math.random() < dt * 1.2 / DF.rest;
     else if (d.speed > 50) {
       // 狙擊：瞄 0.8 秒（紅色雷射）才開槍
-      if (onTarget && inRange && g.cd <= 0 && g.reloadT <= 0) { A.snipeT += dt; laserSlot = slot; if (A.snipeT >= 0.8) { t = true; A.snipeT = 0; } }
+      if (onTarget && inRange && g.cd <= 0 && g.ammo > 0) { A.snipeT += dt; laserSlot = slot; if (A.snipeT >= 0.8) { t = true; A.snipeT = 0; } }
       else A.snipeT = Math.max(0, A.snipeT - dt);
     } else if (d.interval >= 1) t = onTarget && inRange && Math.random() < dt * 1.2 / DF.rest;
     else t = A.burst > 0 && onTarget && inRange;
@@ -227,7 +227,7 @@ function updateReadyChoice(e, dt, dist, canShoot, tgt) {
     const melee = arm.def.kind === 'saber' && dist < 5;
     if (e.ready[side] && melee) { toggleReady(e, side); A.hold[side] = 1.5; continue; }
     if ((A.hold[side] -= dt) > 0) continue;
-    const useful = back.reloadT <= 0 && backUseful(e, 'back' + side, back.def, dist, canShoot, headStats(e), tgt);
+    const useful = back.ammo > 0 && backUseful(e, 'back' + side, back.def, dist, canShoot, headStats(e), tgt);
     if (!e.ready[side]) {
       if (useful && !melee && Math.random() < 0.6) { toggleReady(e, side); A.hold[side] = 2.5 + Math.random() * 2; }
       else A.hold[side] = 0.6 + Math.random() * 0.8;

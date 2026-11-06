@@ -48,7 +48,7 @@ function resetWorld() {
   clearWrecks();
   resetBuildings();
   sensors.progress.clear(); sensors.locks = [];
-  MODE.endT = 0; MODE.result = null;
+  MODE.endT = 0; MODE.result = null; MODE.clock = 0;
   hidePanel();
 }
 function startSandbox() {
@@ -198,7 +198,7 @@ function endWatch(result) {
   MODE.result = result;
   if (result !== 'draw') MODE.score[result]++;
   MODE.endT = 4.5;
-  const text = MODE.kind === 'skirmish' ? (result === 'blue' ? '藍軍勝利' : '紅軍勝利') : MODE.kind === 'horde' ? (result === 'blue' ? '王牌勝利：雜魚全滅' : '王牌被擊墜') : result === 'blue' ? '藍方勝利' : result === 'red' ? '紅方勝利' : '同歸於盡';
+  const text = result === 'draw' ? '平手' : MODE.kind === 'skirmish' ? (result === 'blue' ? '藍軍勝利' : '紅軍勝利') : MODE.kind === 'horde' ? (result === 'blue' ? '王牌勝利：雜魚全滅' : '王牌被擊墜') : result === 'blue' ? '藍方勝利' : result === 'red' ? '紅方勝利' : '同歸於盡';
   setTimeout(() => { if (MODE.name === 'watch') toast(text); }, 2000);
 }
 AI.onEnemyDeath = (e) => {
@@ -256,6 +256,7 @@ function showPanel(title, html, buttons) {
 function hidePanel() { $('panel').classList.add('hidden'); }
 const panelOpen = () => !$('panel').classList.contains('hidden');
 function restart() { MODE.name === 'duel' ? startDuel(MODE.duel.preset, MODE.duel.diffKey) : MODE.name === 'watch' ? nextWatch() : startSandbox(); }
+const WATCH_LIMIT = 180;   // 觀戰一場最多幾秒（遊戲時間）
 const nextWatch = () => MODE.kind === 'horde' ? startHorde() : MODE.kind === 'skirmish' ? startSkirmish() : startWatch();
 function pause() {
   G.paused = true;
@@ -376,11 +377,11 @@ function gunState(m, slot) {
   const g = m.guns[slot];
   if (!g) return '—';
   if (m.parts[slot]?.broken) return '<span class="bad">損毀</span>';
-  if (g.reloadT > 0) return '裝填中';
+  if (g.ammo <= 0) return '<span class="bad">彈盡</span>';
   if (m.deployT[slot.slice(-1)] > 0 && activeSlot(m, slot.slice(-1)) === slot) return '展開中';
   if (g.def.energy) return m.energy < g.def.energy ? '<span class="bad">能量不足</span>' : g.cd > 0 ? '冷卻' : '就緒';
   if (g.def.needLock && !sensors.locks.length) return '需要鎖定';
-  return g.def.mag ? `${g.ammo}/${g.def.mag}` : g.cd > 0 ? '冷卻' : '就緒';
+  return g.def.ammo ? `${g.ammo}/${g.def.ammo}` : g.cd > 0 ? '冷卻' : '就緒';
 }
 let gunsKey = '';
 function updateHud() {
@@ -467,6 +468,17 @@ function frame(t) {
       if (player.lockBreak) { sensors.progress.clear(); sensors.locks = []; player.lockBreak = false; }   // 失衡：鎖定被打斷
       if (sensors.locks.length > lastLocks) sfx.lock();
       lastLocks = sensors.locks.length;
+    }
+    // 觀戰時間上限（彈藥打光可能僵住）：一對一比剩餘耐久、雜魚戰比剩幾台、王牌 vs 雜魚算王牌沒清完
+    if (watching && !MODE.result && (MODE.clock += dt) > WATCH_LIMIT) {
+      if (MODE.kind === 'horde') endWatch('red');
+      else if (MODE.kind === 'skirmish') { const b = MODE.sk.blue.killed, r = MODE.sk.red.killed; endWatch(b < r ? 'blue' : r < b ? 'red' : 'draw'); }
+      else {
+        const hpK = t => enemies.filter(e => e.team === t && e.alive).reduce((a, e) => a + Object.values(e.parts).reduce((s, p) => s + p.hp / p.max, 0), 0);
+        const b = hpK('blue'), r = hpK('red');
+        endWatch(Math.abs(b - r) < 0.05 ? 'draw' : b > r ? 'blue' : 'red');
+      }
+      toast('時間到');
     }
     // 對戰結束：倒下的動畫播一下再出結果；觀戰：自動下一場
     if (MODE.endT > 0 && (MODE.endT -= raw) <= 0) watching ? nextWatch() : showResult(MODE.result === 'win');

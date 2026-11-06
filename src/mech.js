@@ -83,13 +83,13 @@ export function muzzleOf(m, slot) {
 
 // ---------- 背部武器準備（Q / E 切換） ----------
 // 按一次：手臂放下、背部武器架上肩膀，該邊滑鼠鍵改打背部武器；再按一次換回手臂
-// 切換要 DEPLOY_T 秒，期間那一邊不能開火；背部武器開始換彈 / 被打掉時自動換回手臂
+// 切換要 DEPLOY_T 秒，期間那一邊不能開火；背部武器打光 / 被打掉時自動換回手臂；手臂武器打光就自動架背部武器
 export const DEPLOY_T = 0.3;
 const LOCK_KINDS = new Set(['missile', 'split', 'vmissile']);
 export const activeSlot = (m, side) => (m.ready[side] ? 'back' : 'arm') + side;
 export function canReady(m, side) {
   const g = m.guns?.['back' + side];
-  return !!g && !slotBroken(m, 'back' + side) && g.reloadT <= 0;
+  return !!g && !slotBroken(m, 'back' + side) && g.ammo > 0;
 }
 export function toggleReady(m, side) {
   if (!m.alive || m.swing) return false;
@@ -113,10 +113,10 @@ export function wantsLock(m) {
 export function updateReady(m, dt) {
   for (const side of ['L', 'R']) {
     if (m.deployT[side] > 0) m.deployT[side] -= dt;
-    // 換彈或被打掉：自動收回、換回手臂；那一邊手上沒武器（或被打掉）就一直架著背部武器
-    const armOk = !!m.guns?.['arm' + side] && !slotBroken(m, 'arm' + side);
+    // 背部打光或被打掉：換回手臂；手上沒武器（或打光、被打掉）就架著背部武器
+    const ag = m.guns?.['arm' + side], armOk = !!ag && !slotBroken(m, 'arm' + side) && ag.ammo > 0;
     if (m.ready[side] && armOk && !canReady(m, side)) { m.ready[side] = false; m.deployT[side] = DEPLOY_T; }
-    if (!m.ready[side] && !armOk && m.guns?.['back' + side] && !slotBroken(m, 'back' + side)) { m.ready[side] = true; m.deployT[side] = DEPLOY_T; }
+    if (!m.ready[side] && !armOk && canReady(m, side)) { m.ready[side] = true; m.deployT[side] = DEPLOY_T; }
     const k = m.readyK[side], to = m.ready[side] ? 1 : 0;
     m.readyK[side] = k + Math.sign(to - k) * Math.min(Math.abs(to - k), dt / DEPLOY_T);
   }
@@ -408,6 +408,8 @@ export function collideMechs() {
     if (rel <= 0) continue;
     const imp = 1.05 * rel;   // 幾乎完全不反彈：撞上去就黏在一起推
     a.vx -= imp * ka * nx; a.vz -= imp * ka * nz; b.vx += imp * kb * nx; b.vz += imp * kb * nz;
+    // 同一邊的雜魚互撞：只推開，不卡住、不受傷（叫雜魚互相閃避太貴）；王牌和雜魚、不同邊照舊
+    if (a.grunt && b.grunt && a.team === b.team) continue;
     if (rel > STICK_SPEED) { stick(a, rel * ka * 2, -nx, -nz); stick(b, rel * kb * 2, nx, nz); }
     if (rel > 5) {
       const dmg = (rel - 5) * 9;

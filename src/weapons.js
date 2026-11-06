@@ -22,7 +22,8 @@ import { sfx } from './audio.js';
 export const ENEMY_SPEED = 0.55;
 export function makeGuns(lo) {
   const g = {};
-  for (const s of SLOTS) if (lo[s]) g[s] = { def: WEAPONS[lo[s]], cd: 0, ammo: WEAPONS[lo[s]].mag, reloadT: 0 };
+  // ammo：總彈藥，打完就沒了；能量武器 Infinity
+  for (const s of SLOTS) if (lo[s]) g[s] = { def: WEAPONS[lo[s]], cd: 0, ammo: WEAPONS[lo[s]].ammo ?? Infinity };
   return g;
 }
 
@@ -42,24 +43,20 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
   for (const slot in m.guns) {
     const gun = m.guns[slot], d = gun.def;
     gun.cd -= dt;
-    if (gun.reloadT > 0) {
-      gun.reloadT -= dt;
-      if (gun.reloadT <= 0) { gun.ammo = d.mag; if (m.team === 'player') sfx.reloadDone(); }
-      continue;
-    }
     if (!triggers[slot.slice(-1)] || !slotLive(m, slot) || gun.cd > 0 || !m.alive || slotBroken(m, slot) || m.swing || m.staggerT > 0) continue;
+    if (gun.ammo <= 0) { gun.cd = 0.3; if (m.team === 'player') sfx.click(); continue; }   // 彈盡
     if (d.needLock && !locks.length && m.team === 'player') { gun.cd = 0.3; sfx.click(); continue; }
     if (d.energy && !useEnergy(m, d.energy)) continue;
     gun.cd = d.interval;
-    fire(m, slot, d, locks, aim);
-    if (d.mag) {
-      gun.ammo--;
-      if (gun.ammo <= 0) { gun.reloadT = d.reload; if (m.team === 'player') sfx.reload(); }
-    }
+    // 飛彈 / 火箭一次好幾發，剩不夠就只射剩下的
+    const n = Math.min(d.salvo ?? 1, gun.ammo);
+    fire(m, slot, d, locks, aim, n);
+    gun.ammo -= n;
+    if (gun.ammo <= 0 && m.team === 'player') sfx.reload();
   }
 }
 
-function fire(m, slot, d, locks, aim) {
+function fire(m, slot, d, locks, aim, salvoN = d.salvo ?? 1) {
   const enemy = m.team !== 'player';
   const mz = muzzleOf(m, slot), f = facing(m), base = Math.atan2(f.x, f.z);
   const spreadK = m.spec.spreadMul * (m.parts.head.broken ? 2.5 : 1);
@@ -81,7 +78,7 @@ function fire(m, slot, d, locks, aim) {
     return;
   }
   // 飛彈：一發一發錯開射出，每發分配一個鎖定目標
-  const n = d.salvo ?? 1;
+  const n = salvoN;
   sfx.missile();
   m.salvo ??= [];
   for (let i = 0; i < n; i++) {

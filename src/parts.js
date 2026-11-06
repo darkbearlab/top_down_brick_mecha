@@ -57,32 +57,34 @@ export const LEGS = {
   hover: { name: '懸浮', type: 'hover', stagger: 25, hp: 130, maxLoad: 36, vmax: 8.2, acc: 7, legTurn: 6, boost: 1.2, hipY: 0.85, weight: 9, slide: 0.35, noMud: true },
 };
 // 武器
-//   interval 射擊間隔、mag 彈匣（0 = 不用換彈）、reload、dmg、speed 彈速、spread 散布、pellets 一次幾發、kb 擊退、recoil 後座力、life 射程（秒）
+//   interval 射擊間隔、ammo 總彈藥（沒有彈匣、不用換彈，打完就沒了；飛彈 / 火箭算發數；能量武器沒有彈藥、吃能量）
+//     分兩種用途：持久型（機槍、機砲、直射 / 垂直飛彈：連射 40～50 秒）、決戰型（霰彈、狙擊、加農砲、火箭、分裂飛彈：8～20 秒，威力大但很快打完）
+//   dmg、speed 彈速、spread 散布、pellets 一次幾發、kb 擊退、recoil 後座力、life 射程（秒）
 //   energy = 每發吃多少能量（光束類）；salvo = 一次射幾發飛彈；kind：bullet / beam / missile / vmissile / split / saber
 //   muzzle = 槍口在掛點本地的位置（方塊單位）
 export const WEAPONS = {
-  mg: { name: '機槍', type: 'kinetic', mount: 'arm', weight: 3, kind: 'bullet', interval: 0.07, mag: 60, reload: 2.2, dmg: 4, speed: 36, spread: 0.06, kb: 0.12, recoil: 0.05, life: 0.6, size: 0.07,
+  mg: { name: '機槍', type: 'kinetic', mount: 'arm', weight: 3, kind: 'bullet', interval: 0.07, ammo: 720, dmg: 4, speed: 36, spread: 0.06, kb: 0.12, recoil: 0.05, life: 0.6, size: 0.07,
     model: [[-1, -1, 0, 3, 3, 7, 'f'], [0, 0, 7, 1, 1, 7, 'f'], [-1, -2, 2, 3, 1, 3, 'w']], muzzle: [0.5, 0.5, 14] },
-  autocannon: { name: '機砲', type: 'kinetic', mount: 'arm', weight: 5, kind: 'bullet', interval: 0.16, mag: 24, reload: 2.4, dmg: 11, speed: 32, spread: 0.035, kb: 0.6, recoil: 0.2, life: 0.75, size: 0.1,
+  autocannon: { name: '機砲', type: 'kinetic', mount: 'arm', weight: 5, kind: 'bullet', interval: 0.16, ammo: 320, dmg: 11, speed: 32, spread: 0.035, kb: 0.6, recoil: 0.2, life: 0.75, size: 0.1,
     model: [[-2, -2, 0, 4, 4, 7, 'f'], [-1, -1, 7, 2, 2, 9, 'f'], [-2, -3, 1, 4, 1, 4, 'w']], muzzle: [0, 0, 16] },
-  shotgun: { name: '霰彈槍', type: 'kinetic', mount: 'arm', weight: 4, kind: 'bullet', interval: 0.75, mag: 6, reload: 2.0, dmg: 6, pellets: 8, speed: 26, spread: 0.22, kb: 0.35, recoil: 1.2, life: 0.32, size: 0.08,
+  shotgun: { name: '霰彈槍', type: 'kinetic', mount: 'arm', weight: 4, kind: 'bullet', interval: 0.75, ammo: 20, dmg: 6, pellets: 8, speed: 26, spread: 0.22, kb: 0.35, recoil: 1.2, life: 0.32, size: 0.08,
     model: [[-2, -2, 0, 4, 4, 6, 'f'], [-2, -1, 6, 4, 2, 6, 'f'], [-2, -3, 1, 4, 1, 3, 'w']], muzzle: [0, 0, 12] },
-  sniper: { name: '狙擊槍', type: 'kinetic', mount: 'arm', weight: 5, kind: 'bullet', interval: 1.3, mag: 5, reload: 2.6, dmg: 55, speed: 75, spread: 0.004, kb: 2.5, recoil: 1.5, life: 0.5, size: 0.08, trail: true,
+  sniper: { name: '狙擊槍', type: 'kinetic', mount: 'arm', weight: 5, kind: 'bullet', interval: 1.3, ammo: 14, dmg: 55, speed: 75, spread: 0.004, kb: 2.5, recoil: 1.5, life: 0.5, size: 0.08, trail: true,
     model: [[-1, -2, -1, 3, 4, 8, 'f'], [0, -1, 7, 1, 1, 13, 'f'], [-1, 2, 1, 3, 2, 4, 'w']], muzzle: [0.5, -0.5, 20] },
-  beam: { name: '光束步槍', type: 'energy', mount: 'arm', weight: 4, kind: 'beam', interval: 0.45, mag: 0, dmg: 26, speed: 48, spread: 0.01, kb: 0.8, recoil: 0.3, life: 0.5, size: 0.11, energy: 12,
+  beam: { name: '光束步槍', type: 'energy', mount: 'arm', weight: 4, kind: 'beam', interval: 0.45, dmg: 26, speed: 48, spread: 0.01, kb: 0.8, recoil: 0.3, life: 0.5, size: 0.11, energy: 12,
     model: [[-2, -2, 0, 4, 4, 8, 'f'], [-1, -1, 8, 2, 2, 6, 'w'], [-1, -1, 14, 2, 2, 1, 'g']], muzzle: [0, 0, 15] },
-  saber: { name: '光束劍', type: 'energy', mount: 'arm', weight: 2, kind: 'saber', interval: 0.55, mag: 0, dmg: 58, kb: 4, energy: 15, reach: 2.4, arc: 2.2, lunge: 7,
+  saber: { name: '光束劍', type: 'energy', mount: 'arm', weight: 2, kind: 'saber', interval: 0.55, dmg: 58, kb: 4, energy: 15, reach: 2.4, arc: 2.2, lunge: 7,
     model: [[-1, -2, -1, 2, 4, 3, 'f'], [-1, -1, 2, 2, 2, 1, 'w']], blade: 22, muzzle: [0, 0, 3] },
-  cannon: { name: '加農砲', type: 'kinetic', mount: 'back', weight: 8, kind: 'bullet', interval: 2.4, mag: 0, dmg: 85, speed: 40, spread: 0, kb: 7, recoil: 4, life: 0.9, size: 0.24, heavy: true, splash: 2.2,
+  cannon: { name: '加農砲', type: 'kinetic', mount: 'back', weight: 8, kind: 'bullet', interval: 2.4, ammo: 8, dmg: 85, speed: 40, spread: 0, kb: 7, recoil: 4, life: 0.9, size: 0.24, heavy: true, splash: 2.2,
     model: [[-2, -2, -4, 5, 5, 8, 'f'], [-1, -1, 4, 3, 3, 12, 'f'], [-2, -2, 15, 5, 5, 1, 'w']], muzzle: [0.5, 0.5, 17] },
-  missile: { name: '直射飛彈', type: 'chemical', mount: 'back', weight: 6, kind: 'missile', interval: 1.2, mag: 8, reload: 3.0, dmg: 30, salvo: 2, speed: 18, accel: 26, maxSpeed: 32, turn: 1.9, life: 1.6, size: 0.12, splash: 1.3,
+  missile: { name: '直射飛彈', type: 'chemical', mount: 'back', weight: 6, kind: 'missile', interval: 1.2, ammo: 64, dmg: 30, salvo: 2, speed: 18, accel: 26, maxSpeed: 32, turn: 1.9, life: 1.6, size: 0.12, splash: 1.3,
     model: [[-3, -3, -4, 6, 6, 8, 'f'], [-2, -2, 4, 2, 2, 1, 'w'], [0, -2, 4, 2, 2, 1, 'w'], [-2, 0, 4, 2, 2, 1, 'w'], [0, 0, 4, 2, 2, 1, 'w']], muzzle: [0, 0, 5] },
   // 火箭莢艙：不追蹤、不用鎖定的直射火箭，一次 3 發；每發威力剛好讓雙足失衡
-  rocket: { name: '火箭莢艙', type: 'chemical', mount: 'back', weight: 6, kind: 'rocket', interval: 1.0, mag: 9, reload: 3.6, dmg: 52, salvo: 3, speed: 24, accel: 30, maxSpeed: 38, life: 1.1, size: 0.11, splash: 1.0, spread: 0.05,
+  rocket: { name: '火箭莢艙', type: 'chemical', mount: 'back', weight: 6, kind: 'rocket', interval: 1.0, ammo: 24, dmg: 52, salvo: 3, speed: 24, accel: 30, maxSpeed: 38, life: 1.1, size: 0.11, splash: 1.0, spread: 0.05,
     model: [[-3, -3, -4, 6, 6, 9, 'f'], [-2, -2, 5, 1, 1, 1, 'w'], [0, -2, 5, 1, 1, 1, 'w'], [2, -2, 5, 1, 1, 1, 'w'], [-2, 0, 5, 1, 1, 1, 'w'], [0, 0, 5, 1, 1, 1, 'w'], [2, 0, 5, 1, 1, 1, 'w']], muzzle: [0, -1, 6] },
-  vmissile: { name: '垂直飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'vmissile', interval: 1.6, mag: 8, reload: 3.4, dmg: 22, salvo: 4, speed: 9, accel: 30, maxSpeed: 26, turn: 1.8, life: 3.2, size: 0.12, splash: 1.5, needLock: true,
+  vmissile: { name: '垂直飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'vmissile', interval: 1.6, ammo: 96, dmg: 22, salvo: 4, speed: 9, accel: 30, maxSpeed: 26, turn: 1.8, life: 3.2, size: 0.12, splash: 1.5, needLock: true,
     model: [[-3, -3, -4, 6, 5, 8, 'f'], [-2, 2, -3, 2, 1, 2, 'w'], [0, 2, -3, 2, 1, 2, 'w'], [-2, 2, 0, 2, 1, 2, 'w'], [0, 2, 0, 2, 1, 2, 'w']], muzzle: [0, 3, 0] },
-  split: { name: '分裂飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'split', interval: 1.8, mag: 4, reload: 3.4, dmg: 11, salvo: 1, bomblets: 6, speed: 16, accel: 16, maxSpeed: 25, turn: 1.2, life: 1.9, size: 0.18, splash: 1.0,
+  split: { name: '分裂飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'split', interval: 1.8, ammo: 8, dmg: 11, salvo: 1, bomblets: 6, speed: 16, accel: 16, maxSpeed: 25, turn: 1.2, life: 1.9, size: 0.18, splash: 1.0,
     model: [[-3, -3, -4, 6, 6, 9, 'f'], [-2, -2, 5, 4, 4, 2, 'w']], muzzle: [0, 0, 7] },
 };
 export const HP_MUL = 1.35;
@@ -107,6 +109,8 @@ export function randomGrunt() {
   const a = Object.keys(ARMORS)[Math.floor(Math.random() * 3)];
   return { ...GRUNTS[k], id: k, armor: { head: a, torso: a, arms: a, legs: a } };
 }
+// 連射多久會打光（秒）：總彈藥 ÷ 一次幾發 × 射擊間隔；能量武器 Infinity
+export const fireTime = W => W.ammo ? W.ammo / (W.salvo ?? 1) * W.interval : Infinity;
 export const SLOTS = ['armL', 'armR', 'backL', 'backR'];
 export const SLOT_NAMES = { armL: '左手', armR: '右手', backL: '左背', backR: '右背' };
 export const SLOT_KEYS = { armL: '左鍵', armR: '右鍵', backL: 'Q 切換', backR: 'E 切換' };

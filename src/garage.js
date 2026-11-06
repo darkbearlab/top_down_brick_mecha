@@ -1,7 +1,7 @@
 // ---------- 整備（組裝機體） ----------
 // G 開關；左邊選要換哪個部位，中間列出可以用的零件和數值，右邊是整台機體的數值與負重
 // 改了馬上換到場上的機體上看得到；配裝存在瀏覽器裡
-import { ARMORS, ARMOR_PARTS, CORES, DMG_TYPES, EFFECT, HEADS, HP_MUL, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, WEAPONS, computeSpec, saveLoadout } from './parts.js';
+import { ARMORS, ARMOR_PARTS, CORES, DMG_TYPES, EFFECT, HEADS, HP_MUL, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, WEAPONS, computeSpec, fireTime, saveLoadout } from './parts.js';
 import { sfx } from './audio.js';
 
 const $ = id => document.getElementById(id);
@@ -38,7 +38,7 @@ function options(key) {
   const mount = key.startsWith('arm') ? 'arm' : 'back';
   return [{ id: null, name: '（空）', html: '不裝武器' }, ...Object.entries(WEAPONS).filter(([, W]) => W.mount === mount).map(([id, W]) => ({ id, name: W.name,
     html: `${typeTag(W.type)} 傷害 ${W.dmg}${W.pellets ? '×' + W.pellets : W.salvo > 1 ? '×' + W.salvo : ''}・${(1 / W.interval).toFixed(1)} 發/秒<br>` +
-      `${W.energy ? `能量 ${W.energy}/發` : W.mag ? `彈匣 ${W.mag}・換彈 ${W.reload}s` : '不用換彈'}・重 ${W.weight}${W.needLock ? '・需鎖定' : W.kind === 'missile' || W.kind === 'split' ? '・可追蹤' : ''}` }))];
+      `${W.energy ? `能量 ${W.energy}/發・無彈藥限制` : `彈藥 ${W.ammo}・連射 ${Math.round(fireTime(W))} 秒（${fireTime(W) >= 35 ? '持久型' : '決戰型'}）`}・重 ${W.weight}${W.needLock ? '・需鎖定' : W.kind === 'missile' || W.kind === 'split' ? '・可追蹤' : ''}` }))];
 }
 
 function pick(key, id) {
