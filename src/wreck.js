@@ -261,8 +261,16 @@ const husks = [], HUSK_MAX = 150;
 let huskLayer = 0;
 function toHusk(d) {
   for (const mat of d.mats) { mat.color.copy(CHAR_D); mat.emissive.setHex(0x000000); }
-  d.root.rotation.set(d.dz * 0.3, d.root.rotation.y, -d.dx * 0.3);
-  d.root.position.y = d.y0 - 0.37;
+  // 腳、手臂（連手上的武器 / 光束劍）、背部武器燒斷掉下來（焦炭碎塊幾乎原地落下），只剩軀幹和頭坐在地上
+  for (const k of ['legs', 'armL', 'armR', 'backL', 'backR']) {
+    const p = d.m.parts[k];
+    if (!p?.g.visible) continue;
+    voxelBurst(p.g, 24, 1, d.x, d.z, 0, 0, { char: 1 });
+    p.g.visible = false;
+  }
+  const M = d.m.model;
+  d.root.rotation.set(d.dz * 0.22, d.root.rotation.y, -d.dx * 0.22);
+  d.root.position.y = d.y0 - M.hipY * M.root.scale.y * 0.8;
   const i = dyings.indexOf(d);
   if (i >= 0) dyings.splice(i, 1);
   husks.push({ root: d.root, layer: huskLayer });
