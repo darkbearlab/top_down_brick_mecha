@@ -104,7 +104,9 @@ html, body {
 @keyframes toast { 0% { opacity: 0; transform: scale(1.5); } 12% { opacity: 1; transform: scale(1); } 70% { opacity: 1; } 100% { opacity: 0; } }
 /* 主選單、對戰設定：畫面右邊，左邊留給機體 */
 #menu, #duel { position: fixed; inset: 0; z-index: 9; display: flex; justify-content: flex-end; pointer-events: none; }
-#menu.hidden, #duel.hidden, #panel.hidden { display: none; }
+#menu.hidden, #duel.hidden, #panel.hidden, #mMain.hidden, #mSub.hidden { display: none; }
+#mSub h2 { margin: 4px 0 10px; }
+#mMain, #mSub, #mSubList { display: flex; flex-direction: column; gap: 10px; }
 .mpanel {
   pointer-events: auto; width: min(560px, 50vw); height: 100%; overflow-y: auto; display: flex; flex-direction: column; gap: 10px; justify-content: center;
   padding: 24px 32px 24px 56px; background: linear-gradient(90deg, rgba(8,10,14,0), rgba(8,10,14,.88) 16%);

@@ -4,7 +4,7 @@ import { CAM_PITCH, G, addMat, camDist, camTarget, camera, hemi, renderer, scene
 import { clearPressed, input, updateInput } from './input.js';
 import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayers, loadMap, mapId, randomOpenSpot, rayBlock, setLayer, tileC, tileR } from './arena.js';
 import { THEMES, rng } from './mapgen.js';
-import { TERRAINS, genStage } from './stagegen.js';
+import { TERRAINS, genStage, terrainOf } from './stagegen.js';
 import { flowDist, updateFlow } from './pathing.js';
 import { addProp, clearProps, nearProp, props, removeProp, setPortal, setPropLayer, spendProp, updateProps } from './props.js';
 import { RADIUS, exploredAt, fogActive, fogOff, initFogLayers, setFogLayer, updateFog, visibleAt } from './fog.js';
@@ -385,8 +385,19 @@ function exDiff(depth) {
   return { ...D, dmg: D.dmg * (1 + 0.2 * L), hp: D.hp * (1 + 0.15 * L), rest: Math.max(1.2, D.rest - 0.12 * L), err: Math.max(0.05, D.err - 0.02 * L) };
 }
 const PLAYER_WEAPONS = Object.keys(WEAPONS).filter(k => !WEAPONS[k].low);
-function startRun(seed) {
-  EN = { t: 0, kills: 0, mods: {}, scrap: 0, stage: 1, explore: true, loadout: { ...structuredClone(loadout), ...START_WEAPONS } };
+// stage > 1：直接從那關開始（測試 / 選關用）：空的掛點補隨機武器（最多 2 把）、每跳過一關 2 個隨機強化模組和 30 零件
+function startRun(seed, stage = 1) {
+  EN = { t: 0, kills: 0, mods: {}, scrap: (stage - 1) * 30, stage, explore: true, loadout: { ...structuredClone(loadout), ...START_WEAPONS } };
+  if (stage > 1) {
+    const keys = Object.keys(MODS);
+    for (let i = 0; i < (stage - 1) * 2; i++) { const k = keys[Math.floor(Math.random() * keys.length)]; EN.mods[k] = (EN.mods[k] ?? 0) + 1; }
+    let n = Math.min(2, stage - 1);
+    for (const s of SLOTS) {
+      if (n <= 0 || EN.loadout[s]) continue;
+      const pool = PLAYER_WEAPONS.filter(id => s.startsWith(WEAPONS[id].mount));
+      EN.loadout[s] = pool[Math.floor(Math.random() * pool.length)]; n--;
+    }
+  }
   startStage(seed);
 }
 function spawnRunPlayer(x, z, yaw) {
@@ -894,7 +905,7 @@ function showMenu() {
   AI.sandbox = false;
   spawnPlayer(0, 0, 0);
   $('hud').classList.add('hidden'); $('duel').classList.add('hidden'); $('watch').classList.add('hidden');
-  $('menu').classList.remove('hidden');
+  $('menu').classList.remove('hidden'); hideSub();
   setSensorsVisible(false);
 }
 
@@ -947,12 +958,37 @@ const HELP = `<div class="help">
 
 // ---------- 主選單與對戰設定 ----------
 $('mDuel').onclick = () => { unlockAudio(); sfx.click(); openDuelSetup(); };
-$('mExplore').onclick = () => { unlockAudio(); sfx.click(); startRun(); };
-$('mEndless').onclick = () => { unlockAudio(); sfx.click(); startEndless(); };
-$('mSandbox').onclick = () => { unlockAudio(); sfx.click(); startSandbox(); };
-$('mWatch').onclick = () => { unlockAudio(); sfx.click(); startWatch(true); };
-$('mHorde').onclick = () => { unlockAudio(); sfx.click(); startHorde(true); };
-$('mSkirmish').onclick = () => { unlockAudio(); sfx.click(); startSkirmish(true); };
+// 子選單：主選單的按鈕換成一串選項（試玩場、無盡模式先收起來，程式還在）
+function showSub(title, items) {
+  $('mSubTitle').textContent = title;
+  const list = $('mSubList');
+  list.innerHTML = '';
+  for (const it of items) {
+    const el = document.createElement('button');
+    el.className = 'btn' + (it.primary ? ' primary' : '');
+    el.innerHTML = `${it.label}<small>${it.desc}</small>`;
+    el.onclick = () => { unlockAudio(); sfx.click(); hideSub(); it.run(); };
+    list.appendChild(el);
+  }
+  $('mMain').classList.add('hidden'); $('mSub').classList.remove('hidden');
+}
+function hideSub() { $('mSub').classList.add('hidden'); $('mMain').classList.remove('hidden'); }
+$('mSubBack').onclick = () => { sfx.click(); hideSub(); };
+$('mExplore').onclick = () => {
+  unlockAudio(); sfx.click();
+  showSub('遠征・選關', [
+    { label: '第 1 關', desc: `${TERRAINS[terrainOf(1)]}・從機槍和飛彈出發`, primary: true, run: () => startRun() },
+    ...[2, 3, 4, 5, 6].map(n => ({ label: `第 ${n} 關`, desc: `${TERRAINS[terrainOf(n)]}・直接從這關開始：補 ${Math.min(2, n - 1)} 把隨機武器、${(n - 1) * 2} 個強化模組、${(n - 1) * 30} 零件`, run: () => startRun(undefined, n) })),
+  ]);
+};
+$('mWatchMenu').onclick = () => {
+  unlockAudio(); sfx.click();
+  showSub('觀戰', [
+    { label: '電腦對電腦', desc: '隨機配裝・打完自動換下一場', primary: true, run: () => startWatch(true) },
+    { label: '王牌 vs 雜魚', desc: '一台王牌機對上一批批空投的雜魚機（共 18 台）', run: () => startHorde(true) },
+    { label: '雜魚 vs 雜魚', desc: '藍紅兩隊雜魚各 12 台，從兩側空投，先全滅的輸', run: () => startSkirmish(true) },
+  ]);
+};
 $('mGarage').onclick = () => { unlockAudio(); sfx.click(); openGarageFrom('menu'); };
 $('mHelp').onclick = () => { unlockAudio(); sfx.click(); showPanel('操作說明', HELP, [{ label: '返回', primary: true, run: hidePanel }]); };
 
