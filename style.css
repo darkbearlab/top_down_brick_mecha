@@ -63,7 +63,7 @@ html, body {
 #boss .bbar { height: 8px; margin-top: 3px; background: rgba(0,0,0,.5); border: 1px solid rgba(255,110,90,.5); border-radius: 3px; overflow: hidden; }
 #boss .bbar i { display: block; height: 100%; width: 100%; background: linear-gradient(90deg, #c02818, #ff6040); transition: width .15s; }
 #prompt { position: absolute; left: 50%; bottom: 26%; transform: translateX(-50%); padding: 6px 14px; background: rgba(10,12,16,.75); border: 1px solid rgba(160,180,210,.35); border-radius: 4px; font-size: 14px; white-space: nowrap; }
-#boss.hidden, #prompt.hidden, #warning.hidden, #bossIntro.hidden, #warpFade.hidden { display: none; }
+#boss.hidden, #prompt.hidden, #warning.hidden, #bossIntro.hidden, #warpFade.hidden, #hopFade.hidden { display: none; }
 /* 演出覆蓋層：出現時淡入、收起時淡出（.fadeout，JS 等淡完再藏） */
 @keyframes fxin { from { opacity: 0; } to { opacity: 1; } }
 #warning.fadeout { opacity: 0; transition: opacity .22s ease-in; }
@@ -71,6 +71,9 @@ html, body {
 /* 傳送：畫面白掉（淡入 0.3 秒）、換地圖後淡掉（0.6 秒） */
 #warpFade { position: fixed; inset: 0; z-index: 30; pointer-events: none; background: radial-gradient(circle, #ffffff 0%, #d8fbff 55%, #a0eaff 100%); animation: fxin .3s ease-out; }
 #warpFade.fadeout { opacity: 0; transition: opacity .6s ease-out; }
+/* 換層（地下入口）：很短的一下黑 */
+#hopFade { position: fixed; inset: 0; z-index: 30; pointer-events: none; background: #040507; animation: fxin .2s ease-in; }
+#hopFade.fadeout { opacity: 0; transition: opacity .3s ease-out; }
 /* 頭目登場：全畫面警告 */
 #warning { position: absolute; inset: 0; pointer-events: none; z-index: 5; animation: fxin .18s ease-out, wflash .4s steps(2) infinite; box-shadow: inset 0 0 18vh rgba(255,20,10,.55); }
 @keyframes wflash { 0% { background: rgba(255,0,0,.10); } 100% { background: rgba(255,0,0,0); } }

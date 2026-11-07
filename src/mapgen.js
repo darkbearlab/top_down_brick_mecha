@@ -12,9 +12,9 @@
 // 回傳 { id, seed, W, H, grid, buildings: [[c, r, w, h, 樓層, 風格]], spawn, zones, zoneOf, sites, caches, portal, startZ }
 export const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 
-export const THEMES = { city: '街區', open: '荒野', ruins: '廢墟', plaza: '廣場' };
+export const THEMES = { city: '街區', open: '荒野', ruins: '廢墟', plaza: '廣場', under: '地下' };
 
-export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 256, H = 192, NX = 5, NY = 3 } = {}) {
+export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 256, H = 192, NX = 5, NY = 3, themePool = ['city', 'city', 'open', 'ruins', 'plaza'] } = {}) {
   const rand = rng(seed), ri = (a, b) => a + Math.floor(rand() * (b - a + 1)), pick = a => a[Math.floor(rand() * a.length)];
   const grid = Array.from({ length: H }, (_, r) => Array.from({ length: W }, (_, c) => (r === 0 || c === 0 || r === H - 1 || c === W - 1) ? '#' : '.'));
   const inside = (c, r) => c > 0 && r > 0 && c < W - 1 && r < H - 1;
@@ -66,7 +66,7 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 256, H = 
   const open = [];
   for (const P of adjPairs.slice().sort(() => rand() - 0.5)) {
     const a = find(P.a), b = find(P.b);
-    if (a !== b) { parent[a] = b; open.push(P); } else if (rand() < 0.3) open.push(P);
+    if (a !== b) { parent[a] = b; P.tree = true; open.push(P); } else if (rand() < 0.3) open.push(P);
   }
   const passes = [];
   for (const P of open) {
@@ -79,13 +79,13 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 256, H = 
       const dx = c - t[0], dy = r - t[1], along = dx * ux + dy * uy, across = -dx * uy + dy * ux;
       if (Math.abs(along) <= 10 && Math.abs(across) <= wide / 2) grid[r][c] = 'd';
     }
-    passes.push({ c: t[0], r: t[1], a: P.a, b: P.b });
+    passes.push({ c: t[0], r: t[1], a: P.a, b: P.b, tree: !!P.tree });
   }
   const nearPass = (c, r, d) => passes.some(q => Math.abs(q.c - c) < d && Math.abs(q.r - r) < d);
 
   // 區域主題：出發區是荒野；其他隨機，但街區至少 3 個
   const themes = [];
-  for (let k = 0; k < NZ; k++) themes.push(k === startZ ? 'open' : pick(['city', 'city', 'open', 'ruins', 'plaza']));
+  for (let k = 0; k < NZ; k++) themes.push(k === startZ ? 'open' : pick(themePool));
   for (let n = themes.filter(t => t === 'city').length; n < 3; n++) { let k; do k = ri(0, NZ - 1); while (k === startZ || themes[k] === 'city'); themes[k] = 'city'; }
 
   // 每個區域的外框、面積
@@ -215,7 +215,7 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 256, H = 
 
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) if (grid[r][c] === 'B') grid[r][c] = '.';
   return {
-    id: 'world' + seed, seed, W, H, grid, buildings, spawn: { x: toX(sc), z: toZ(sr) }, zoneOf, edgeBand, startZ, sites, caches, portal,
+    id: 'world' + seed, seed, W, H, grid, buildings, spawn: { x: toX(sc), z: toZ(sr) }, zoneOf, zone2, edge, edgeBand, startZ, sites, caches, portal, passes,
     zones: themes.map((t, k) => ({ theme: t, depth: depth[k], c: seeds[k].c, r: seeds[k].r, area: box[k].area })),
   };
 }

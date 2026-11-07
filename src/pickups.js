@@ -38,6 +38,9 @@ function removeAt(i) {
   pickups.splice(i, 1);
 }
 export function clearPickups() { while (pickups.length) removeAt(pickups.length - 1); }
+// 多層地圖：離開一層時把那層地上的東西收起來（回來再擺回去）
+export function stashPickups() { const out = pickups.splice(0); for (const p of out) scene.remove(p.g); return out; }
+export function restorePickups(list) { for (const p of list ?? []) { scene.add(p.g); pickups.push(p); } }
 
 // onTake(kind, val) 回傳 false = 這次不撿（例如滿血時的修理）；canTake(kind) 回傳 false = 現在用不到，不吸過來、也不撿
 export function updatePickups(dt, player, onTake, canTake = () => true) {

@@ -1,7 +1,8 @@
 // ---------- 小地圖（遠征模式） ----------
 // 右上角。地圖先整張畫一次（岩壁、建築、泥地、空地），沒去過的地方蓋黑：有迷霧（fog.js）就照迷霧「看過的格子」，不然玩家周圍 REVEAL 格內會慢慢揭開
 // 上面畫：玩家（白色箭頭）、發現過的遭遇點（紅圈 = 還在、灰叉 = 清掉了）、交戰中的敵機（紅點）、
-//   揭開的地方裡的箱子（紫 = 補給箱、黃 = 武器箱、灰 = 開過了）、傳送門（菱形，看過或條件達成後才標）
+//   揭開的地方裡的箱子（紫 = 補給箱、黃 = 武器箱、灰 = 開過了）、傳送門（菱形，看過或條件達成後才標；在別層 = 空心）
+// 多層地圖：每層一張底圖（setMinimapLayer 換），懸空的地方畫成深藍灰；連接點畫成三角形（青色朝上 = 往上、橘色朝下 = 往下）
 import { H, W, grid, tileC, tileR } from './arena.js';
 import { props } from './props.js';
 import { exploredAt, fogSeen } from './fog.js';
@@ -9,21 +10,26 @@ import { exploredAt, fogSeen } from './fog.js';
 const el = document.getElementById('minimap');
 const g = el.getContext('2d');
 const CELL = 4, REVEAL = 26;   // 揭開的解析度（格）、半徑（格）
-let base = null, seen = null, sc = 1, CW = 0, CH = 0, acc = 0, fogC = null, fogImg = null;
+let base = null, bases = [], seen = null, sc = 1, CW = 0, CH = 0, acc = 0, fogC = null, fogImg = null;
 
-export function initMinimap(buildings) {
+// list：每層 { grid, buildings }（不給 grid = 目前的）
+export function initMinimap(list) {
   sc = Math.min(220 / W, 165 / H);
   el.width = Math.round(W * sc); el.height = Math.round(H * sc);
-  base = document.createElement('canvas');
-  base.width = W; base.height = H;
-  const b = base.getContext('2d'), img = b.createImageData(W, H);
-  const put = (c, r, [R, G, B]) => { const i = (r * W + c) * 4; img.data[i] = R; img.data[i + 1] = G; img.data[i + 2] = B; img.data[i + 3] = 255; };
-  for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
-    const t = grid[r][c];
-    put(c, r, t === '#' ? [92, 80, 66] : t === 'm' ? [70, 54, 38] : t === 'd' ? [44, 42, 38] : [36, 40, 48]);
-  }
-  for (const [c0, r0, w, h] of buildings) for (let r = r0; r < r0 + h; r++) for (let c = c0; c < c0 + w; c++) put(c, r, [140, 146, 158]);
-  b.putImageData(img, 0, 0);
+  bases = list.map(({ grid: gg = grid, buildings, under }) => {
+    const cv = document.createElement('canvas');
+    cv.width = W; cv.height = H;
+    const b = cv.getContext('2d'), img = b.createImageData(W, H), k = under ? 0.7 : 1;
+    const put = (c, r, [R, G, B]) => { const i = (r * W + c) * 4; img.data[i] = R * k; img.data[i + 1] = G * k; img.data[i + 2] = B * k; img.data[i + 3] = 255; };
+    for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
+      const t = gg[r][c];
+      put(c, r, t === '#' ? [92, 80, 66] : t === 'v' ? [16, 20, 30] : t === 'm' ? [70, 54, 38] : t === 'd' ? [44, 42, 38] : [36, 40, 48]);
+    }
+    for (const [c0, r0, w, h] of buildings) for (let r = r0; r < r0 + h; r++) for (let c = c0; c < c0 + w; c++) put(c, r, [140, 146, 158]);
+    b.putImageData(img, 0, 0);
+    return cv;
+  });
+  base = bases[0];
   CW = Math.ceil(W / CELL); CH = Math.ceil(H / CELL);
   seen = new Uint8Array(CW * CH);
   fogC = document.createElement('canvas'); fogC.width = W; fogC.height = H;
@@ -31,7 +37,8 @@ export function initMinimap(buildings) {
   el.classList.remove('hidden');
 }
 export function revealAll() { seen?.fill(1); }   // 除錯用
-export function hideMinimap() { el.classList.add('hidden'); base = null; }
+export function hideMinimap() { el.classList.add('hidden'); base = null; bases = []; }
+export function setMinimapLayer(k) { if (bases[k]) base = bases[k]; }
 
 export function updateMinimap(dt, player, enemies, squads, ex = null) {
   if (!base) return;
@@ -62,15 +69,22 @@ export function updateMinimap(dt, player, enemies, squads, ex = null) {
   if (ex) {
     const seenAt = (x, z) => { const c = Math.floor(tileC(x) / CELL), r = Math.floor(tileR(z) / CELL); return seen[r * CW + c]; };
     for (const p of props) {
-      if (p.kind === 'portal' || !(fs ? exploredAt(p.x, p.z) : seenAt(p.x, p.z))) continue;
+      if (p.kind === 'portal' || (ex.layer !== undefined && p.layer !== ex.layer) || !(fs ? exploredAt(p.x, p.z) : seenAt(p.x, p.z))) continue;
       const [x, y] = P(p.x, p.z);
+      if (p.kind === 'link') {
+        g.fillStyle = p.up ? '#60d0ff' : '#ffb040';
+        const s = p.up ? -1 : 1;
+        g.beginPath(); g.moveTo(x, y + 4 * s); g.lineTo(x + 4, y - 3 * s); g.lineTo(x - 4, y - 3 * s); g.fill();
+        continue;
+      }
       g.fillStyle = p.used ? '#5a5e66' : p.kind === 'cache' ? '#c080ff' : p.kind === 'station' ? '#60ff90' : '#ffd060';
       g.fillRect(x - 2, y - 2, 4, 4);
     }
     if (ex.portalKnown) {
       const [x, y] = P(ex.portal.x, ex.portal.z);
       g.fillStyle = { idle: '#a04030', ready: '#ff9030', boss: '#ff3020', open: '#60f0ff' }[ex.portal.state];
-      g.beginPath(); g.moveTo(x, y - 5); g.lineTo(x + 5, y); g.lineTo(x, y + 5); g.lineTo(x - 5, y); g.fill();
+      g.beginPath(); g.moveTo(x, y - 5); g.lineTo(x + 5, y); g.lineTo(x, y + 5); g.lineTo(x - 5, y); g.closePath();
+      if (ex.layer === undefined || ex.portal.layer === ex.layer) g.fill(); else { g.strokeStyle = g.fillStyle; g.lineWidth = 1.5; g.stroke(); }
     }
   }
   g.fillStyle = '#ff5040';

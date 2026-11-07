@@ -5,6 +5,7 @@
 // 受損嚴重的格子會冒煙、起火；倒塌時一大團灰塵、火光
 // 碰撞 / 子彈還是以「格」為單位（arena.js 的 '#'）；倒塌後那格變成 'r'（瓦礫地面）
 // resetBuildings() 把整個場地的建築蓋回來（每局開始）；setLayout() 換一套建築（換地圖時）
+// 多層地圖：每層一套（buildLayerBuildings，蓋的時候 arena 要先切到那層），蓋在那層的 group 底下、用那層的迷霧；setBuildingLayer 換目前在動的那套
 // 方塊依位置分到 16 × 16 格的區塊，每個區塊一個 InstancedMesh：鏡頭外的區塊整塊不畫（大地圖靠這個撐住）
 import { fogMaterial } from './fog.js';
 import * as THREE from 'three';
@@ -36,14 +37,25 @@ const STYLES = [
 ];
 
 const CHUNK = 16;
-let LAYOUT = ARENA_LAYOUT, chunks = new Map(), vox = [], tiles = new Map();
+let LAYOUT = ARENA_LAYOUT, chunks = new Map(), vox = [], tiles = new Map(), burning = new Set();
+let sets = [], parent = scene, curMat = null;
 export function setLayout(list) { LAYOUT = list; }
+function disposeSets() { for (const st of sets) for (const ch of st.chunks.values()) { ch.mesh.parent?.remove(ch.mesh); ch.mesh.dispose(); } sets = []; }
+function useSet(st) { ({ chunks, vox, tiles, burning, parent, mat: curMat } = st); }
+// 多層：第 k 層的建築（arena.js 已經切到第 k 層）
+export function buildLayerBuildings(k, layout, group, U) {
+  if (k === 0) disposeSets();
+  const st = { chunks: new Map(), vox: [], tiles: new Map(), burning: new Set(), parent: group, mat: fogMaterial(new THREE.MeshLambertMaterial({ color: 0xffffff }), U) };
+  sets[k] = st; useSet(st);
+  LAYOUT = layout; build();
+}
+export function setBuildingLayer(k) { useSet(sets[k]); }
 const mtx = new THREE.Matrix4(), col = new THREE.Color(), HIDE = new THREE.Matrix4().makeScale(0, 0, 0);
 const key = (c, r) => r * W + c;
 
 function build() {
-  for (const ch of chunks.values()) { scene.remove(ch.mesh); ch.mesh.dispose(); }
-  vox = []; tiles = new Map(); chunks = new Map();
+  for (const ch of chunks.values()) { ch.mesh.parent?.remove(ch.mesh); ch.mesh.dispose(); }
+  vox.length = 0; tiles.clear(); chunks.clear();
   for (const [c0, r0, w, h, floors, si] of LAYOUT) {
     const S = STYLES[si], L = floors * FLOOR + 1, gw = w * N, gh = h * N;
     const lit = new Set();
@@ -85,11 +97,11 @@ function build() {
     grid[t.r][t.c] = '#';
   }
   for (const ch of chunks.values()) {
-    ch.mesh = new THREE.InstancedMesh(UNIT_BOX, MAT, ch.list.length);
+    ch.mesh = new THREE.InstancedMesh(UNIT_BOX, curMat ?? MAT, ch.list.length);
     ch.mesh.castShadow = ch.mesh.receiveShadow = true;
     for (const v of ch.list) writeVox(v);
     ch.mesh.computeBoundingSphere();
-    scene.add(ch.mesh);
+    parent.add(ch.mesh);
   }
 }
 const MAT = fogMaterial(new THREE.MeshLambertMaterial({ color: 0xffffff }));
@@ -108,7 +120,9 @@ function flush() {
 }
 
 export function resetBuildings() {
-  burning.clear();
+  disposeSets();
+  const st = { chunks: new Map(), vox: [], tiles: new Map(), burning: new Set(), parent: scene, mat: MAT };
+  sets = [st]; useSet(st);
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) if (grid[r][c] === 'r') grid[r][c] = '.';
   build();
 }
@@ -191,7 +205,7 @@ function collapse(t, dx, dz) {
 const shade = (hex, k) => { col.setHex(hex).multiplyScalar(k); return col.getHex(); };
 
 // 受損的格子冒煙、起火
-const burning = new Set();   // 受損過的格子（大地圖上格子很多，只看打過的）
+// burning：受損過的格子（大地圖上格子很多，只看打過的）
 export function updateBuildings(dt) {
   for (const t of burning) {
     if (t.down) { burning.delete(t); continue; }
@@ -210,4 +224,4 @@ export function updateBuildings(dt) {
   }
 }
 
-build();
+resetBuildings();

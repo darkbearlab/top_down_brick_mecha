@@ -9,7 +9,7 @@ import * as THREE from 'three';
 import { G, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { randomOpenSpot, rayBlock } from './arena.js';
 import { headStats } from './sensors.js';
-import { BOOST_DV, BOOST_PUSH, BOOST_TIME, ENEMY_COLORS, activeSlot, boostDirOf, boostKOf, legK, damagePart, facing, makeMech, muzzleOf, removeMech, slotBroken, toggleReady, tryBoost, wantsLock } from './mech.js';
+import { BOOST_DV, BOOST_PUSH, BOOST_TIME, ENEMY_COLORS, activeSlot, boostDirOf, boostKOf, legK, damagePart, facing, makeMech, muzzleOf, mechs, removeMech, slotBroken, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { makeGuns, shots, updateGuns } from './weapons.js';
 import { ENEMY_PRESETS, SLOTS } from './parts.js';
 import { burst, hitSparks, makeLaser, setLaser, smoke } from './fx.js';
@@ -74,6 +74,27 @@ export function removeEnemy(e) {
   if (e.drop) { scene.remove(e.drop.ring); e.drop = null; }
 }
 export function clearEnemies() { for (const e of enemies.slice()) removeEnemy(e); }
+// 多層地圖：追到別層的敵機先「收起來」（不在場上、不更新），過一陣子再從連接點那邊空降出來（unparkEnemy）
+export function parkEnemy(e) {
+  const i = enemies.indexOf(e);
+  if (i >= 0) enemies.splice(i, 1);
+  const j = mechs.indexOf(e);
+  if (j >= 0) mechs.splice(j, 1);
+  scene.remove(e.model.root);
+  e.laser.g.visible = false;
+  if (e.drop) { scene.remove(e.drop.ring); e.drop = null; }
+}
+export function unparkEnemy(e, x, z) {
+  e.x = x; e.z = z; e.vx = e.vz = 0;
+  scene.add(e.model.root);
+  mechs.push(e); enemies.push(e);
+  const ring = new THREE.Mesh(RING_GEO, addMat(0xff4030, 0.8));
+  ring.rotation.x = -Math.PI / 2;
+  ring.position.set(x, 0.04, z);
+  scene.add(ring);
+  e.drop = { t: 0, ring };
+  e.model.root.position.set(x, DROP_H, z);
+}
 
 function updateDrop(e, dt, player) {
   const D = e.drop;

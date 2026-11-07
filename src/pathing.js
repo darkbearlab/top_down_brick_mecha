@@ -10,7 +10,7 @@ const INF = 0x7fffffff;
 let dist = new Int32Array(0), ox = 0, oy = 0, S = 0, srcC = -99, srcR = -99, timer = 0, mapW = 0, mapH = 0, mapG = null;
 let heap = new Int32Array(0), hk = new Int32Array(0), hn = 0;
 
-const blocked = (c, r) => c < 0 || r < 0 || c >= W || r >= H || grid[r][c] === '#';
+const blocked = (c, r) => c < 0 || r < 0 || c >= W || r >= H || grid[r][c] === '#' || grid[r][c] === 'v';   // 懸空也過不去
 // 1 格寬的縫：左右都是牆、或上下都是牆
 const narrow = (c, r) => (blocked(c - 1, r) && blocked(c + 1, r)) || (blocked(c, r - 1) && blocked(c, r + 1));
 const nearWall = (c, r) => { for (let y = r - 1; y <= r + 1; y++) for (let x = c - 1; x <= c + 1; x++) if (blocked(x, y)) return true; return false; };

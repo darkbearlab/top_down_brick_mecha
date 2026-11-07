@@ -1,22 +1,23 @@
 import * as THREE from 'three';
 import { sfx, unlockAudio } from './audio.js';
-import { CAM_PITCH, G, addMat, camDist, camTarget, camera, renderer, scene, sun } from './core.js';
+import { CAM_PITCH, G, addMat, camDist, camTarget, camera, hemi, renderer, scene, sun } from './core.js';
 import { clearPressed, input, updateInput } from './input.js';
-import { arenaMap, isBlock, loadMap, mapId, randomOpenSpot, rayBlock, tileC, tileR } from './arena.js';
-import { THEMES, genWorld, rng } from './mapgen.js';
+import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayers, loadMap, mapId, randomOpenSpot, rayBlock, setLayer, tileC, tileR } from './arena.js';
+import { THEMES, rng } from './mapgen.js';
+import { TERRAINS, genStage } from './stagegen.js';
 import { flowDist, updateFlow } from './pathing.js';
-import { addProp, clearProps, nearProp, props, removeProp, setPortal, spendProp, updateProps } from './props.js';
-import { exploredAt, fogActive, fogOff, initFog, updateFog, visibleAt } from './fog.js';
-import { hideMinimap, initMinimap, updateMinimap } from './minimap.js';
+import { addProp, clearProps, nearProp, props, removeProp, setPortal, setPropLayer, spendProp, updateProps } from './props.js';
+import { RADIUS, exploredAt, fogActive, fogOff, initFogLayers, setFogLayer, updateFog, visibleAt } from './fog.js';
+import { hideMinimap, initMinimap, setMinimapLayer, updateMinimap } from './minimap.js';
 import { ENEMY_COLORS, PLAYER_COLORS, activeSlot, collideMechs, driveMech, facing, makeMech, mechs, poseMech, muzzleOf, removeMech, toggleReady, tryBoost, wantsLock } from './mech.js';
-import { ARENA_LAYOUT, resetBuildings, setLayout, updateBuildings } from './buildings.js';
+import { ARENA_LAYOUT, buildLayerBuildings, resetBuildings, setBuildingLayer, setLayout, updateBuildings } from './buildings.js';
 import { SLOW_K, clearWrecks, killCam, updateWrecks } from './wreck.js';
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
-import { AI, DIFFS, clearEnemies, enemies, keepEnemies, removeEnemy, spawnEnemy, updateEnemy } from './ai.js';
-import { makeLaser, setLaser, updateParticles } from './fx.js';
+import { AI, DIFFS, clearEnemies, enemies, keepEnemies, parkEnemy, removeEnemy, spawnEnemy, unparkEnemy, updateEnemy } from './ai.js';
+import { burst, makeLaser, setLaser, smoke, updateParticles } from './fx.js';
 import { clearWarp, startWarp, updateWarp } from './warp.js';
 import { ARMORS, DMG_TYPES, ENEMY_PRESETS, GRUNTS, GRUNTS_LOW, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, SQUADS, WEAPONS, gruntOf, loadLoadout, pickSquad, randomGrunt, randomLoadout } from './parts.js';
-import { clearPickups, pickups, spawnPickup, updatePickups } from './pickups.js';
+import { clearPickups, pickups, restorePickups, spawnPickup, stashPickups, updatePickups } from './pickups.js';
 import { sensors, setSensorsVisible, updateSensors } from './sensors.js';
 import { closeGarage, garage, openGarage } from './garage.js';
 
@@ -65,7 +66,17 @@ const ARENA = arenaMap();
 function resetWorld(map = null) {
   clearEnemies();
   const want = map ?? ARENA;
-  if (mapId !== want.id) { loadMap(want); setLayout(map ? map.buildings : ARENA_LAYOUT); }
+  if (want.layers) {
+    // 多層地圖：每層的地板、岩壁、建築都蓋好（蓋建築要先切到那層），再回到第 0 層
+    loadLayers(want);
+    want.layers.forEach((L, k) => { setLayer(k); buildLayerBuildings(k, L.buildings, layerGroup(k), layerU(k)); });
+    setLayer(0); setBuildingLayer(0);
+  } else {
+    if (mapId !== want.id || layerCount() !== 1) { loadMap(want); setLayout(map ? map.buildings : ARENA_LAYOUT); }
+    resetBuildings();
+  }
+  setPropLayer(0);
+  applyLight(false);
   hideMinimap();
   fogOff();
   for (const b of blips) b.visible = false;
@@ -74,7 +85,6 @@ function resetWorld(map = null) {
   clearWrecks();
   clearPickups();
   clearProps();
-  resetBuildings();
   $('boss').classList.add('hidden'); $('prompt').classList.add('hidden'); fxHide('warning', true); fxHide('bossIntro', true);
   fxHide('warpFade');   // 傳送進下一關：白畫面在新地圖上淡掉
   clearWarp();
@@ -326,7 +336,8 @@ function takePickup(kind, val) {
 function updateExploreHud() {
   const Z = zoneAt(player.x, player.z);
   $('enTime').textContent = mmss(EN.t);
-  $('enInfo').textContent = `第 ${EN.stage} 關・零件 ${EN.scrap}・小隊 ${Math.min(EX.cleared, EX.need)} / ${EX.need}・擊破 ${EN.kills}` +
+  const LN = EX.map.layers.length > 1 ? `・${EX.map.layers[EX.layer].name}` : '';
+  $('enInfo').textContent = `第 ${EN.stage} 關${LN}・零件 ${EN.scrap}・小隊 ${Math.min(EX.cleared, EX.need)} / ${EX.need}・擊破 ${EN.kills}` +
     (Z ? `・${THEMES[Z.theme]}${Z.depth > 0 ? `（深度 ${Z.depth}）` : '（出發區）'}${Z.reinforce ? '・增援據點' : ''}` : '');
   const mods = Object.entries(EN.mods).map(([k, n]) => `<span class="wt" style="--c:#c080ff">${MODS[k].name}${n > 1 ? ' ×' + n : ''}</span>`).join('');
   if (EN.modsHtml !== mods) { EN.modsHtml = mods; $('enMods').innerHTML = mods; }
@@ -383,43 +394,55 @@ function spawnRunPlayer(x, z, yaw) {
   for (const [k, n] of Object.entries(EN.mods)) for (let i = 0; i < n; i++) MODS[k].apply(player);
 }
 function startStage(seed) {
-  const map = genWorld(seed);
+  const map = genStage(seed, EN.stage, window.__dbg?.terrain);
   // 每個區域：兩種駐軍輪流排、三成五是增援據點（出發區、第一圈除外）；用地圖的種子決定 → 同一張圖一樣
   const R = rng(map.seed * 7 + 13);
-  const zones = map.zones.map((Z, k) => ({ ...Z, squads: [pickSquad(Z.theme, Z.depth, R), pickSquad(Z.theme, Z.depth, R)], reinforce: k !== map.startZ && Z.depth >= 2 && R() < 0.35, n: 0 }));
+  const zones = map.zones.map((Z, k) => ({ ...Z, squads: [pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R), pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R)], reinforce: k !== map.startZ && Z.depth >= 2 && R() < 0.35, n: 0 }));
   const squads = map.sites.map(S => {
     const Z = zones[S.zone], key = Z.squads[Z.n++ % 2], D = SQUADS[key];
     const units = [...D.units, ...(S.depth >= 2 ? [D.units[D.units.length - 1]] : [])];
-    return { ...S, key, name: D.name, units: units.map(k => ({ key: k, hp: null, dead: false })), members: [], awake: false, found: false, cleared: false, hold: D.hold ?? 0, patrol: !!D.patrol, wp: 0, legT: 0 };
+    return { ...S, layer: S.layer ?? 0, key, name: D.name, units: units.map(k => ({ key: k, hp: null, dead: false })), members: [], awake: false, found: false, cleared: false, hold: D.hold ?? 0, patrol: !!D.patrol, wp: 0, legT: 0 };
   });
-  for (const S of squads) if (S.hold) fortify(map, S, R);
+  for (const S of squads) if (S.hold) fortify(map.layers[S.layer], map.W, map.H, S, R);
   resetWorld(map);
   MODE.name = 'explore';
   AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.easy;
   spawnRunPlayer(map.spawn.x, map.spawn.z, Math.PI / 2);
-  for (const S of squads) if (S.patrol) S.route = patrolRoute(S);
-  EX = { map, zones, squads, waves: [], pending: [], cleared: 0, need: Math.min(squads.length, 5 + EN.stage), boss: null, waveT: 0, portalKnown: false, prompt: '' };
-  EX.portal = addProp('portal', map.portal.x, map.portal.z);
+  map.layers.forEach((L, k) => { setLayer(k); for (const S of squads) if (S.patrol && S.layer === k) S.route = patrolRoute(S); });   // 巡邏路線照那層的地形算
+  EX = { map, zones, squads, waves: [], pending: [], chasers: [], stash: [], layer: map.spawn.layer ?? 0, hop: null, cleared: 0, need: Math.min(squads.length, 5 + EN.stage), boss: null, waveT: 0, portalKnown: false, prompt: '' };
+  EX.portal = addProp('portal', map.portal.x, map.portal.z, { layer: map.portal.layer ?? 0 });
   for (const c of map.caches) {
-    if (c.kind === 'mod') addProp('cache', c.x, c.z, { cost: costOf(COST.cache) });
-    else if (c.kind === 'station') addProp('station', c.x, c.z, { cost: costOf(COST.cache) });
-    else addProp('weapon', c.x, c.z, { cost: costOf(COST.weapon), weapon: PLAYER_WEAPONS[Math.floor(R() * PLAYER_WEAPONS.length)] });
+    const layer = c.layer ?? 0;
+    if (c.kind === 'mod') addProp('cache', c.x, c.z, { cost: costOf(COST.cache), layer });
+    else if (c.kind === 'station') addProp('station', c.x, c.z, { cost: costOf(COST.cache), layer });
+    else addProp('weapon', c.x, c.z, { cost: costOf(COST.weapon), weapon: PLAYER_WEAPONS[Math.floor(R() * PLAYER_WEAPONS.length)], layer });
   }
-  // 迷霧：1 層樓的建築不擋視線
-  const low = new Set();
-  for (const [c, r, w, h, f] of map.buildings) if (f === 1) for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) low.add(y * map.W + x);
-  initFog(low, map.edgeBand);
-  updateFog(1, player.x, player.z);
-  initMinimap(map.buildings);
+  // 連接點：能從這頭走的那頭才放（彈射台的落點、跳下點的下面不放）
+  for (const L of map.links ?? []) {
+    const two = L.kind === 'lift' || L.kind === 'stairs';
+    for (const end of two ? ['a', 'b'] : ['a']) {
+      const here = L[end], there = L[end === 'a' ? 'b' : 'a'], up = there.layer > here.layer;
+      const style = L.kind === 'stairs' ? (up ? 'shaft' : 'hole') : L.kind === 'drop' ? 'edge' : 'pad';
+      addProp('link', here.x, here.z, { layer: here.layer, link: L, end, up, style });
+    }
+  }
+  // 迷霧：每層一份；1 層樓的建築不擋視線
+  initFogLayers(map.layers.map((L, k) => {
+    const low = new Set();
+    for (const [c, r, w, h, f] of L.buildings) if (f === 1) for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) low.add(y * map.W + x);
+    return { low, edge: L.edge, sight: L.sight ?? RADIUS, g: layerGrid(k), U: layerU(k) };
+  }));
+  initMinimap(map.layers.map((L, k) => ({ grid: layerGrid(k), buildings: L.buildings, under: L.under })));
+  enterLayer(map.spawn.layer ?? 0);
   showHud();
   $('endless').classList.remove('hidden');
-  toast(`第 ${EN.stage} 關・清除 ${EX.need} 支小隊後就能啟動傳送門`);
+  toast(`第 ${EN.stage} 關・${TERRAINS[map.terrain]}・清除 ${EX.need} 支小隊後就能啟動傳送門`);
 }
 // 守備據點的工事：據點周圍半徑 5 格一圈 6 段矮掩體（1 層樓的建築，打得壞），中間留缺口
-function fortify(map, S, R) {
+function fortify(L, W, H, S, R) {
   const used = new Set();
-  for (const [c, r, w, h] of map.buildings) for (let y = r - 1; y <= r + h; y++) for (let x = c - 1; x <= c + w; x++) used.add(y * map.W + x);
-  const free = (c, r) => c > 1 && r > 1 && c < map.W - 2 && r < map.H - 2 && map.grid[r][c] !== '#' && !used.has(r * map.W + c);
+  for (const [c, r, w, h] of L.buildings) for (let y = r - 1; y <= r + h; y++) for (let x = c - 1; x <= c + w; x++) used.add(y * W + x);
+  const free = (c, r) => c > 1 && r > 1 && c < W - 2 && r < H - 2 && L.grid[r][c] !== '#' && L.grid[r][c] !== 'v' && !used.has(r * W + c);
   const a0 = R() * Math.PI * 2;
   for (let i = 0; i < 6; i++) {
     const a = a0 + i * Math.PI / 3 + (R() - 0.5) * 0.3, ns = Math.abs(Math.sin(a)) > 0.7, w = ns ? 2 : 1, h = ns ? 1 : 2;
@@ -427,8 +450,8 @@ function fortify(map, S, R) {
     let ok = true;
     for (let y = r0; y < r0 + h; y++) for (let x = c0; x < c0 + w; x++) if (!free(x, y)) ok = false;
     if (!ok) continue;
-    map.buildings.push([c0, r0, w, h, 1, Math.floor(R() * 3)]);
-    for (let y = r0; y < r0 + h; y++) for (let x = c0; x < c0 + w; x++) used.add(y * map.W + x);
+    L.buildings.push([c0, r0, w, h, 1, Math.floor(R() * 3)]);
+    for (let y = r0; y < r0 + h; y++) for (let x = c0; x < c0 + w; x++) used.add(y * W + x);
   }
 }
 // 巡邏路線：據點 → 兩個 10～18 格外、從據點看得到的空地，來回走
@@ -443,10 +466,11 @@ function patrolRoute(S) {
 function spawnSquad(S) {
   S.members = [];
   S.units.forEach((u, i) => {
-    if (u.dead) return;
+    if (u.dead || u.away) return;   // away：追到別層去了
     const a = i / S.units.length * Math.PI * 2, at = { x: S.x + Math.sin(a) * 1.8, z: S.z + Math.cos(a) * 1.8 };
     const P = gruntOf(u.key), e = spawnEnemy({ x: at.x + Math.sin(a), z: at.z + Math.cos(a) }, P, at, { colors: GRUNT_COLORS, diff: exDiff(S.depth), grunt: true, noDrop: true });
     e.dormant = !S.awake; e.squad = S; e.unit = u; e.enElite = u.key.endsWith('*'); e.lvl = S.depth; e.fixed = !!P.fixed;
+    e.chase = chaseOf(e);
     if (S.hold) e.hold = { x: S.x, z: S.z, r: S.hold };
     e.slot = i;
     if (u.hp != null) e.parts.torso.hp = Math.min(u.hp, e.parts.torso.max);
@@ -463,7 +487,7 @@ function despawnSquad(S) {
 const DIR_NAMES = ['東', '東南', '南', '西南', '西', '西北', '北', '東北'];
 const dirName = a => DIR_NAMES[((Math.round(a / (Math.PI / 4)) % 8) + 8) % 8];
 function openAround(x, z) {
-  for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (isBlock(x + dx * 1.2, z + dz * 1.2)) return false;
+  for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) if (isSolid(x + dx * 1.2, z + dz * 1.2)) return false;
   return true;
 }
 function callReinforcements(groups, n, depth, pool) {
@@ -477,23 +501,23 @@ function callReinforcements(groups, n, depth, pool) {
       if (openAround(x, z) && flowDist(x, z) < rad * 2) spot = { x, z };
     }
     if (!spot) continue;
-    const W = { wave: true, members: [], awake: true, x: spot.x, z: spot.z, depth };
+    const W = { wave: true, members: [], awake: true, x: spot.x, z: spot.z, depth, layer: EX.layer };
     for (let i = 0; i < n; i++) {
       const key = pool[Math.floor(Math.random() * pool.length)], a = i / n * Math.PI * 2;
       const e = spawnEnemy(player, gruntOf(key), { x: spot.x + Math.sin(a) * 1.6, z: spot.z + Math.cos(a) * 1.6 }, { colors: GRUNT_COLORS, diff: exDiff(depth), grunt: true });
-      e.squad = W; e.unit = { key, dead: false }; e.enElite = key.endsWith('*'); e.lvl = depth;
+      e.squad = W; e.unit = { key, dead: false }; e.enElite = key.endsWith('*'); e.lvl = depth; e.chase = chaseOf(e);
       W.members.push(e);
     }
     EX.waves.push(W);
     names.push(dirName(ang));
   }
 }
-const zoneAt = (x, z) => EX.zones[EX.map.zoneOf[tileR(z) * EX.map.W + tileC(x)]];
+const zoneAt = (x, z) => EX.zones[EX.map.layers[EX.layer].zoneOf[tileR(z) * EX.map.W + tileC(x)]];
 function updateExplore(dt) {
   if (!EX || MODE.result) return;
   EN.t += dt;
   for (const S of EX.squads) {
-    if (S.cleared) continue;
+    if (S.cleared || S.layer !== EX.layer) continue;   // 別層的小隊不動（換層時已經收起來）
     const d = Math.hypot(S.x - player.x, S.z - player.z);
     if (S.members.some(e => e.alive && e.fogVis)) S.found = true;   // 親眼看到才算發現
     if (!S.members.length) { if (d < SPAWN_R) spawnSquad(S); continue; }
@@ -529,6 +553,7 @@ function updateExplore(dt) {
       S.awake = false; for (const e of live) { e.dormant = true; e.seenHp = e.parts.torso.hp; }
     }
   }
+  updateChasers(dt);
   for (let i = EX.pending.length - 1; i >= 0; i--) { const P = EX.pending[i]; if ((P.t -= dt) <= 0) { EX.pending.splice(i, 1); if (player.alive) callReinforcements(P.groups, P.n, P.depth, P.pool); } }
   // 增援部隊：全滅就收掉；全部離玩家很遠（被甩掉）也收掉
   for (let i = EX.waves.length - 1; i >= 0; i--) {
@@ -538,15 +563,15 @@ function updateExplore(dt) {
   }
   // 傳送門
   const P = EX.portal;
-  if (visibleAt(P.x, P.z)) EX.portalKnown = true;
+  if (P.layer === EX.layer && visibleAt(P.x, P.z)) EX.portalKnown = true;
   if (P.state === 'idle' && EX.cleared >= EX.need) { setPortal(P, 'ready'); EX.portalKnown = true; toast('傳送門可以啟動了（已標在小地圖上）'); sfx.lock(); }
   updateBossIntro(dt);
   // 互動
-  const near = player.alive ? nearProp(player.x, player.z) : null;
+  const near = player.alive ? nearProp(player.x, player.z, EX.layer) : null;
   EX.near = near;
   if (near && input.interactPressed) interact(near);
   updateProps(dt);
-  for (const q of props) q.g.visible = exploredAt(q.x, q.z);   // 箱子、傳送門：看過的地方才畫
+  for (const q of props) q.g.visible = q.layer === EX.layer && exploredAt(q.x, q.z);   // 箱子、傳送門：這層、看過的地方才畫
   updatePickups(dt, player, takePickup, canTake);
 }
 // ---------- 互動：箱子、武器、傳送門 ----------
@@ -557,6 +582,10 @@ function promptText(p) {
   if (p.kind === 'weapon') return `F・打開武器箱：${WEAPONS[p.weapon].name}（${p.cost} 零件）${EN.scrap < p.cost ? '・零件不足' : ''}`;
   if (p.kind === 'gun') return `F・拿起 ${WEAPONS[p.weapon].name}`;
   if (p.kind === 'station') return !damaged() ? '修復站・機體沒有損傷' : `F・全機修復（${p.cost} 零件）${EN.scrap < p.cost ? '・零件不足' : ''}`;
+  if (p.kind === 'link') {
+    const to = p.link[p.end === 'a' ? 'b' : 'a'], name = EX.map.layers[to.layer].name;
+    return p.style === 'hole' ? `F・下到${name}` : p.style === 'shaft' ? `F・回到${name}` : p.style === 'edge' ? `F・跳下去（${name}）` : p.up ? `F・${p.link.kind === 'pad' ? '彈射' : '升'}到${name}` : `F・降到${name}`;
+  }
   if (p.kind === 'portal') return p.state === 'idle' ? `傳送門・還要清除 ${EX.need - EX.cleared} 支小隊` : p.state === 'ready' ? 'F・啟動傳送門（頭目會出現）' : p.state === 'boss' ? '先打倒頭目' : `F・傳送到第 ${EN.stage + 1} 關`;
   return '';
 }
@@ -573,6 +602,7 @@ function interact(p) {
     rebuild(EN.loadout, null, true);
     toast('全機修復完成'); sfx.lock();
   } else if (p.kind === 'gun') offerGun(p);
+  else if (p.kind === 'link') useLink(p);
   else if (p.kind === 'portal') {
     if (p.state === 'ready') startBoss(p);
     else if (p.state === 'open') warpOut();
@@ -670,6 +700,90 @@ function warpOut() {
 function updateWarpOut(raw) {
   if (EX.warpT < WARP_FADE && EX.warpT + raw >= WARP_FADE) fxShow('warpFade');
   if ((EX.warpT += raw) >= WARP_T) { EX.warpT = null; EN.stage++; startStage(); }
+}
+// ---------- 換層（多層地圖） ----------
+// 用連接點：機體跳起來（往上）或沉下去（往下）→ 換到目的地那層、落地；這段時間世界停住
+// 換層時：會追的敵機（頭目、精英、深處的敵人，每台追的次數有限：chase）照離連接點的路程晚幾秒從那頭空降過來；
+//   其他的收起來（小隊回到待命、記住血量；增援部隊直接散掉）；地上的掉落物收起來，回到那層再擺回去
+const HOP_T = 0.6, HOP_SWAP = 0.28;
+const chaseOf = e => e.boss ? 99 : e.fixed || e.hold ? 0 : e.enElite || (e.lvl ?? 0) >= 3 ? 1 : 0;
+function applyLight(dark) { hemi.intensity = dark ? 0.55 : 1.3; sun.intensity = dark ? 0.75 : 2.4; }
+function useLink(p) {
+  const to = p.link[p.end === 'a' ? 'b' : 'a'];
+  EX.hop = { t: 0, to, up: to.layer > EX.layer, swapped: false, y: 0, dark: p.style === 'hole' || p.style === 'shaft' };
+  if (EX.hop.dark) fxShow('hopFade');
+  sfx.boost();
+}
+function updateHop(raw) {
+  const h = EX.hop;
+  h.t += raw;
+  if (!h.swapped) {
+    const k = Math.min(1, h.t / HOP_SWAP);
+    h.y = h.up ? k * k * 5 : -k * k * 3;
+    if (h.t >= HOP_SWAP) { h.swapped = true; switchLayer(h.to); if (h.dark) fxHide('hopFade'); }
+  } else {
+    const k = Math.min(1, (h.t - HOP_SWAP) / (HOP_T - HOP_SWAP));
+    h.y = (1 - k * k) * 4;
+    if (h.t >= HOP_T) {
+      EX.hop = null;
+      sfx.land(); G.trauma = Math.min(1, G.trauma + 0.35);
+      burst(player.x, 0.3, player.z, [0x6a6e78, 0x4a4e58], 10, 4);
+      smoke(player.x, 0.3, player.z, 6, 1.3, 0x55585f);
+    }
+  }
+}
+function switchLayer(to) {
+  const from = EX.layer, chasers = [];
+  const goHome = e => { if (e.unit && e.squad && !e.squad.wave) { e.unit.away = false; e.unit.hp = e.parts.torso.hp; } };
+  // 追過來的：路程 70 格內、醒著、還有追的次數
+  for (const e of enemies.slice()) {
+    if (!e.alive) { removeEnemy(e); continue; }
+    const d = flowDist(e.x, e.z), q = e.boss ? 99 : e.chase ?? 0;
+    if (!e.dormant && !e.drop && q > 0 && d < 70) {
+      e.chase = q - 1;
+      if (e.unit && e.squad && !e.squad.wave) { e.unit.away = true; e.unit.hp = e.parts.torso.hp; const i = e.squad.members.indexOf(e); if (i >= 0) e.squad.members.splice(i, 1); }
+      parkEnemy(e);
+      chasers.push({ e, t: 1.2 + d / 7 + Math.random() * 1.2 });
+    }
+  }
+  // 還在路上、要追到上一層的：還能追就改追到這層，不然回家
+  for (const c of EX.chasers) {
+    if (c.e.boss || (c.e.chase ?? 0) > 0) { if (!c.e.boss) c.e.chase--; c.t = 2.5 + Math.random() * 2; chasers.push(c); }
+    else { goHome(c.e); }
+  }
+  for (const S of EX.squads) if (S.members.length) { despawnSquad(S); S.awake = false; }
+  for (const e of enemies.slice()) { goHome(e); removeEnemy(e); }
+  EX.waves = EX.waves.filter(W => W.members.some(e => chasers.some(c => c.e === e)));
+  for (const W of EX.waves) W.layer = to.layer;
+  EX.pending = [];
+  EX.stash[from] = stashPickups();
+  clearShots(); clearWrecks();
+  sensors.progress.clear(); sensors.locks = [];
+  player.x = to.x; player.z = to.z; player.vx = player.vz = 0;
+  enterLayer(to.layer);
+  for (const c of chasers) { c.x = to.x; c.z = to.z; }
+  EX.chasers = chasers;
+}
+// 換到第 k 層（地圖、建築、迷霧、小地圖、之後新增的物件、燈光、那層地上的掉落物）
+function enterLayer(k) {
+  EX.layer = k;
+  setLayer(k); setBuildingLayer(k); setFogLayer(k); setMinimapLayer(k); setPropLayer(k);
+  applyLight(!!EX.map.layers[k].under);
+  restorePickups(EX.stash[k]); EX.stash[k] = null;
+  updateFog(1, player.x, player.z);
+}
+// 追過來的敵機：時間到就在連接點附近空降
+function updateChasers(dt) {
+  for (let i = EX.chasers.length - 1; i >= 0; i--) {
+    const c = EX.chasers[i];
+    if ((c.t -= dt) > 0) continue;
+    EX.chasers.splice(i, 1);
+    let at = null;
+    for (let t = 0; t < 30 && !at; t++) { const a = Math.random() * Math.PI * 2, r = 2 + Math.random() * 3, x = c.x + Math.cos(a) * r, z = c.z + Math.sin(a) * r; if (openAround(x, z)) at = { x, z }; }
+    at ??= { x: c.x, z: c.z };
+    unparkEnemy(c.e, at.x, at.z);
+    c.e.dormant = false;
+  }
 }
 function exLoot(e) {
   const x = e.x, z = e.z;
@@ -1006,6 +1120,9 @@ function frame(t) {
   // 傳送中：世界停住，只播分解演出（粒子照樣飛）
   const warping = MODE.name === 'explore' && EX?.warpT != null;
   if (warping && !G.paused) { dt = 0; updateWarpOut(raw); }
+  // 換層：世界停住一下（跳起來 → 換層 → 落地）
+  const hopping = MODE.name === 'explore' && !!EX?.hop;
+  if (hopping && !G.paused) { dt = 0; updateHop(raw); }
   updateWarp(G.paused ? 0 : raw);
   if (dt > 0 && G.hitStop > 0) { G.hitStop -= raw; dt = 0; }
   // 慢動作：被擊墜時很慢（SLOW_K），最後 0.4 秒慢慢回到正常速度
@@ -1056,15 +1173,16 @@ function frame(t) {
     if (MODE.endT > 0 && (MODE.endT -= raw) <= 0) watching ? nextWatch() : MODE.name === 'endless' ? showEndlessResult() : MODE.name === 'explore' ? showExploreResult() : showResult(MODE.result === 'win');
   }
   if (!playing || dt > 0 || garage.open) updateParticles(playing ? dt : raw);
-  else if (warping && !G.paused) updateParticles(raw);
+  else if ((warping || hopping) && !G.paused) updateParticles(raw);
   for (const m of mechs) poseMech(m, dt);
+  if (hopping && EX?.hop) player.model.root.position.y += EX.hop.y;
   if (!playing) { player.torsoYaw = player.legYaw = G.now * 0.25; poseMech(player, 0); }
   clearPressed();
 
   // 瞄準線：左右各一條，從那一邊目前準備好的武器的槍口、沿上半身正前方射出（子彈就是這樣飛的）；空手、壞掉、劍不畫
   for (const side of ['L', 'R']) {
     const slot = activeSlot(player, side), g = player.guns?.[slot];
-    if (playing && !watching && player.alive && !garage.open && !warping && g && !player.parts[slot]?.broken && g.def.kind !== 'saber') {
+    if (playing && !watching && player.alive && !garage.open && !warping && !hopping && g && !player.parts[slot]?.broken && g.def.kind !== 'saber') {
       const f = facing(player), mz = muzzleOf(player, slot);
       setLaser(guides[side], mz.x, mz.z, f.x, f.z, rayBlock(mz.x, mz.z, f.x, f.z, 22), mz.y, 0.3, 0.03);
     } else guides[side].g.visible = false;
@@ -1139,7 +1257,7 @@ function frame(t) {
 
   if (playing && !watching) updateHud();
   if (MODE.name === 'endless') updateEndlessHud();
-  if (MODE.name === 'explore' && EX) { updateFog(raw, player.x, player.z); fogVisibility(dt); updateExploreHud(); updateMinimap(raw, player, enemies, EX.squads, EX); }
+  if (MODE.name === 'explore' && EX) { updateFog(raw, player.x, player.z); fogVisibility(dt); updateExploreHud(); updateMinimap(raw, player, enemies, EX.squads.filter(S => S.layer === EX.layer), EX); }
   if (watching) {
     const one = MODE.kind === 'duel', blue = MODE.kind !== 'skirmish' ? enemies.find(e => e.team === 'blue') : null, red = one ? enemies.find(e => e.team === 'red') : null;
     paintDoll($('dollB'), blue?.alive ? blue : null); paintDoll($('dollR'), red?.alive ? red : null);
@@ -1163,7 +1281,7 @@ addEventListener('pointerdown', unlockAudio);
 // 面板上的按鈕可以用數字鍵選（1 = 第一個）
 addEventListener('keydown', e => { if (panelOpen() && /^Digit[1-9]$/.test(e.code)) $('pButtons').children[+e.code.slice(5) - 1]?.click(); });
 addEventListener('keydown', unlockAudio);
-window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, startHorde, startSkirmish, startEndless, startRun, startStage, callReinforcements, warpOut, startBoss, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
+window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, startHorde, startSkirmish, startEndless, startRun, startStage, callReinforcements, warpOut, startBoss, useLink, switchLayer, props, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
 showMenu();
 camTarget.set(player.x, 0, player.z);
 nextFrame(frame);
