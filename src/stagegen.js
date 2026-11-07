@@ -44,7 +44,7 @@ function genRuins(seed, stage) {
   const m = genWorld(seed), R = rng(seed * 3 + 101), { W, H } = m, toX = toXf(W), toZ = toZf(H);
   const A = m.grid, zones = m.zones.map(Z => ({ ...Z, layer: 1 }));
   const B = Array.from({ length: H }, () => Array(W).fill('#')), zoneB = new Uint8Array(W * H).fill(255);
-  const clearA = (c, r, n) => { for (let y = r - n; y <= r + n; y++) for (let x = c - n; x <= c + n; x++) { const t = A[y]?.[x]; if (t === undefined || t === '#') return false; } return true; };
+  const clearA = (c, r, n) => { for (let y = r - n; y <= r + n; y++) for (let x = c - n; x <= c + n; x++) { const t = A[y]?.[x]; if (t === undefined || t === '#' || t === 'v') return false; } return true; };
   const inBuilding = (c, r, pad) => m.buildings.some(([bc, br, bw, bh]) => c >= bc - pad && c < bc + bw + pad && r >= br - pad && r < br + bh + pad);
   const far = (c, r, list, d) => list.every(q => Math.hypot(q.c - c, q.r - r) >= d);
   const used = [];
@@ -118,14 +118,14 @@ function genRuins(seed, stage) {
     spawn: { ...m.spawn, layer: 1 },
     layers: [
       { name: '地下', grid: B, buildings: [], edge: edgeB, zoneOf: zoneB, under: true, sight: 20 },
-      { name: '地表', grid: A, buildings: m.buildings, deep: m.edgeBand, zoneOf: m.zoneOf },
+      { name: '地表', grid: A, buildings: m.buildings, deep: m.edgeBand, zoneOf: m.zoneOf, bottomless: true },
     ],
   };
 }
 
 // ---------- 層疊城塞 ----------
 function genHive(seed, stage) {
-  const m = genWorld(seed, { themePool: ['city', 'city', 'city', 'ruins', 'plaza'] }), R = rng(seed * 5 + 77), { W, H } = m, toX = toXf(W), toZ = toZf(H);
+  const m = genWorld(seed, { themePool: ['city', 'city', 'city', 'ruins', 'plaza', 'chasm'] }), R = rng(seed * 5 + 77), { W, H } = m, toX = toXf(W), toZ = toZf(H);
   const NZ = m.zones.length, NL = stage >= 4 ? 4 : 3;
   // 每個區域的層：離出發區越遠越高（加一點亂數），出發區 0；用到的層壓緊成 0..n-1
   const S0 = m.zones[m.startZ], far = m.zones.map(Z => Math.hypot(Z.c - S0.c, Z.r - S0.r)), fmax = Math.max(...far) + 1e-6;

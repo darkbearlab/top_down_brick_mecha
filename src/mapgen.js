@@ -12,9 +12,9 @@
 // 回傳 { id, seed, W, H, grid, buildings: [[c, r, w, h, 樓層, 風格]], spawn, zones, zoneOf, sites, caches, portal, startZ }
 export const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 
-export const THEMES = { city: '街區', open: '荒野', ruins: '廢墟', plaza: '廣場', under: '地下' };
+export const THEMES = { city: '街區', open: '荒野', ruins: '廢墟', plaza: '廣場', chasm: '崩塌區', under: '地下' };
 
-export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 312, H = 240, NX = 5, NY = 3, themePool = ['city', 'city', 'open', 'ruins', 'plaza'] } = {}) {
+export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 312, H = 240, NX = 5, NY = 3, themePool = ['city', 'city', 'open', 'ruins', 'plaza', 'chasm'] } = {}) {
   const rand = rng(seed), ri = (a, b) => a + Math.floor(rand() * (b - a + 1)), pick = a => a[Math.floor(rand() * a.length)];
   const grid = Array.from({ length: H }, (_, r) => Array.from({ length: W }, (_, c) => (r === 0 || c === 0 || r === H - 1 || c === W - 1) ? '#' : '.'));
   const inside = (c, r) => c > 0 && r > 0 && c < W - 1 && r < H - 1;
@@ -99,18 +99,27 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 312, H = 
   // (c, r) 在區域 k 裡、邊界距離至少 m
   const inZone = (c, r, k, m = 8) => inside(c, r) && zoneOf[r * W + c] === k && edge[r * W + c] >= m;
   const free = (c0, r0, w, h, pad, k) => {
-    for (let r = r0 - pad; r < r0 + h + pad; r++) for (let c = c0 - pad; c < c0 + w + pad; c++) { const t = grid[r]?.[c]; if (t === undefined || t === '#' || t === 'B' || !inZone(c, r, k, 7)) return false; }
+    for (let r = r0 - pad; r < r0 + h + pad; r++) for (let c = c0 - pad; c < c0 + w + pad; c++) { const t = grid[r]?.[c]; if (t === undefined || t === '#' || t === 'B' || t === 'v' || !inZone(c, r, k, 7)) return false; }
     return !nearPass(c0 + w / 2, r0 + h / 2, 10);
   };
   const buildings = [];
   const addB = (c, r, w, h, f, st) => { buildings.push([c, r, w, h, f, st]); for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) grid[y][x] = 'B'; };
   const blob = (c, r, rad, ch, k) => { for (let y = Math.floor(r - rad); y <= r + rad; y++) for (let x = Math.floor(c - rad); x <= c + rad; x++) if (Math.hypot(x - c, y - r) <= rad && inZone(x, y, k, 3) && grid[y][x] !== 'B') grid[y][x] = ch; };
+  // 空洞：邊緣不規則的圓坑（半徑隨角度起伏），不蓋掉建築、離隘口遠一點
+  const pit = (cx, cy, R0, k) => {
+    if (nearPass(cx, cy, 12)) return;
+    const ph = rand() * 6.28, ph2 = rand() * 6.28;
+    for (let y = Math.floor(cy - R0 * 1.5); y <= cy + R0 * 1.5; y++) for (let x = Math.floor(cx - R0 * 1.5); x <= cx + R0 * 1.5; x++) {
+      const a = Math.atan2(y - cy, x - cx), rr = R0 * (1 + 0.28 * Math.sin(3 * a + ph) + 0.14 * Math.sin(5 * a + ph2));
+      if (Math.hypot(x - cx, y - cy) <= rr && inZone(x, y, k, 5) && grid[y][x] !== 'B') grid[y][x] = 'v';
+    }
+  };
   const rndIn = (k, m = 10) => { const B = box[k]; for (let t = 0; t < 200; t++) { const c = ri(B.c0, B.c1), r = ri(B.r0, B.r1); if (inZone(c, r, k, m)) return [c, r]; } return [Math.round(seeds[k].c), Math.round(seeds[k].r)]; };
 
   for (let k = 0; k < NZ; k++) {
     const B = box[k], th = themes[k], style = ri(0, 2);
     // 地面：荒野、廢墟是荒地，街區、廣場是混凝土
-    if (th === 'open' || th === 'ruins') for (let r = B.r0; r <= B.r1; r++) for (let c = B.c0; c <= B.c1; c++) if (grid[r][c] === '.' && zoneOf[r * W + c] === k) grid[r][c] = 'd';
+    if (th === 'open' || th === 'ruins' || th === 'chasm') for (let r = B.r0; r <= B.r1; r++) for (let c = B.c0; c <= B.c1; c++) if (grid[r][c] === '.' && zoneOf[r * W + c] === k) grid[r][c] = 'd';
     if (th === 'city') {
       // 棋盤格：街廓 9～13 格、路寬 6～7 格；每個街廓裡 2～4 棟，只蓋在這個區域裡面
       let r = B.r0 + ri(2, 6);
@@ -143,6 +152,16 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 312, H = 
       }
       // 廣場中間幾塊低矮掩體（岩塊）
       for (let q = 0; q < 4; q++) { const a = q * Math.PI / 2 + rand(), d = ri(5, 9); blob(Math.round(cx + Math.cos(a) * d), Math.round(cy + Math.sin(a) * d), 1.2, '#', k); }
+    } else if (th === 'chasm') {
+      // 崩塌區：兩三個大坑 + 一條裂谷（不會整個切斷區域，連不到的角落最後會被填平），零星矮建築和岩塊
+      for (let q = 0, n = ri(2, 3); q < n; q++) { const [x, y] = rndIn(k, 14); pit(x, y, ri(6, 10), k); }
+      { const [x0, y0] = rndIn(k, 10), a0 = rand() * Math.PI * 2, len = ri(24, 40), wob = rand() * 6.28;
+        for (let s = 0; s < len; s += 0.5) {
+          const a = a0 + 0.5 * Math.sin(s / 7 + wob), x = x0 + Math.cos(a) * s, y = y0 + Math.sin(a) * s, w = 1.1 + 0.9 * Math.sin(s / len * Math.PI);
+          for (let yy = Math.floor(y - w); yy <= y + w; yy++) for (let xx = Math.floor(x - w); xx <= x + w; xx++) if (Math.hypot(xx - x, yy - y) <= w && inZone(xx, yy, k, 6) && !nearPass(xx, yy, 10) && grid[yy][xx] !== 'B') grid[yy][xx] = 'v';
+        } }
+      for (let q = 0; q < 3; q++) { const [x, y] = rndIn(k); if (!nearPass(x, y, 12)) blob(x, y, 1 + rand() * 1.5, '#', k); }
+      for (let q = 0, m = 0, want = ri(3, 5); q < 120 && m < want; q++) { const w = ri(2, 3), h = ri(2, 3), [x, y] = rndIn(k, 8); if (free(x, y, w, h, 3, k)) { addB(x, y, w, h, 1, style); m++; } }
     } else {
       const n = Math.round(B.area / 450);
       for (let q = 0; q < n; q++) { const [x, y] = rndIn(k); if (!nearPass(x, y, 12)) blob(x, y, 1 + rand() * 1.8, '#', k); }
@@ -151,8 +170,11 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 312, H = 
     }
   }
 
+  // 其他主題偶爾一個小坑（崩塌區、街區、出發區不放）
+  for (let k = 0; k < NZ; k++) if (k !== startZ && (themes[k] === 'open' || themes[k] === 'ruins' || themes[k] === 'plaza') && rand() < 0.4) { const [x, y] = rndIn(k, 12); pit(x, y, 2.5 + rand() * 2, k); }
+
   // 出發點：出發區種子附近的空地
-  const clear = (c, r, n = 2) => { for (let y = r - n; y <= r + n; y++) for (let x = c - n; x <= c + n; x++) { const t = grid[y]?.[x]; if (t === undefined || t === '#' || t === 'B') return false; } return true; };
+  const clear = (c, r, n = 2) => { for (let y = r - n; y <= r + n; y++) for (let x = c - n; x <= c + n; x++) { const t = grid[y]?.[x]; if (t === undefined || t === '#' || t === 'B' || t === 'v') return false; } return true; };
   let sc = Math.round(seeds[startZ].c), sr = Math.round(seeds[startZ].r);
   for (let k = 0; k < 400 && !clear(sc, sr, 3); k++) [sc, sr] = rndIn(startZ, 12);
 
@@ -163,11 +185,11 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 312, H = 
     const i = q.pop(), c = i % W, r = (i - c) / W;
     for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) {
       const x = c + dc, y = r + dr, t = grid[y]?.[x];
-      if (t === undefined || t === '#' || t === 'B' || seen[y * W + x]) continue;
+      if (t === undefined || t === '#' || t === 'B' || t === 'v' || seen[y * W + x]) continue;
       seen[y * W + x] = 1; q.push(y * W + x);
     }
   }
-  for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) if (!seen[r * W + c] && grid[r][c] !== '#' && grid[r][c] !== 'B') grid[r][c] = '#';
+  for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) if (!seen[r * W + c] && grid[r][c] !== '#' && grid[r][c] !== 'B' && grid[r][c] !== 'v') grid[r][c] = '#';
 
   // 區域深度：從出發區穿過幾個隘口
   const adj = Array.from({ length: NZ }, () => []);

@@ -75,6 +75,10 @@ export const WEAPONS = {
     model: [[-2, -2, 0, 4, 4, 8, 'f'], [-1, -1, 8, 2, 2, 6, 'w'], [-1, -1, 14, 2, 2, 1, 'g']], muzzle: [0, 0, 15] },
   saber: { name: '光束劍', type: 'energy', mount: 'arm', weight: 2, kind: 'saber', interval: 0.55, dmg: 58, kb: 4, energy: 15, reach: 2.4, arc: 2.2, lunge: 7,
     model: [[-1, -2, -1, 2, 4, 3, 'f'], [-1, -1, 2, 2, 2, 1, 'w']], blade: 22, muzzle: [0, 0, 3] },
+  // 盾牌（手臂）：純被動，不能開火。從那一側前方（正面偏盾牌那邊，左右各約 78°）來的攻擊先打在盾上（guard 點耐久、裝甲照手臂的）；
+  //   爆風只擋一半；盾打爆 = 那隻手臂一起壞掉。拿盾的機體上半身轉得慢（turnMul；雜魚另外再慢很多 → 繞背打得到）
+  shield: { name: '盾牌', type: 'kinetic', mount: 'arm', weight: 6, kind: 'shield', guard: 340, turnMul: 0.72,
+    model: [[-4, -7, 3, 9, 13, 2, 'f'], [-3, -6, 5, 7, 11, 1, 'w']], muzzle: [0, 0, 4] },
   cannon: { name: '加農砲', type: 'kinetic', mount: 'back', weight: 8, kind: 'bullet', interval: 2.4, ammo: 8, dmg: 85, speed: 40, spread: 0, kb: 7, recoil: 4, life: 0.9, size: 0.24, heavy: true, splash: 2.2,
     model: [[-2, -2, -4, 5, 5, 8, 'f'], [-1, -1, 4, 3, 3, 12, 'f'], [-2, -2, 15, 5, 5, 1, 'w']], muzzle: [0.5, 0.5, 17] },
   missile: { name: '直射飛彈', type: 'chemical', mount: 'back', weight: 6, kind: 'missile', interval: 1.2, ammo: 64, dmg: 30, salvo: 2, speed: 18, accel: 26, maxSpeed: 32, turn: 1.9, life: 1.6, size: 0.12, splash: 1.3,
@@ -122,10 +126,22 @@ export const GRUNTS_LOW = {
   bazooka: { name: '火箭兵', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'mg_l', backL: null, backR: 'rocket_l', hp: 85 },
   // 砲塔：固定不動（只轉上半身），耐久高；只出現在陣地型小隊
   turret: { name: '砲塔', head: 'dome', core: 'std', legs: 'tread', armL: null, armR: 'autocannon_l', backL: null, backR: null, hp: 150, fixed: true },
+  // 特殊行為（ai.js）：
+  //   bomber 自爆機：輕、快，一路衝過來，4 格內閃紅光嗶嗶叫、0.7 秒後自爆（敵我都炸）；被打爆也會炸
+  //   charger 衝鋒機：停下來、地上亮出紅色的衝刺線（0.85 秒），然後沿直線高速衝 ~16 格；撞到玩家重傷 + 擊退 + 失衡；撞牆暈 1.6 秒；衝進空洞直接摔死
+  //   fly 旋停機：浮在空中，飛得過空洞（喜歡停在空洞上：地面機體撞不到它）；用飛行流場
+  //   swarm 蟲群：一台，但畫成一群小無人機；單發攻擊一次最多打掉一隻的血（per），爆風傷害 ×1.8 → 怕範圍武器；貼近持續啃咬
+  //   shield 盾兵：左手盾牌（見 WEAPONS.shield），上半身轉得非常慢 → 要繞背
+  bomber: { name: '自爆機', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: null, backL: null, backR: null, hp: 45, bomber: true, speedMul: 1.35 },
+  charger: { name: '衝鋒機', head: 'dome', core: 'std', legs: 'biped', armL: null, armR: null, backL: null, backR: null, hp: 170, charger: true },
+  gunship: { name: '旋停機', head: 'hunter', core: 'light', legs: 'hover', armL: null, armR: 'mg_l', backL: 'missile_l', backR: null, hp: 85, fly: true },
+  swarm: { name: '蟲群', head: 'std', core: 'light', legs: 'hover', armL: null, armR: null, backL: null, backR: null, hp: 160, swarm: 16, fly: true, speedMul: 1.1 },
+  shielder: { name: '盾兵', head: 'dome', core: 'std', legs: 'biped', armL: 'shield', armR: 'autocannon_l', backL: null, backR: null, hp: 120 },
 };
 // 出場比例：步兵最多，砲車 / 狙擊兵少
 const GRUNT_WEIGHT = { rifle: 5, rocket: 3, heavy: 2, gun: 1.2, sniper: 1.2, blade: 2,
-  turret: 0, scout: 5, trooper: 3, launcher: 2.5, brawler: 2, stick: 1.8, marksman: 1.2, mortar: 1, bazooka: 1.5 };
+  turret: 0, scout: 5, trooper: 3, launcher: 2.5, brawler: 2, stick: 1.8, marksman: 1.2, mortar: 1, bazooka: 1.5,
+  bomber: 0, charger: 0, gunship: 0, swarm: 0, shielder: 0 };   // 新的特殊雜魚只在遠征的小隊裡出現
 export function randomGrunt(pool = GRUNTS) {
   const keys = Object.keys(pool);
   let r = Math.random() * keys.reduce((a, k) => a + GRUNT_WEIGHT[k], 0);
@@ -149,17 +165,22 @@ export function gruntOf(key) {
 //   patrol：巡邏型，待命時沿著一條路線走來走去 → 會自己撞上來，或要等它走開再過
 // themes：在哪種地形比較常出現（街區轉角多 → 近戰；荒野視線長 → 遠程）；minDepth：離出發區至少幾個隘口才會出現
 export const SQUADS = {
-  patrol: { name: '巡邏隊', units: ['scout', 'scout', 'trooper'], themes: { city: 2, open: 2, ruins: 2, plaza: 2 }, patrol: true },
+  patrol: { name: '巡邏隊', units: ['scout', 'scout', 'trooper'], themes: { city: 2, open: 2, ruins: 2, plaza: 2, chasm: 1 }, patrol: true },
   hunters: { name: '遊獵隊', units: ['brawler', 'stick', 'scout'], themes: { ruins: 2, open: 1, city: 1 }, patrol: true },
   outpost: { name: '前哨陣地', units: ['turret', 'turret', 'trooper', 'marksman'], themes: { open: 2, plaza: 2, ruins: 1 }, hold: 5, minDepth: 1 },
   bunker: { name: '守備據點', units: ['turret', 'mortar', 'trooper', 'trooper'], themes: { city: 2, plaza: 2 }, hold: 6, minDepth: 2 },
   rush: { name: '突擊隊', units: ['brawler', 'brawler', 'stick', 'stick'], themes: { city: 3, ruins: 2, plaza: 1 } },
   ambush: { name: '火箭伏擊', units: ['bazooka', 'bazooka', 'brawler'], themes: { city: 2, ruins: 2 } },
   mortar: { name: '砲擊陣地', units: ['mortar', 'mortar', 'scout'], themes: { open: 3, plaza: 2, ruins: 1 } },
-  snipers: { name: '狙擊組', units: ['marksman', 'marksman', 'trooper'], themes: { open: 3, plaza: 1, ruins: 1 } },
+  snipers: { name: '狙擊組', units: ['marksman', 'marksman', 'trooper'], themes: { open: 3, plaza: 1, ruins: 1, chasm: 2 } },
   missile: { name: '飛彈小隊', units: ['launcher', 'launcher', 'marksman'], themes: { open: 2, plaza: 2, city: 1 } },
   heavy: { name: '重裝隊', units: ['heavy*', 'scout', 'scout'], themes: { city: 2, open: 1, plaza: 1 }, minDepth: 1 },
   gunline: { name: '砲車隊', units: ['gun*', 'trooper', 'trooper'], themes: { open: 2, plaza: 2 }, minDepth: 1 },
+  kamikaze: { name: '自爆小隊', units: ['bomber', 'bomber', 'bomber', 'scout'], themes: { city: 2, ruins: 2, open: 1, chasm: 1 }, minDepth: 1 },
+  breakers: { name: '衝鋒隊', units: ['charger', 'trooper', 'trooper'], themes: { open: 2, plaza: 2, chasm: 3, ruins: 1 }, minDepth: 1 },
+  gunships: { name: '旋停機隊', units: ['gunship', 'gunship', 'marksman'], themes: { chasm: 4, open: 1, plaza: 1 }, minDepth: 1 },
+  swarm: { name: '蟲群', units: ['swarm', 'swarm', 'scout'], themes: { ruins: 2, city: 1, chasm: 2 }, minDepth: 2 },
+  shieldwall: { name: '盾陣', units: ['shielder', 'shielder', 'launcher'], themes: { city: 2, plaza: 2, chasm: 1 }, minDepth: 1 },
   elite: { name: '精英小隊', units: ['rocket*', 'blade*', 'rifle*'], themes: { city: 1, open: 1, ruins: 1, plaza: 1 }, minDepth: 3 },
 };
 export function pickSquad(theme, depth, rand = Math.random) {
@@ -256,7 +277,7 @@ export function computeSpec(lo) {
   return {
     head, core, legs, armW, backW, total, loadK, moveK, armOver, backOver,
     vmax: legs.vmax * moveK, acc: legs.acc * moveK, legTurn: legs.legTurn * (loadK > 1 ? 0.8 : 1),
-    turn: core.turn * (armOver ? 0.7 : 1), spreadMul: armOver ? 1.6 : 1,
+    turn: core.turn * (armOver ? 0.7 : 1) * [lo.armL, lo.armR].reduce((k, id) => k * (id ? WEAPONS[id].turnMul ?? 1 : 1), 1), spreadMul: armOver ? 1.6 : 1,
     regen: backOver ? 0.6 : 1, boost: legs.boost * (loadK > 1 ? 0.8 : 1),
     // 整體耐久 ×HP_MUL（節奏放慢、多打幾輪）；背部武器的掛架也有自己的耐久
     hp: { head: head.hp * HP_MUL, torso: core.hp * HP_MUL, armL: Math.round(core.hp * 0.38 * HP_MUL), armR: Math.round(core.hp * 0.38 * HP_MUL), backL: 70 * HP_MUL, backR: 70 * HP_MUL, legs: legs.hp * HP_MUL },

@@ -36,6 +36,8 @@ const TEAM_RING = new THREE.RingGeometry(0.95, 1.2, 28);
 export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, hpMul = 1, ace = true, grunt = null }) {
   const spec = computeSpec(loadout);
   if (grunt) spec.hp.torso = grunt.hp;
+  const shieldSlot = ['armL', 'armR'].find(s => loadout[s] && WEAPONS[loadout[s]].kind === 'shield');
+  if (grunt && shieldSlot) { spec.turn *= 0.35; spec.legTurn *= 0.5; }   // 盾兵：轉得非常慢 → 繞背打得到
   const M = buildMechModel(loadout, colors);
   const k = grunt ? GRUNT_SCALE : 1;
   M.root.scale.setScalar(k);
@@ -61,6 +63,7 @@ export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, h
     // 背部武器準備：ready = 那一邊現在用背部武器、deployT = 展開 / 收回中還剩幾秒（不能開火）、readyK = 動畫 0..1
     ready: { L: false, R: false }, deployT: { L: 0, R: 0 }, readyK: { L: 0, R: 0 },
     staggerT: 0, staggerMax: 0, staggerImm: 0, stagDir: { x: 0, z: 0 },
+    shield: shieldSlot ? { slot: shieldSlot, hp: WEAPONS[loadout[shieldSlot]].guard * (grunt ? 0.7 : 1) * hpMul, max: WEAPONS[loadout[shieldSlot]].guard * (grunt ? 0.7 : 1) * hpMul, armor: loadout.armor.arms } : null,
   };
   mechs.push(m);
   return m;
@@ -201,7 +204,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   m.vx *= drag; m.vz *= drag;
 
   m.x += m.vx * dt; m.z += m.vz * dt;
-  const hit = collideBlocks(m, m.r, 0);
+  const hit = collideBlocks(m, m.r, 0, !!m.fly);
   if (hit.hit > STICK_SPEED) {
     // 不反彈，連沿著牆滑的速度也被磨掉一大半
     const vt = m.vx * -hit.nz + m.vz * hit.nx, keep = Math.max(0.15, 1 - hit.hit * 0.08);
@@ -272,8 +275,27 @@ function pickPart(m, dir, right) {
   return !m.parts[part] || m.parts[part].broken ? 'torso' : part;
 }
 // power：拿來判斷失衡的武器原始威力（不吃難度倍率）；沒給就用 dmg
-export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null, power = dmg) {
+// splash = 爆風（盾只擋一半、蟲群吃 ×1.8）
+export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null, power = dmg, splash = false) {
   if (!m.alive) return null;
+  // 蟲群：單發攻擊一次最多打掉一隻；爆風打到一大片
+  if (m.swarm) dmg = splash ? dmg * 1.8 : Math.min(dmg, m.swarm.per);
+  // 盾牌：從盾那一側前方來的攻擊先打在盾上
+  const Sh = m.shield;
+  if (Sh && Sh.hp > 0 && !m.parts[Sh.slot]?.broken) {
+    const f = facing(m), sd = Sh.slot === 'armL' ? 1 : -1;
+    let cx = f.x + f.z * 0.7 * sd, cz = f.z - f.x * 0.7 * sd;
+    const cl = Math.hypot(cx, cz); cx /= cl; cz /= cl;
+    if (-dx * cx - dz * cz > 0.2) {
+      const eff = EFFECT[type][Sh.armor] ?? 1, take = dmg * eff * (splash ? 0.5 : 1);
+      Sh.hp -= take;
+      m.parts[Sh.slot].flash = 0.07;
+      m.vx += dx * kb * 0.5; m.vz += dz * kb * 0.5;
+      if (Sh.hp <= 0) breakShield(m, dx, dz);
+      if (!splash) return { part: Sh.slot, eff: Math.min(eff, 0.5), shield: true };
+      dmg *= 0.5;
+    }
+  }
   const fromX = -dx, fromZ = -dz, f = facing(m);
   const a = Math.abs(angleDiff(m.torsoYaw, Math.atan2(fromX, fromZ)));
   const right = fromX * -f.z + fromZ * f.x > 0;
@@ -321,6 +343,16 @@ export function damagePart(m, name, dmg, dx = 0, dz = 0) {
 }
 
 const tmpV = new THREE.Vector3();
+// 盾牌打爆：那隻手臂（連盾）炸掉
+function breakShield(m, dx, dz) {
+  const p = m.parts[m.shield.slot];
+  m.shield.hp = 0;
+  if (m.grunt) {
+    voxelBurst(p.g, 40, 5, m.x, m.z, dx * 3, dz * 3);
+    p.g.visible = false; p.broken = true;
+    sfx.partBreak();
+  } else if (!p.broken) { p.hp = 0; p.broken = true; breakPart(m, m.shield.slot, dx, dz); }
+}
 function breakPart(m, name, dx, dz) {
   const p = m.parts[name];
   voxelBurst(p.g, name === 'legs' ? 30 : 45, 5, m.x, m.z, dx * 3, dz * 3);
@@ -429,7 +461,7 @@ export function poseMech(m, dt) {
   if (!m.alive || m.drop) return;
   const M = m.model, L = m.spec.legs;
   const hover = L.type === 'hover' ? Math.sin(m.bob * 3) * 0.04 + 0.06 : 0;
-  M.root.position.set(m.x, hover, m.z);
+  M.root.position.set(m.x, hover + (m.flyH ?? 0) + (m.fly ? Math.sin(m.bob * 2.2 + m.x) * 0.12 : 0), m.z);
   // 失衡：整台往被打的方向歪、快速晃
   if (m.staggerT > 0) {
     const k = m.staggerT / m.staggerMax, e = Math.sin((1 - k) * Math.PI) * 0.22 + Math.sin(m.bob * 38) * 0.04 * k;

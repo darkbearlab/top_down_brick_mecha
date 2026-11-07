@@ -5,7 +5,7 @@ import { clearPressed, input, updateInput } from './input.js';
 import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayers, loadMap, mapId, randomOpenSpot, rayBlock, setLayer, tileC, tileR } from './arena.js';
 import { THEMES, rng } from './mapgen.js';
 import { TERRAINS, genStage, terrainOf } from './stagegen.js';
-import { flowDist, updateFlow } from './pathing.js';
+import { flowDist, flyDist, updateFlow } from './pathing.js';
 import { addProp, clearProps, nearProp, props, removeProp, setPortal, setPropLayer, spendProp, updateProps } from './props.js';
 import { RADIUS, exploredAt, fogActive, fogOff, initFogLayers, setFogLayer, updateFog, visibleAt } from './fog.js';
 import { hideMinimap, initMinimap, setMinimapLayer, updateMinimap } from './minimap.js';
@@ -562,7 +562,7 @@ function updateExplore(dt) {
         // 增援據點：小隊第一次被驚動，5 秒後從兩三個方向來增援（用這個區域的駐軍兵種）；同一個區域 45 秒內只叫一次
         if (call) { S.called = true; Z.lastCall = EN.t; EX.pending.push({ t: 5, groups: 2 + (S.depth >= 4 ? 1 : 0), n: 2, depth: S.depth, pool: Z.squads.flatMap(k => SQUADS[k].units) }); }
       }
-    } else if (live.length && live.every(e => flowDist(e.x, e.z) > LOSE_R)) {   // 用實際要走的路程算（繞岩壁追過來的不算跟丟）
+    } else if (live.length && live.every(e => (e.fly ? flyDist(e.x, e.z) : flowDist(e.x, e.z)) > LOSE_R)) {   // 用實際要走的路程算（繞岩壁追過來的不算跟丟）
       S.awake = false; for (const e of live) { e.dormant = true; e.seenHp = e.parts.torso.hp; }
     }
   }
@@ -588,7 +588,7 @@ function updateExplore(dt) {
   updatePickups(dt, player, takePickup, canTake);
 }
 // ---------- 互動：箱子、武器、傳送門 ----------
-const weaponLine = id => { const W = WEAPONS[id]; return `<span class="wt" style="--c:${DMG_TYPES[W.type].css}">${DMG_TYPES[W.type].name}</span> ${W.mount === 'arm' ? '手臂' : '背部'}・傷害 ${W.dmg}${W.pellets ? ' ×' + W.pellets : ''}${W.salvo > 1 ? ' ×' + W.salvo : ''}${W.splash ? '・爆風' : ''}・${W.ammo ? '彈藥 ' + W.ammo : '吃能量'}・重量 ${W.weight}`; };
+const weaponLine = id => { const W = WEAPONS[id]; if (W.kind === 'shield') return `<span class="wt" style="--c:${DMG_TYPES[W.type].css}">盾牌</span> 手臂・耐久 ${W.guard}・純被動：盾那一側前方的攻擊先打在盾上（爆風擋一半）・上半身轉速 ×${W.turnMul}・重量 ${W.weight}`; return `<span class="wt" style="--c:${DMG_TYPES[W.type].css}">${DMG_TYPES[W.type].name}</span> ${W.mount === 'arm' ? '手臂' : '背部'}・傷害 ${W.dmg}${W.pellets ? ' ×' + W.pellets : ''}${W.salvo > 1 ? ' ×' + W.salvo : ''}${W.splash ? '・爆風' : ''}・${W.ammo ? '彈藥 ' + W.ammo : '吃能量'}・重量 ${W.weight}`; };
 function promptText(p) {
   if (!p || EX.warpT != null) return '';
   if (p.kind === 'cache') return `F・打開補給箱（${p.cost} 零件）${EN.scrap < p.cost ? '・零件不足' : ''}`;
@@ -764,7 +764,7 @@ function switchLayer(to) {
   // 追過來的：路程 70 格內、醒著、還有追的次數
   for (const e of enemies.slice()) {
     if (!e.alive) { removeEnemy(e); continue; }
-    const d = flowDist(e.x, e.z), q = e.boss ? 99 : e.chase ?? 0;
+    const d = e.fly ? flyDist(e.x, e.z) : flowDist(e.x, e.z), q = e.boss ? 99 : e.chase ?? 0;
     if (!e.dormant && !e.drop && q > 0 && d < 70) {
       e.chase = q - 1;
       if (e.unit && e.squad && !e.squad.wave) { e.unit.away = true; e.unit.hp = e.parts.torso.hp; const i = e.squad.members.indexOf(e); if (i >= 0) e.squad.members.splice(i, 1); }
@@ -1090,6 +1090,7 @@ function gunState(m, slot) {
   const g = m.guns[slot];
   if (!g) return '—';
   if (m.parts[slot]?.broken) return '<span class="bad">損毀</span>';
+  if (g.def.kind === 'shield') return m.shield ? `${Math.ceil(m.shield.hp)}/${Math.round(m.shield.max)}` : '—';
   if (g.ammo <= 0) return '<span class="bad">彈盡</span>';
   if (m.deployT[slot.slice(-1)] > 0 && activeSlot(m, slot.slice(-1)) === slot) return '展開中';
   if (g.def.energy) return m.energy < g.def.energy ? '<span class="bad">能量不足</span>' : g.cd > 0 ? '冷卻' : '就緒';
@@ -1233,7 +1234,7 @@ function frame(t) {
   // 瞄準線：左右各一條，從那一邊目前準備好的武器的槍口、沿上半身正前方射出（子彈就是這樣飛的）；空手、壞掉、劍不畫
   for (const side of ['L', 'R']) {
     const slot = activeSlot(player, side), g = player.guns?.[slot];
-    if (playing && !watching && player.alive && !garage.open && !warping && !hopping && g && !player.parts[slot]?.broken && g.def.kind !== 'saber') {
+    if (playing && !watching && player.alive && !garage.open && !warping && !hopping && g && !player.parts[slot]?.broken && g.def.kind !== 'saber' && g.def.kind !== 'shield') {
       const f = facing(player), mz = muzzleOf(player, slot);
       setLaser(guides[side], mz.x, mz.z, f.x, f.z, rayBlock(mz.x, mz.z, f.x, f.z, 22), mz.y, 0.3, 0.03);
     } else guides[side].g.visible = false;

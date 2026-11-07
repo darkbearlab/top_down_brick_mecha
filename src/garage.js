@@ -37,7 +37,7 @@ function options(key) {
     html: `極速 ${L.vmax}・加速 ${L.acc}・轉向 ${L.legTurn}<br>負重 ${L.maxLoad}・衝刺 ×${L.boost}・失衡門檻 ${L.stagger === Infinity ? '不會失衡' : L.stagger}・耐久 ${Math.round(L.hp * HP_MUL)}${L.type === 'tread' ? '<br>只能前後開＋旋轉' : L.type === 'hover' ? '<br>到處都滑、不怕泥地' : ''}` }));
   const mount = key.startsWith('arm') ? 'arm' : 'back';
   return [{ id: null, name: '（空）', html: '不裝武器' }, ...Object.entries(WEAPONS).filter(([, W]) => W.mount === mount && !W.low).map(([id, W]) => ({ id, name: W.name,
-    html: `${typeTag(W.type)} 傷害 ${W.dmg}${W.pellets ? '×' + W.pellets : W.salvo > 1 ? '×' + W.salvo : ''}・${(1 / W.interval).toFixed(1)} 發/秒<br>` +
+    html: W.kind === 'shield' ? `${typeTag(W.type)} 盾牌・耐久 ${W.guard}・純被動（盾那一側前方的攻擊先打在盾上，爆風只擋一半）<br>上半身轉速 ×${W.turnMul}・重 ${W.weight}` : `${typeTag(W.type)} 傷害 ${W.dmg}${W.pellets ? '×' + W.pellets : W.salvo > 1 ? '×' + W.salvo : ''}・${(1 / W.interval).toFixed(1)} 發/秒<br>` +
       `${W.energy ? `能量 ${W.energy}/發・無彈藥限制` : `彈藥 ${W.ammo}・連射 ${Math.round(fireTime(W))} 秒（${fireTime(W) >= 35 ? '持久型' : '決戰型'}）`}・重 ${W.weight}${W.needLock ? '・需鎖定' : W.kind === 'missile' || W.kind === 'split' ? '・可追蹤' : ''}` }))];
 }
 

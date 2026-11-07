@@ -42,6 +42,7 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
   if (m.swing) updateSwing(m, dt);
   for (const slot in m.guns) {
     const gun = m.guns[slot], d = gun.def;
+    if (d.kind === 'shield') continue;   // 盾牌：純被動
     gun.cd -= dt;
     if (!triggers[slot.slice(-1)] || !slotLive(m, slot) || gun.cd > 0 || !m.alive || slotBroken(m, slot) || m.swing || m.staggerT > 0) continue;
     if (gun.ammo <= 0) { gun.cd = 0.3; if (m.team === 'player') sfx.click(); continue; }   // 彈盡
@@ -203,7 +204,7 @@ function blast(s, x, y, z, direct) {
     const dx = o.x - x, dz = o.z - z, dist = Math.hypot(dx, dz);
     if (dist > s.splash + o.r) continue;
     const fall = shell ? 1 - 0.5 * Math.max(0, dist - o.r) / s.splash : 1;   // 砲彈爆風越外圈越弱；飛彈維持原樣
-    hitMech(o, s.dmg * 0.4 * fall, dx / (dist || 1), dz / (dist || 1), shell ? 3 : 0.6, s.type, 'torso', (s.power ?? s.dmg) * 0.4 * fall);
+    hitMech(o, s.dmg * 0.4 * fall, dx / (dist || 1), dz / (dist || 1), shell ? 3 : 0.6, s.type, 'torso', (s.power ?? s.dmg) * 0.4 * fall, true);
   }
 }
 

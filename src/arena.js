@@ -18,7 +18,8 @@ export const SURF = {
 };
 // 場地可以換（loadMap）：競技場 64 × 48 固定；遠征模式用 mapgen.js 產生的大地圖
 // 多層地圖（loadLayers）：好幾層一樣大、共用世界座標的格子，同一時間只有一層在動（setLayer）；W、H、grid 是 live binding，換地圖 / 換層後其他模組讀到的就是新的
-//   'v' = 懸空（多層地圖的上層才有）：走不過去、但子彈和視線都過得去；地板在那裡挖空，看得到下面那層
+//   'v' = 懸空 / 空洞：走不過去（撞到 = 撞牆）、但子彈和視線都過得去；地板在那裡挖空：多層地圖看得到下面那層，不然是看不到底的深坑（坑邊一圈淺色的裂石）
+//   會飛的（旋停機、蟲群）可以飛過 / 停在上面
 export let W = 64, H = 48, grid = [], mapId = '', layerNo = 0;
 export const SINK = 5;   // 下面那層畫在多低的地方（往下看的高度感）
 // 競技場：64 × 48，兩片泥地對中心點對稱（建築另外蓋，見 buildings.js）
@@ -76,7 +77,7 @@ export function setLayer(k) {
   layerNo = k; grid = built[k].grid;
   // 下面的層：中間每一層都有懸空的地方才看得到（地表沒有洞 → 地下不用畫）
   let see = k;
-  while (see > 0 && built[see].hasVoid) see--;
+  while (see > 0 && built[see].hasVoid && !built[see].bottomless) see--;   // bottomless：這層的洞是深坑（例如地表的坑不要看到地下）
   built.forEach((B, j) => {
     B.group.visible = j <= k && j >= see;
     B.group.position.y = -(k - j) * SINK;
@@ -90,10 +91,20 @@ function buildLayer(map, L, k) {
   const cv = document.createElement('canvas');
   cv.width = W * PX; cv.height = H * PX;
   const x2 = cv.getContext('2d'), dk = L.under ? 0.62 : 1;
+  const nearV = (c, r) => { for (let y = r - 1; y <= r + 1; y++) for (let x = c - 1; x <= c + 1; x++) if (g[y]?.[x] === 'v') return true; return false; };
   const rgb = (r, gg, b) => `rgb(${Math.round(r * dk)},${Math.round(gg * dk)},${Math.round(b * dk * (L.under ? 1.08 : 1))})`;
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
     const t = g[r][c], x = c * PX, y = r * PX, n = ((c * 7 + r * 13) % 5) * 3, q = PX / 16;
     if (t === 'v') continue;   // 懸空：透明
+    if (t !== '#' && nearV(c, r)) {
+      // 坑邊：淺色的裂石，加幾道裂縫
+      const m = Math.floor(hash(c, r) * 8);
+      x2.fillStyle = rgb(118 + m, 108 + m, 92 + m); x2.fillRect(x, y, PX, PX);
+      x2.fillStyle = 'rgba(30,24,18,.55)';
+      x2.fillRect(x + ((c * 5) % 11) * q, y, Math.max(1, q), PX * 0.7);
+      x2.fillRect(x, y + ((r * 7) % 11) * q, PX * 0.6, Math.max(1, q));
+      continue;
+    }
     if (t === 'm') {
       x2.fillStyle = rgb(84 + n, 62 + n, 42 + n); x2.fillRect(x, y, PX, PX);
       x2.fillStyle = 'rgba(30,20,10,.35)'; x2.fillRect(x + ((c * 5) % 10) * q, y + ((r * 3) % 10) * q, 4 * q, 3 * q);
@@ -146,7 +157,7 @@ function buildLayer(map, L, k) {
   walls.computeBoundingSphere();
   // 崖壁：懸空旁邊的格子底下補一根到最底層的柱子（從上面斜斜看下去是一面牆，不會看到地板薄薄一片）
   const skirt = [];
-  if (k > 0) for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
+  for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
     if (g[r][c] === 'v') continue;
     let edge = false;
     for (let y = r - 1; y <= r + 1 && !edge; y++) for (let x = c - 1; x <= c + 1; x++) if (g[y]?.[x] === 'v') { edge = true; break; }
@@ -154,7 +165,7 @@ function buildLayer(map, L, k) {
   }
   if (skirt.length) {
     const sk = own(new THREE.InstancedMesh(UNIT_BOX, fogMaterial(new THREE.MeshLambertMaterial({ color: 0xffffff }), U), skirt.length));
-    const hgt = k * SINK;
+    const hgt = Math.max(k * SINK, 9);   // 至少 9 格深：最底層的坑看起來看不到底
     skirt.forEach(([c, r], i) => {
       mtx.makeScale(1.02, hgt, 1.02).setPosition(toWorldX(c), -hgt / 2 - 0.01, toWorldZ(r));
       sk.setMatrixAt(i, mtx);
@@ -165,18 +176,18 @@ function buildLayer(map, L, k) {
     sk.computeBoundingSphere();
   }
   scene.add(group);
-  return { grid: g, group, U, own: mine, hasVoid: g.some(row => row.includes('v')) };
+  return { grid: g, group, U, own: mine, hasVoid: g.some(row => row.includes('v')), bottomless: !!L.bottomless };
 }
 loadMap(arenaMap());
 
 // ---------- 碰撞 ----------
 // 圓形 o（x, z, vx, vz）撞方塊：推出來、法向速度反彈 e；回傳撞擊的法向速度（沒撞到 = 0）與法線
-export function collideBlocks(o, rad, e = 0.25) {
+export function collideBlocks(o, rad, e = 0.25, fly = false) {
   let hit = 0, nx = 0, nz = 0;
   const c0 = tileC(o.x), r0 = tileR(o.z), n = Math.ceil(rad) + 1;
   for (let r = r0 - n; r <= r0 + n; r++) for (let c = c0 - n; c <= c0 + n; c++) {
     const t = tileAt(c, r);
-    if (t !== '#' && t !== 'v') continue;   // 懸空也走不過去
+    if (t !== '#' && (t !== 'v' || fly)) continue;   // 懸空也走不過去（會飛的除外）
     const minX = c - W / 2, minZ = r - H / 2;
     const px = Math.max(minX, Math.min(o.x, minX + 1)), pz = Math.max(minZ, Math.min(o.z, minZ + 1));
     let dx = o.x - px, dz = o.z - pz, d = Math.hypot(dx, dz);
@@ -197,6 +208,12 @@ export function collideBlocks(o, rad, e = 0.25) {
 export function rayBlock(ox, oz, dx, dz, max) {
   const step = 0.1;
   for (let t = 0; t <= max; t += step) if (isBlock(ox + dx * t, oz + dz * t)) return t;
+  return max;
+}
+
+// 走路用的射線：岩壁、建築、懸空都算擋住（敵機避障用；子彈用 rayBlock）
+export function rayWalk(ox, oz, dx, dz, max) {
+  for (let t = 0; t <= max; t += 0.1) if (isSolid(ox + dx * t, oz + dz * t)) return t;
   return max;
 }
 
