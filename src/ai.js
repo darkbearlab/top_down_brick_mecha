@@ -53,7 +53,8 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   e.laser = makeLaser(0xff3020);
   // 特殊雜魚
   if (P.speedMul) e.spec.vmax *= P.speedMul;
-  if (P.fly) { e.fly = true; e.flyH = P.swarm ? 0.6 : 1.3; }
+  if (P.fly) { e.fly = true; e.flyH = 1.3; }
+  if (P.quad) setupQuad(e);
   if (P.bomber) e.bomber = { fuse: -1, beep: 0 };
   if (P.charger) e.charger = { state: 'idle', t: 0, cd: 1.5 + Math.random() * 2 };
   if (P.swarm) setupSwarm(e, P.swarm);
@@ -73,7 +74,8 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
     e.laser.g.visible = false;
     clearTele(e);
     if (e.bomber && !e.bomber.done) { e.bomber.done = true; bomberBlast(e, 0.75); }   // 被打爆也會炸（小一點）
-    if (e.swarm) burst(e.x, 1, e.z, [0x2a2a30, 0xff3020], 18, 6);
+    if (e.swarm) burst(e.x, 0.3, e.z, [0x2a2a30, 0xff3020], 18, 5);
+    if (e.quad) burst(e.x, 2, e.z, [0x3a3d45, 0xa8321a, 0x8a8e98], 14, 6);
     AI.onEnemyDeath?.(e);
     setTimeout(() => removeEnemy(e), 2500);   // 殘骸留一下才補新的
   };
@@ -145,6 +147,7 @@ export function updateEnemy(e, dt, player) {
   if (e.fall) { updateFall(e, dt); return; }
   if (!e.alive) return;
   if (e.swarm) updateSwarmFx(e, dt);
+  if (e.quad) for (const [i, r] of e.quad.rotors.entries()) r.rotation.y += dt * (i % 2 ? 38 : -38);
   if (e.drop) { if (updateDrop(e, dt, player)) return; }
   // 待命（遠征模式還沒發現玩家的小隊）：站著不動、偶爾轉頭看看
   if (e.dormant) {
@@ -522,11 +525,11 @@ function updateFall(e, dt) {
 }
 
 // ---------- 蟲群 ----------
-// 機體模型藏起來，改畫 n 隻小無人機（深色方塊 + 紅眼）繞著中心亂飛；剩幾隻照剩多少血
-const DRONE_GEO = new THREE.BoxGeometry(0.26, 0.14, 0.3), EYE_GEO = new THREE.BoxGeometry(0.1, 0.06, 0.06);
+// 機體模型藏起來，改畫 n 隻在地上爬的小機械蟲（扁平深色方塊 + 紅眼），在中心附近亂竄；剩幾隻照剩多少血
+const DRONE_GEO = new THREE.BoxGeometry(0.24, 0.09, 0.32), EYE_GEO = new THREE.BoxGeometry(0.12, 0.05, 0.05);
 const DRONE_MAT = new THREE.MeshLambertMaterial({ color: 0x2c2d34 }), EYE_MAT = addMat(0xff3020, 0.95);
 const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpE = new THREE.Euler(), tmpP = new THREE.Vector3(), ONE = new THREE.Vector3(1, 1, 1), ZERO = new THREE.Vector3(0, 0, 0);
-const EYE_OFF = new THREE.Matrix4().makeTranslation(0, 0.02, 0.16);   // 紅眼：無人機前端
+const EYE_OFF = new THREE.Matrix4().makeTranslation(0, 0.03, 0.16);   // 紅眼：蟲的頭
 function setupSwarm(e, n) {
   for (const k in e.parts) e.parts[k].g.visible = false;
   e.spec.legs = { ...e.spec.legs, stagger: Infinity };
@@ -535,17 +538,49 @@ function setupSwarm(e, n) {
   body.frustumCulled = eye.frustumCulled = false;
   body.castShadow = true;
   e.model.root.add(body, eye);
-  e.swarm = { n, per: e.parts.torso.max / n, body, eye, ph: Array.from({ length: n }, () => [Math.random() * 6.28, 0.4 + Math.random() * 1.0, 0.5 + Math.random() * 1.2, 1.5 + Math.random() * 2]) };
+  e.swarm = { n, per: e.parts.torso.max / n, body, eye, ph: Array.from({ length: n }, () => [Math.random() * 6.28, 0.35 + Math.random() * 1.1, 0, 1 + Math.random() * 1.5]) };
 }
 function updateSwarmFx(e) {
   const S = e.swarm, t = G.now, live = Math.max(1, Math.ceil(e.parts.torso.hp / e.parts.torso.max * S.n));
   for (let i = 0; i < S.n; i++) {
-    const [ph, rad, h, sp] = S.ph[i], a = t * sp + ph;
-    tmpP.set(Math.cos(a) * rad + Math.sin(t * 3.1 + ph) * 0.2, h + Math.sin(t * 4 + ph * 2) * 0.25, Math.sin(a) * rad);
-    tmpQ.setFromEuler(tmpE.set(0, -a + Math.PI / 2, 0));
+    // 在地上亂竄：各自在中心附近繞來繞去、頭朝著跑的方向，身體貼地微微顛
+    const [ph, rad, , sp] = S.ph[i], a = ph + Math.sin(t * 0.9 * sp + ph * 3) * 1.3, r = rad * (0.75 + 0.35 * Math.sin(t * 1.4 * sp + ph));
+    tmpP.set(Math.cos(a) * r, 0.05 + Math.abs(Math.sin(t * 22 + ph * 5)) * 0.025, Math.sin(a) * r);
+    tmpQ.setFromEuler(tmpE.set(0, -a + Math.sin(t * 6 + ph) * 0.8, 0));
     tmpM.compose(tmpP, tmpQ, i < live ? ONE : ZERO);   // 打掉的那幾隻縮成 0
     S.body.setMatrixAt(i, tmpM);
     S.eye.setMatrixAt(i, tmpM.multiply(EYE_OFF));
   }
   S.body.instanceMatrix.needsUpdate = true; S.eye.instanceMatrix.needsUpdate = true;
+}
+
+// ---------- 旋停機：四旋翼無人機 ----------
+// 機體模型藏起來，在上半身那裡換成：扁平機身 + 四支斜臂 + 四個旋翼（半透明圓盤，一直轉）；武器掛在機身下面（槍口也移到那裡）
+const QUAD_BODY = new THREE.BoxGeometry(0.72, 0.2, 0.8), QUAD_ARM = new THREE.BoxGeometry(0.1, 0.08, 0.95), QUAD_HUB = new THREE.BoxGeometry(0.16, 0.14, 0.16);
+const QUAD_ROTOR = new THREE.CylinderGeometry(0.36, 0.36, 0.02, 18), QUAD_GUN = new THREE.BoxGeometry(0.1, 0.1, 0.55), QUAD_POD = new THREE.BoxGeometry(0.22, 0.16, 0.36);
+function setupQuad(e) {
+  const M = e.model;
+  for (const k in e.parts) e.parts[k].g.visible = false;
+  const dark = new THREE.MeshLambertMaterial({ color: 0x3a3d45 }), acc = new THREE.MeshLambertMaterial({ color: e.colors.accent }), metal = new THREE.MeshLambertMaterial({ color: 0x8a8e98 });
+  const q = new THREE.Group();
+  const body = new THREE.Mesh(QUAD_BODY, dark); q.add(body);
+  const stripe = new THREE.Mesh(QUAD_BODY, acc); stripe.scale.set(0.5, 0.3, 1.02); stripe.position.y = 0.09; q.add(stripe);
+  const eye = new THREE.Mesh(EYE_GEO, EYE_MAT); eye.scale.set(1.6, 1.4, 1); eye.position.set(0, 0.02, 0.42); q.add(eye);
+  const rotors = [];
+  for (const [sx, sz] of [[1, 1], [-1, 1], [-1, -1], [1, -1]]) {
+    const arm = new THREE.Mesh(QUAD_ARM, dark); arm.position.set(sx * 0.33, 0.04, sz * 0.33); arm.rotation.y = Math.atan2(sx, sz); q.add(arm);
+    const hub = new THREE.Mesh(QUAD_HUB, metal); hub.position.set(sx * 0.62, 0.1, sz * 0.62); q.add(hub);
+    const rot = new THREE.Mesh(QUAD_ROTOR, addMat(0xd0d6e0, 0.28)); rot.position.set(sx * 0.62, 0.19, sz * 0.62); q.add(rot);
+    const blade = new THREE.Mesh(new THREE.BoxGeometry(0.66, 0.015, 0.06), metal); rot.add(blade);
+    rotors.push(rot);
+  }
+  // 武器掛在下面：右手機槍（右邊 = 本地 -x）、左背飛彈莢艙
+  const gun = new THREE.Mesh(QUAD_GUN, metal); gun.position.set(-0.17, -0.18, 0.22); q.add(gun);
+  const pod = new THREE.Mesh(QUAD_POD, dark); pod.position.set(0.17, -0.17, 0.08); q.add(pod);
+  q.traverse(o => { if (o.isMesh && o.material.type === 'MeshLambertMaterial') o.castShadow = true; });
+  q.position.y = 0.15;
+  M.torsoG.add(q);
+  M.muzzles.armR = [-0.17, -0.03, 0.5];
+  M.muzzles.backL = [0.17, -0.02, 0.27];
+  e.quad = { g: q, rotors };
 }

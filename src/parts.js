@@ -129,13 +129,13 @@ export const GRUNTS_LOW = {
   // 特殊行為（ai.js）：
   //   bomber 自爆機：輕、快，一路衝過來，4 格內閃紅光嗶嗶叫、0.7 秒後自爆（敵我都炸）；被打爆也會炸
   //   charger 衝鋒機：停下來、地上亮出紅色的衝刺線（0.85 秒），然後沿直線高速衝 ~16 格；撞到玩家重傷 + 擊退 + 失衡；撞牆暈 1.6 秒；衝進空洞直接摔死
-  //   fly 旋停機：浮在空中，飛得過空洞（喜歡停在空洞上：地面機體撞不到它）；用飛行流場
-  //   swarm 蟲群：一台，但畫成一群小無人機；單發攻擊一次最多打掉一隻的血（per），爆風傷害 ×1.8 → 怕範圍武器；貼近持續啃咬
+  //   fly 旋停機：四旋翼無人機（機體模型換掉，武器掛在下面），浮在空中，飛得過空洞（喜歡停在空洞上：地面機體撞不到它）；用飛行流場
+  //   swarm 蟲群：一台，但畫成一群在地上爬的小機械蟲；單發攻擊一次最多打掉一隻的血（per），爆風傷害 ×1.8 → 怕範圍武器；貼近持續啃咬；飛彈鎖不到
   //   shield 盾兵：左手盾牌（見 WEAPONS.shield），上半身轉得非常慢 → 要繞背
-  bomber: { name: '自爆機', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: null, backL: null, backR: null, hp: 45, bomber: true, speedMul: 1.35 },
+  bomber: { name: '自爆機', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: null, backL: null, backR: null, hp: 28, bomber: true, speedMul: 1.35 },
   charger: { name: '衝鋒機', head: 'dome', core: 'std', legs: 'biped', armL: null, armR: null, backL: null, backR: null, hp: 170, charger: true },
-  gunship: { name: '旋停機', head: 'hunter', core: 'light', legs: 'hover', armL: null, armR: 'mg_l', backL: 'missile_l', backR: null, hp: 85, fly: true },
-  swarm: { name: '蟲群', head: 'std', core: 'light', legs: 'hover', armL: null, armR: null, backL: null, backR: null, hp: 160, swarm: 16, fly: true, speedMul: 1.1 },
+  gunship: { name: '旋停機', head: 'hunter', core: 'light', legs: 'hover', armL: null, armR: 'mg_l', backL: 'missile_l', backR: null, hp: 60, fly: true, quad: true },
+  swarm: { name: '蟲群', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: null, backL: null, backR: null, hp: 100, swarm: 16, speedMul: 1.05 },
   shielder: { name: '盾兵', head: 'dome', core: 'std', legs: 'biped', armL: 'shield', armR: 'autocannon_l', backL: null, backR: null, hp: 120 },
 };
 // 出場比例：步兵最多，砲車 / 狙擊兵少

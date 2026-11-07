@@ -73,7 +73,7 @@ export const legK = m => m.parts.legs.broken ? 0.35 : 0.65 + 0.35 * m.parts.legs
 export const facing = m => ({ x: Math.sin(m.torsoYaw), z: Math.cos(m.torsoYaw) });
 export function toWorld(m, [lx, ly, lz]) {
   const s = Math.sin(m.torsoYaw), c = Math.cos(m.torsoYaw), k = m.k ?? 1;
-  return { x: m.x + (lx * c + lz * s) * k, y: (m.model.hipY + ly) * k, z: m.z + (-lx * s + lz * c) * k };
+  return { x: m.x + (lx * c + lz * s) * k, y: (m.model.hipY + ly) * k + (m.flyH ?? 0), z: m.z + (-lx * s + lz * c) * k };
 }
 export const slotBroken = (m, slot) => !m.parts[slot] || m.parts[slot].broken;
 // 背部武器架上肩膀時往上、往前移的量（方塊單位 1/16）

@@ -97,7 +97,7 @@ export function updateSensors(p, enemies, aim, dt) {
 
   const live = new Set(), armed = wantsLock(p), half = H.lockArc * Math.PI / 360;
   for (const e of enemies) {
-    if (!e.alive || e.drop) continue;
+    if (!e.alive || e.drop || e.swarm) continue;   // 蟲群鎖不到（一大群小東西，鎖了會一直干擾）
     const dx = e.x - p.x, dz = e.z - p.z, dist = Math.hypot(dx, dz);
     if (dist > H.lockRange + 4 && !sensors.progress.has(e)) continue;   // 遠的不用算
     const aimA = Math.abs(angleDiff(p.torsoYaw, Math.atan2(dx, dz)));
