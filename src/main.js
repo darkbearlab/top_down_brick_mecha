@@ -1098,6 +1098,32 @@ function gunState(m, slot) {
   return g.def.ammo ? `${g.ammo}/${g.max}` : g.cd > 0 ? '冷卻' : '就緒';
 }
 let gunsKey = '';
+// 游標旁的彈藥（只有用滑鼠時）：每個掛點一個數字，正在用的（左右鍵現在打的那把）亮起來；
+//   能量武器 / 劍 ∞、盾牌顯示盾的耐久、壞掉 ×、打光 0（紅）、空的掛點不顯示
+const retKey = {};
+function updateReticle(show) {
+  const el = $('reticle');
+  el.classList.toggle('hidden', !show);
+  if (!show) return;
+  el.style.transform = `translate(${input.mouse.x}px, ${input.mouse.y}px)`;
+  const p = player;
+  for (const s of SLOTS) {
+    const g = p.guns[s], side = s.slice(-1);
+    let txt = '', bad = false;
+    if (g) {
+      if (p.parts[s]?.broken) { txt = '×'; bad = true; }
+      else if (g.def.kind === 'shield') txt = p.shield ? `盾${Math.ceil(p.shield.hp)}` : '';
+      else if (g.max === Infinity) txt = '∞';
+      else { txt = String(g.ammo); bad = g.ammo <= 0; }
+    }
+    const cls = `${s.startsWith('arm') ? 'top' : 'bot'} ${side} ${activeSlot(p, side) === s ? 'act' : ''} ${bad ? 'bad' : ''}`;
+    const k = txt + '|' + cls;
+    if (retKey[s] === k) continue;
+    retKey[s] = k;
+    const sp = $('r' + s);
+    sp.textContent = txt; sp.className = cls;
+  }
+}
 function updateHud() {
   const p = player;
   paintDoll($('dollP'), p.alive ? p : null);
@@ -1308,6 +1334,7 @@ function frame(t) {
   sun.target.position.set(camTarget.x, 0, camTarget.z);
 
   if (playing && !watching) updateHud();
+  updateReticle(playing && !watching && player.alive && !garage.open && !G.paused && !panelOpen() && input.source === 'mouse' && MODE.name !== 'menu');
   if (MODE.name === 'endless') updateEndlessHud();
   if (MODE.name === 'explore' && EX) { updateFog(raw, player.x, player.z); fogVisibility(dt); updateExploreHud(); updateMinimap(raw, player, enemies, EX.squads.filter(S => S.layer === EX.layer), EX); }
   if (watching) {
