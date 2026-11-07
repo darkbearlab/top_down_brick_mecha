@@ -14,6 +14,7 @@ import { RAMP, burnAt, burst, explosion, fire, flame, hitSparks, smoke, sparks, 
 import { sfx } from './audio.js';
 import { EFFECT, WEAPONS, computeSpec } from './parts.js';
 import { buildMechModel } from './model.js';
+import { CHIPS, DEVICES, hasChip } from './tech.js';
 import { collideWrecks, isWreck, startWreck } from './wreck.js';
 import { damageBuilding } from './buildings.js';
 
@@ -63,8 +64,10 @@ export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, h
     // 背部武器準備：ready = 那一邊現在用背部武器、deployT = 展開 / 收回中還剩幾秒（不能開火）、readyK = 動畫 0..1
     ready: { L: false, R: false }, deployT: { L: 0, R: 0 }, readyK: { L: 0, R: 0 },
     staggerT: 0, staggerMax: 0, staggerImm: 0, stagDir: { x: 0, z: 0 },
+    chips: [...(loadout.chips ?? [])], device: DEVICES[loadout.device] ? { id: loadout.device, charges: DEVICES[loadout.device].charges ?? 0, cd: 0 } : null,
     shield: shieldSlot ? { slot: shieldSlot, hp: WEAPONS[loadout[shieldSlot]].guard * (grunt ? 0.7 : 1) * hpMul, max: WEAPONS[loadout[shieldSlot]].guard * (grunt ? 0.7 : 1) * hpMul, armor: loadout.armor.arms } : null,
   };
+  if (m.chips.includes('lockPlus')) spec.head = { ...spec.head, lockCount: spec.head.lockCount + 1, lockArc: Math.round(spec.head.lockArc * 0.6) };   // 鎖定擴充
   mechs.push(m);
   return m;
 }
@@ -94,12 +97,13 @@ export function canReady(m, side) {
   const g = m.guns?.['back' + side];
   return !!g && !slotBroken(m, 'back' + side) && g.ammo > 0;
 }
+const deployT = m => hasChip(m, 'quickSwap') ? 0.05 : DEPLOY_T;   // 快速換裝
 export function toggleReady(m, side) {
   if (!m.alive || m.swing) return false;
   const on = !m.ready[side];
   if (on && !canReady(m, side)) return false;
   m.ready[side] = on;
-  m.deployT[side] = DEPLOY_T;
+  m.deployT[side] = deployT(m);
   if (m.team === 'player') on ? sfx.deploy() : sfx.stow();
   return true;
 }
@@ -118,8 +122,8 @@ export function updateReady(m, dt) {
     if (m.deployT[side] > 0) m.deployT[side] -= dt;
     // 背部打光或被打掉：換回手臂；手上沒武器（或打光、被打掉）就架著背部武器
     const ag = m.guns?.['arm' + side], armOk = !!ag && !slotBroken(m, 'arm' + side) && ag.ammo > 0;
-    if (m.ready[side] && armOk && !canReady(m, side)) { m.ready[side] = false; m.deployT[side] = DEPLOY_T; }
-    if (!m.ready[side] && !armOk && canReady(m, side)) { m.ready[side] = true; m.deployT[side] = DEPLOY_T; }
+    if (m.ready[side] && armOk && !canReady(m, side)) { m.ready[side] = false; m.deployT[side] = deployT(m); }
+    if (!m.ready[side] && !armOk && canReady(m, side)) { m.ready[side] = true; m.deployT[side] = deployT(m); }
     const k = m.readyK[side], to = m.ready[side] ? 1 : 0;
     m.readyK[side] = k + Math.sign(to - k) * Math.min(Math.abs(to - k), dt / DEPLOY_T);
   }
@@ -128,11 +132,11 @@ export function updateReady(m, dt) {
 // 實際噴出去的方向：沒按方向就往正前方；履帶只能沿車身前後噴
 export function boostDirOf(m, mx, mz) {
   const ml = Math.hypot(mx, mz);
-  let d = ml > 0.2 ? { x: mx / ml, z: mz / ml } : facing(m);
+  let d = ml > 0.2 && !hasChip(m, 'ram') ? { x: mx / ml, z: mz / ml } : facing(m);   // 衝角推進：一律往正面噴
   if (m.loadout.legs === 'tread') { const lf = { x: Math.sin(m.legYaw), z: Math.cos(m.legYaw) }; const s = d.x * lf.x + d.z * lf.z >= 0 ? 1 : -1; d = { x: lf.x * s, z: lf.z * s }; }
   return d;
 }
-export const boostKOf = m => m.spec.boost * (m.parts.legs.broken ? 0.75 : 1);
+export const boostKOf = m => m.spec.boost * (m.parts.legs.broken ? 0.75 : 1) * (hasChip(m, 'lowCG') ? 0.6 : 1);   // 低重心：推進短
 export function tryBoost(m, mx, mz) {
   if (!m.alive || m.grunt || m.staggerT > 0 || m.boostCd > 0 || m.energy < BOOST_COST) return false;
   const d = boostDirOf(m, mx, mz), k = boostKOf(m);
@@ -140,7 +144,7 @@ export function tryBoost(m, mx, mz) {
   const along = Math.max(0, m.vx * d.x + m.vz * d.z);
   m.vx = d.x * (along + BOOST_DV * k); m.vz = d.z * (along + BOOST_DV * k);
   m.stuckT = 0;
-  m.boostDir = d; m.boostK = k; m.boostT = BOOST_TIME; m.boostCd = BOOST_TIME + BOOST_CD;
+  m.boostDir = d; m.boostK = k; m.boostT = BOOST_TIME; m.boostCd = BOOST_TIME + (hasChip(m, 'doubleBoost') ? 0.02 : BOOST_CD);
   m.energy -= BOOST_COST; m.energyT = ENERGY_DELAY;
   sfx.boost();
   if (m.team === 'player') addTrauma(0.12);
@@ -160,7 +164,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   const vmax = S.vmax * lk * (L.noMud ? 1 : (s.speed ?? 1));
   m.boostCd -= dt;
   m.energyT -= dt;
-  if (m.energyT <= 0) m.energy = Math.min(100, m.energy + ENERGY_REGEN * S.regen * dt);
+  if (m.energyT <= 0) m.energy = Math.min(100, m.energy + ENERGY_REGEN * S.regen * (hasChip(m, 'doubleBoost') ? 0.75 : 1) * dt);
   // 失衡：腳不出力、轉不太動
   if (m.staggerT > 0) { if ((m.staggerT -= dt) <= 0) m.staggerImm = STAGGER_IMM; mx = 0; mz = 0; }
   else if (m.staggerImm > 0) m.staggerImm -= dt;
@@ -280,6 +284,11 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null,
   if (!m.alive) return null;
   // 蟲群：單發攻擊一次最多打掉一隻；爆風打到一大片
   if (m.swarm) dmg = splash ? dmg * 1.8 : Math.min(dmg, m.swarm.per);
+  // 護盾發生器：正面 ±70° 的子彈 / 光束整個擋下（爆風擋不住）
+  if (m.eshield && G.now < m.eshield.until && !splash) {
+    const f = facing(m);
+    if (-dx * f.x - dz * f.z > 0.34) { m.vx += dx * kb * 0.3; m.vz += dz * kb * 0.3; return { part: 'torso', eff: 0.3, shield: true }; }
+  }
   // 盾牌：從盾那一側前方來的攻擊先打在盾上
   const Sh = m.shield;
   if (Sh && Sh.hp > 0 && !m.parts[Sh.slot]?.broken) {
@@ -301,11 +310,19 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null,
   const right = fromX * -f.z + fromZ * f.x > 0;
   const dir = a < 0.7 ? 'front' : a < 2.27 ? 'side' : 'rear';
   // 雜魚機整台算同一個部位
-  const part = m.grunt ? 'torso' : forced ?? pickPart(m, dir, right);
+  let part = m.grunt ? 'torso' : forced ?? pickPart(m, dir, right);
+  // 弱點標定：被標記的機體，大多打到軀幹以外還沒壞的部位
+  if (!m.grunt && !forced && (m.markT ?? 0) > G.now && Math.random() < 0.75) {
+    const opts = Object.keys(m.parts).filter(k => k !== 'torso' && !m.parts[k].broken);
+    if (opts.length) part = opts[Math.floor(Math.random() * opts.length)];
+  }
   const mul = part === 'torso' && !forced && !m.grunt ? TORSO_MUL[dir] : 1;
   const eff = EFFECT[type][m.parts[part].armor] ?? 1;
   m.vx += dx * kb; m.vz += dz * kb;
-  damagePart(m, part, dmg * mul * eff, dx, dz);
+  // 反應裝甲：每個部位每 8 秒，第一次被打中傷害減半
+  let rk = 1;
+  if (hasChip(m, 'reactive') && (m.parts[part].reactT ?? 0) <= G.now) { rk = 0.5; m.parts[part].reactT = G.now + 8; }
+  damagePart(m, part, dmg * mul * eff * rk, dx, dz);
   if (m.alive && power >= (m.spec.legs.stagger ?? Infinity)) stagger(m, power, dx, dz);
   return { part, eff };
 }
@@ -316,7 +333,7 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null,
 // 時間 0.35～0.6 秒（超過門檻越多越久）；恢復後 1 秒內不會再失衡（避免被連鎖定身）
 export const STAGGER_IMM = 1.0;
 export function stagger(m, dmg, dx, dz) {
-  if (m.staggerT > 0 || m.staggerImm > 0) return;
+  if (m.staggerT > 0 || m.staggerImm > 0 || hasChip(m, 'lowCG')) return;   // 低重心：不會失衡
   const th = m.spec.legs.stagger, over = Math.min(1, dmg / th - 1);
   m.staggerT = m.staggerMax = 0.35 + 0.25 * over;
   m.stagDir = { x: dx, z: dz };
@@ -445,8 +462,12 @@ export function collideMechs() {
     if (rel > STICK_SPEED) { stick(a, rel * ka * 2, -nx, -nz); stick(b, rel * kb * 2, nx, nz); }
     if (rel > 5) {
       const dmg = (rel - 5) * 9;
-      damagePart(a, 'torso', dmg * ka * 1.6, nx, nz);
-      damagePart(b, 'torso', dmg * kb * 1.6, -nx, -nz);
+      // 衝角推進：主動撞過去的那台（沿撞擊方向在動）自己受傷 −70%、對方 ×2.5 並失衡
+      const ramA = hasChip(a, 'ram') && a.vx * nx + a.vz * nz > 2, ramB = hasChip(b, 'ram') && -(b.vx * nx + b.vz * nz) > 2;
+      damagePart(a, 'torso', dmg * ka * 1.6 * (ramA ? 0.3 : 1) * (ramB ? 2.5 : 1), nx, nz);
+      damagePart(b, 'torso', dmg * kb * 1.6 * (ramB ? 0.3 : 1) * (ramA ? 2.5 : 1), -nx, -nz);
+      if (ramA && b.alive) stagger(b, 999, nx, nz);
+      if (ramB && a.alive) stagger(a, 999, -nx, -nz);
       hitSparks((a.x + b.x) / 2, 1.1, (a.z + b.z) / 2, -nx, -nz, 2);
       hitSparks((a.x + b.x) / 2, 1.1, (a.z + b.z) / 2, nx, nz, 2);
       sfx.crash();

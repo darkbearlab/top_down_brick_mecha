@@ -9,6 +9,7 @@ export const PICK_KINDS = {
   repair: { name: '修理', hex: 0x60ff90 },
   mod: { name: '強化模組', hex: 0xc080ff },
   scrap: { name: '零件', hex: 0xffb830, size: 0.55, magnet: 6, life: 40 },
+  tech: { name: '晶片 / 裝置', hex: 0x60e0ff, size: 0.9, magnet: 4, life: 90 },   // val = 晶片或裝置的 id
 };
 export const pickups = [];
 const BOX = new THREE.BoxGeometry(0.42, 0.42, 0.42), RING = new THREE.RingGeometry(0.5, 0.62, 24);

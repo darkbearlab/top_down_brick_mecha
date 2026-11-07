@@ -16,6 +16,9 @@ import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
 import { AI, DIFFS, clearEnemies, enemies, keepEnemies, parkEnemy, removeEnemy, spawnEnemy, unparkEnemy, updateEnemy } from './ai.js';
 import { burst, makeLaser, setLaser, smoke, updateParticles } from './fx.js';
 import { clearWarp, startWarp, updateWarp } from './warp.js';
+import { CHIPS, DEVICES, hasChip, techName } from './tech.js';
+import { clearDevices, deviceReady, updateDeviceCd, updateDevices, useDevice } from './devices.js';
+import { closeReasm, openReasm, reasmActive, renderReasm, updateReasm } from './reasm.js';
 import { ARMORS, DMG_TYPES, ENEMY_PRESETS, GRUNTS, GRUNTS_LOW, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, SQUADS, WEAPONS, gruntOf, loadLoadout, pickSquad, randomGrunt, randomLoadout } from './parts.js';
 import { clearPickups, pickups, restorePickups, spawnPickup, stashPickups, updatePickups } from './pickups.js';
 import { sensors, setSensorsVisible, updateSensors } from './sensors.js';
@@ -89,6 +92,7 @@ function resetWorld(map = null) {
   $('boss').classList.add('hidden'); $('prompt').classList.add('hidden'); fxHide('warning', true); fxHide('bossIntro', true);
   fxHide('warpFade');   // 傳送進下一關：白畫面在新地圖上淡掉
   clearWarp();
+  clearDevices();
   if (bossIntro.t > 0) { bossIntro.t = 0; document.body.classList.remove('killcam'); }
   $('endless').classList.add('hidden');
   sensors.progress.clear(); sensors.locks = [];
@@ -317,6 +321,11 @@ function canTake(kind) {
 function takePickup(kind, val) {
   const p = player;
   if (kind === 'scrap') { EN.scrap += val; return; }
+  if (kind === 'tech') {
+    if (!EN.inv.includes(val)) EN.inv.push(val);
+    toast(`取得${CHIPS[val] ? '晶片' : '裝置'}：${techName(val)}（下次傳送重組時可以換上）`); sfx.lock();
+    return;
+  }
   if (kind === 'ammo') {
     let any = false;
     for (const s in p.guns) { const g = p.guns[s]; if (g.max === Infinity || g.ammo >= g.max) continue; g.ammo = Math.min(g.max, g.ammo + Math.ceil(g.max * 0.3)); any = true; }
@@ -388,7 +397,7 @@ function exDiff(depth) {
 const PLAYER_WEAPONS = Object.keys(WEAPONS).filter(k => !WEAPONS[k].low);
 // stage > 1：直接從那關開始（測試 / 選關用）：空的掛點補隨機武器（最多 2 把）、每跳過一關 2 個隨機強化模組和 30 零件
 function startRun(seed, stage = 1) {
-  EN = { t: 0, kills: 0, mods: {}, scrap: (stage - 1) * 30, stage, explore: true, loadout: { ...structuredClone(loadout), ...START_WEAPONS } };
+  EN = { t: 0, kills: 0, mods: {}, scrap: (stage - 1) * 30, stage, explore: true, loadout: { ...structuredClone(loadout), ...START_WEAPONS }, inv: [] };   // inv：撿到的晶片 / 裝置（關卡之間重組時可以換上）
   if (stage > 1) {
     const keys = Object.keys(MODS);
     for (let i = 0; i < (stage - 1) * 2; i++) { const k = keys[Math.floor(Math.random() * keys.length)]; EN.mods[k] = (EN.mods[k] ?? 0) + 1; }
@@ -607,13 +616,14 @@ function interact(p) {
   if (p.kind === 'cache' || p.kind === 'weapon') {
     if (EN.scrap < p.cost) { toast(`零件不足（需要 ${p.cost}，現在 ${EN.scrap}）`); sfx.click(); return; }
     EN.scrap -= p.cost; spendProp(p); sfx.reload();
-    if (p.kind === 'cache') spawnPickup('mod', p.x, p.z);
+    if (p.kind === 'cache') { const t = Math.random() < 0.3 ? randomTech() : null; t ? spawnPickup('tech', p.x, p.z, t) : spawnPickup('mod', p.x, p.z); }   // 三成機率開出晶片 / 裝置
     else offerGun(addProp('gun', p.x, p.z + 1.2, { weapon: p.weapon }));
   } else if (p.kind === 'supply') {
     if (!lowAmmo()) { toast('彈藥是滿的'); sfx.click(); return; }
     if (EN.scrap < p.cost) { toast(`零件不足（需要 ${p.cost}，現在 ${EN.scrap}）`); sfx.click(); return; }
     EN.scrap -= p.cost; spendProp(p);
     for (const g of Object.values(player.guns)) if (g.max !== Infinity) g.ammo = g.max;
+    if (player.device && DEVICES[player.device.id].charges) player.device.charges = DEVICES[player.device.id].charges;
     toast('彈藥補滿'); sfx.reloadDone();
   } else if (p.kind === 'station') {
     if (!damaged()) { toast('機體沒有損傷'); sfx.click(); return; }
@@ -647,7 +657,7 @@ function equip(p, slot) {
   toast(`${SLOT_NAMES[slot]}：${WEAPONS[p.weapon].name}`); sfx.reload();
 }
 // 換武器 = 照新的配裝重組一台，再把原本的狀態搬過去（各部位耐久比例、壞掉的部位、其他武器的彈藥比例、速度、能量）
-const lowAmmo = () => Object.values(player.guns).some(g => g.max !== Infinity && g.ammo < g.max);
+const lowAmmo = () => Object.values(player.guns).some(g => g.max !== Infinity && g.ammo < g.max) || (player.device && DEVICES[player.device.id].charges && player.device.charges < DEVICES[player.device.id].charges);
 const damaged = () => Object.values(player.parts).some(q => q.broken || q.hp < q.max - 0.5);
 function refit(slot, id) {
   const prev = EN.loadout[slot];
@@ -660,7 +670,7 @@ function rebuild(lo, fresh, repair) {
   for (const k in old.parts) keep[k] = { r: old.parts[k].hp / old.parts[k].max, broken: old.parts[k].broken };
   for (const s in old.guns) { const g = old.guns[s]; ammo[s] = g.max === Infinity ? 1 : g.ammo / g.max; }
   EN.loadout = lo;
-  const st = { vx: old.vx, vz: old.vz, energy: old.energy, legYaw: old.legYaw };
+  const st = { vx: old.vx, vz: old.vz, energy: old.energy, legYaw: old.legYaw, ...(old.device?.id === lo.device ? { device: old.device } : {}) };
   spawnRunPlayer(old.x, old.z, old.torsoYaw);
   Object.assign(player, st);
   for (const k in player.parts) {
@@ -725,7 +735,17 @@ function warpOut() {
 }
 function updateWarpOut(raw) {
   if (EX.warpT < WARP_FADE && EX.warpT + raw >= WARP_FADE) fxShow('warpFade');
-  if ((EX.warpT += raw) >= WARP_T) { EX.warpT = null; EN.stage++; startStage(); }
+  if ((EX.warpT += raw) >= WARP_T) { EX.warpT = null; enterReasm(); }
+}
+// 傳送途中：重組畫面（reasm.js）。白畫面淡掉露出傳送隧道；按出發 → 換上選的晶片 / 裝置 → 白掉 → 下一關
+function enterReasm() {
+  $('hud').classList.add('hidden'); $('minimap').classList.add('hidden'); $('prompt').classList.add('hidden'); $('boss').classList.add('hidden');
+  openReasm(EN.loadout, EN.inv, EN.stage + 1, sel => {
+    EN.loadout = { ...EN.loadout, chips: sel.chips, device: sel.device };
+    fxShow('warpFade');
+    setTimeout(() => { closeReasm(); EN.stage++; startStage(); }, 380);
+  });
+  fxHide('warpFade');
 }
 // ---------- 換層（多層地圖） ----------
 // 用連接點：機體跳起來（往上）或沉下去（往下）→ 換到目的地那層、落地；這段時間世界停住
@@ -783,7 +803,7 @@ function switchLayer(to) {
   for (const W of EX.waves) W.layer = to.layer;
   EX.pending = [];
   EX.stash[from] = stashPickups();
-  clearShots(); clearWrecks();
+  clearShots(); clearWrecks(); clearDevices();
   sensors.progress.clear(); sensors.locks = [];
   player.x = to.x; player.z = to.z; player.vx = player.vz = 0;
   enterLayer(to.layer);
@@ -825,6 +845,7 @@ function exploreKill(e) {
     $('boss').classList.add('hidden');
     setPortal(EX.portal, 'open');
     spawnPickup('mod', e.x, e.z); spawnPickup('repair', e.x, e.z); spawnPickup('ammo', e.x, e.z);
+    const t = randomTech(); if (t) spawnPickup('tech', e.x, e.z, t);   // 頭目一定掉一個晶片 / 裝置
     addProp('gun', e.x, e.z, { weapon: PLAYER_WEAPONS[Math.floor(Math.random() * PLAYER_WEAPONS.length)] });
     toast('頭目擊破！傳送門開啟'); sfx.lock();
     return;
@@ -885,7 +906,15 @@ function endWatch(result) {
   const text = result === 'draw' ? '平手' : MODE.kind === 'skirmish' ? (result === 'blue' ? '藍軍勝利' : '紅軍勝利') : MODE.kind === 'horde' ? (result === 'blue' ? '王牌勝利：雜魚全滅' : '王牌被擊墜') : result === 'blue' ? '藍方勝利' : result === 'red' ? '紅方勝利' : '同歸於盡';
   setTimeout(() => { if (MODE.name === 'watch') toast(text); }, 2000);
 }
+// 殘骸回收：擊破一台，所有武器回復上限 4% 的彈藥
+function salvage() { if (player?.alive && hasChip(player, 'salvage')) for (const g of Object.values(player.guns)) if (g.max !== Infinity) g.ammo = Math.min(g.max, g.ammo + Math.ceil(g.max * 0.04)); }
+// 遠征裡撿得到的晶片 / 裝置：不是基礎款、還沒拿過的
+function randomTech() {
+  const pool = [...Object.keys(CHIPS), ...Object.keys(DEVICES)].filter(id => !(CHIPS[id] ?? DEVICES[id]).basic && !EN.inv.includes(id));
+  return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
+}
 AI.onEnemyDeath = (e) => {
+  if (e.team !== 'player') salvage();
   if (MODE.name === 'endless') { if (!MODE.result) { EN.kills++; enLoot(e); } return; }
   if (MODE.name === 'explore') { if (!MODE.result) exploreKill(e); return; }
   if (MODE.name === 'watch' && MODE.kind === 'skirmish') {
@@ -1137,7 +1166,9 @@ function updateHud() {
     const key = act ? (side === 'L' ? '左鍵' : '右鍵') : s.startsWith('back') ? (side === 'L' ? 'Q' : 'E') : '—';
     return `<div class="gun${act ? ' act' : ' idle'}"><kbd>${key}</kbd>${g ? `<i style="background:${DMG_TYPES[g.def.type].css}"></i>${g.def.name}` : '<span class="dim">（空）</span>'}<em>${gunState(p, s)}</em></div>`;
   }).join('');
-  if (rows !== gunsKey) { gunsKey = rows; $('guns').innerHTML = rows; }
+  const D = p.device && DEVICES[p.device.id];
+  const devRow = D ? `<div class="gun ${deviceReady(p) ? 'act' : 'idle'}"><kbd>R</kbd><i style="background:#60d0ff"></i>${D.name}<em>${D.charges ? `${p.device.charges}/${D.charges}` : p.device.cd > 0 ? `${Math.ceil(p.device.cd)} 秒` : '就緒'}</em></div>` : '';
+  if (rows + devRow !== gunsKey) { gunsKey = rows + devRow; $('guns').innerHTML = rows + devRow; }
   $('energy').style.width = p.energy + '%';
   $('energy').parentElement.classList.toggle('low', p.energy < 30);
   $('surf').textContent = p.surf?.name ?? '';
@@ -1187,6 +1218,8 @@ function frame(t) {
   last = t;
   G.now += raw;
   updateInput();
+  // 重組畫面：世界停住，只畫傳送隧道
+  if (reasmActive()) { updateReasm(raw); renderReasm(renderer); updateReticle(false); clearPressed(); return; }
   const playing = MODE.name !== 'menu', watching = MODE.name === 'watch';
   if (input.garagePressed && !watching && MODE.name !== 'endless' && MODE.name !== 'explore') { if (garage.open) leaveGarage(); else if (playing && !panelOpen()) openGarageFrom('play'); }
   if (input.pausePressed) {
@@ -1218,6 +1251,8 @@ function frame(t) {
       driveMech(player, dt, input.move.x, input.move.y, aimYaw);
       if (input.readyL && !toggleReady(player, 'L')) sfx.click();
       if (input.readyR && !toggleReady(player, 'R')) sfx.click();
+      if (input.techPressed && player.device) useDevice(player, aimPoint);
+      updateDeviceCd(player, dt);
       updateGuns(player, { L: input.fireL, R: input.fireR }, dt, sensors.locks, aimPoint);
     } else if (MODE.name === 'sandbox' && (respawnT -= dt) <= 0) { spawnPlayer(); toast('重新出擊'); }
     if (MODE.name === 'endless') updateEndless(dt);
@@ -1234,6 +1269,7 @@ function frame(t) {
     updateShots(dt);
     updateWrecks(dt, raw);
     updateBuildings(dt);
+    updateDevices(dt);
     if (!watching) {
       updateSensors(player, enemies, aimPoint, dt);
       if (player.lockBreak) { sensors.progress.clear(); sensors.locks = []; player.lockBreak = false; }   // 失衡：鎖定被打斷

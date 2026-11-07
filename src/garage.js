@@ -1,8 +1,10 @@
 // ---------- 整備（組裝機體） ----------
 // G 開關；左邊選要換哪個部位，中間列出可以用的零件和數值，右邊是整台機體的數值與負重
 // 改了馬上換到場上的機體上看得到；配裝存在瀏覽器裡
+// 晶片 ×2、主動裝置 ×1：整備只能選基礎款（其他的在遠征裡撿，關卡之間重組時換上）
 import { ARMORS, ARMOR_PARTS, CORES, DMG_TYPES, EFFECT, HEADS, HP_MUL, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, WEAPONS, computeSpec, fireTime, saveLoadout } from './parts.js';
 import { sfx } from './audio.js';
+import { BASIC_CHIPS, BASIC_DEVICES, CHIPS, DEVICES } from './tech.js';
 
 const $ = id => document.getElementById(id);
 let lo = null, onChange = null, cat = 'head';
@@ -12,11 +14,15 @@ const CATS = [
   ['head', '頭部'], ['core', '軀幹'], ['legs', '腳部'],
   ...SLOTS.map(s => [s, `${SLOT_NAMES[s]}（${SLOT_KEYS[s]}）`]),
   ...Object.keys(ARMOR_PARTS).map(k => ['armor.' + k, `裝甲・${ARMOR_PARTS[k]}`]),
+  ['chip0', '晶片 1（頭部）'], ['chip1', '晶片 2（軀幹）'], ['device', '主動裝置（R / 中鍵）'],
 ];
 const typeTag = t => `<span class="tag" style="--c:${DMG_TYPES[t].css}">${DMG_TYPES[t].name}</span>`;
 const armorTag = a => `<span class="tag" style="--c:${ARMORS[a].css}">${ARMORS[a].name}</span>`;
 
+const techOf = id => CHIPS[id] ?? DEVICES[id];
 function currentName(key) {
+  if (key.startsWith('chip')) return lo.chips[+key[4]] ? CHIPS[lo.chips[+key[4]]].name : '（空）';
+  if (key === 'device') return lo.device ? DEVICES[lo.device].name : '（空）';
   if (key.startsWith('armor.')) return ARMORS[lo.armor[key.slice(6)]].name;
   if (key === 'head') return HEADS[lo.head].name;
   if (key === 'core') return CORES[lo.core].name;
@@ -25,6 +31,13 @@ function currentName(key) {
 }
 
 function options(key) {
+  if (key.startsWith('chip') || key === 'device') {
+    const ids = key === 'device' ? BASIC_DEVICES : BASIC_CHIPS;
+    return [{ id: null, name: '（空）', html: key === 'device' ? '不裝主動裝置' : '不插晶片' }, ...ids.map(id => {
+      const T = techOf(id);
+      return { id, name: T.name, html: `${T.desc}<br>${T.charges ? `${T.charges} 次（彈藥補給站補滿）` : T.cd ? `冷卻 ${T.cd} 秒` : '被動'}・重 ${T.weight}` };
+    }), { id: '', name: '（遠征裡還有更多）', html: '其他晶片 / 裝置要在遠征裡撿（補給箱、頭目），關卡之間重組時換上', locked: true }];
+  }
   if (key.startsWith('armor.')) return Object.entries(ARMORS).map(([id, A]) => {
     const good = Object.keys(EFFECT).find(t => EFFECT[t][id] < 1), bad = Object.keys(EFFECT).find(t => EFFECT[t][id] > 1);
     return { id, name: A.name, html: `${armorTag(id)} 擋 ${typeTag(good)}・怕 ${typeTag(bad)}` };
@@ -42,7 +55,9 @@ function options(key) {
 }
 
 function pick(key, id) {
-  if (key.startsWith('armor.')) lo.armor[key.slice(6)] = id; else lo[key] = id;
+  if (key.startsWith('armor.')) lo.armor[key.slice(6)] = id;
+  else if (key.startsWith('chip')) { const i = +key[4]; if (id && lo.chips[1 - i] === id) lo.chips[1 - i] = null; lo.chips[i] = id; }   // 同一種晶片不能插兩片
+  else lo[key] = id;
   sfx.click();
   saveLoadout(lo);
   onChange?.(lo);
@@ -56,8 +71,8 @@ function bar(label, v, max, warn) {
 function render() {
   const S = computeSpec(lo);
   $('gCats').innerHTML = CATS.map(([k, n]) => `<button class="${k === cat ? 'on' : ''}" data-k="${k}"><span>${n}</span><small>${currentName(k)}</small></button>`).join('');
-  const cur = cat.startsWith('armor.') ? lo.armor[cat.slice(6)] : lo[cat] ?? null;
-  $('gOpts').innerHTML = options(cat).map(o => `<button class="${o.id === cur ? 'on' : ''}" data-id="${o.id ?? ''}"><b>${o.name}</b><small>${o.html}</small></button>`).join('');
+  const cur = cat.startsWith('armor.') ? lo.armor[cat.slice(6)] : cat.startsWith('chip') ? lo.chips[+cat[4]] : lo[cat] ?? null;
+  $('gOpts').innerHTML = options(cat).map(o => `<button class="${o.id === cur ? 'on' : ''}${o.locked ? ' locked' : ''}" data-id="${o.id ?? ''}" ${o.locked ? 'disabled' : ''}><b>${o.name}</b><small>${o.html}</small></button>`).join('');
   $('gStats').innerHTML =
     bar('總重量 / 腳部負重', S.total, S.legs.maxLoad, S.loadK > 1) +
     bar('手臂負重', S.armW, S.core.armLoad, S.armOver) +
@@ -74,6 +89,8 @@ function render() {
 
 export function openGarage(loadout, cb) {
   lo = loadout; onChange = cb;
+  if (!Array.isArray(lo.chips)) lo.chips = [null, null];
+  if (lo.device === undefined) lo.device = null;
   garage.open = true;
   $('garage').classList.remove('hidden');
   render();

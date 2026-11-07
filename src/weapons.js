@@ -18,6 +18,7 @@ import { facing, hitMech, mechs, muzzleOf, slotBroken, slotLive, updateReady, us
 import { explosion, flame, hitSparks, muzzleFlash, rampOf, smoke, spawnGlow, spawnPuff, sparks } from './fx.js';
 import { DMG_TYPES, SLOTS, WEAPONS } from './parts.js';
 import { sfx } from './audio.js';
+import { chipDmgK, chipRateK, chipSpreadK, empOff } from './tech.js';
 
 export const ENEMY_SPEED = 0.55;
 export function makeGuns(lo) {
@@ -44,11 +45,11 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
     const gun = m.guns[slot], d = gun.def;
     if (d.kind === 'shield') continue;   // 盾牌：純被動
     gun.cd -= dt;
-    if (!triggers[slot.slice(-1)] || !slotLive(m, slot) || gun.cd > 0 || !m.alive || slotBroken(m, slot) || m.swing || m.staggerT > 0) continue;
+    if (!triggers[slot.slice(-1)] || !slotLive(m, slot) || gun.cd > 0 || !m.alive || slotBroken(m, slot) || m.swing || m.staggerT > 0 || empOff(m)) continue;
     if (gun.ammo <= 0) { gun.cd = 0.3; if (m.team === 'player') sfx.click(); continue; }   // 彈盡
     if (d.needLock && !locks.length && m.team === 'player') { gun.cd = 0.3; sfx.click(); continue; }
     if (d.energy && !useEnergy(m, d.energy)) continue;
-    gun.cd = d.interval * (m.rateMul ?? 1);   // rateMul：無盡模式的射速強化
+    gun.cd = d.interval * (m.rateMul ?? 1) * chipRateK(m);   // rateMul：無盡模式的射速強化
     // 飛彈 / 火箭一次好幾發，剩不夠就只射剩下的
     const n = Math.min(d.salvo ?? 1, gun.ammo);
     fire(m, slot, d, locks, aim, n);
@@ -60,7 +61,7 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
 function fire(m, slot, d, locks, aim, salvoN = d.salvo ?? 1) {
   const enemy = m.team !== 'player';
   const mz = muzzleOf(m, slot), f = facing(m), base = Math.atan2(f.x, f.z);
-  const spreadK = m.spec.spreadMul * (m.parts.head.broken ? 2.5 : 1);
+  const spreadK = m.spec.spreadMul * (m.parts.head.broken ? 2.5 : 1) * chipSpreadK(m);
   if (d.kind === 'saber') { startSwing(m, slot, d); return; }
   if (d.kind === 'bullet' || d.kind === 'beam') {
     const n = d.pellets ?? 1;
@@ -113,7 +114,7 @@ function spawnShot(m, d, x, y, z, dx, dz, speed) {
   const len = beam ? 1.1 : d === WEAPONS.sniper ? 1.6 : (d.size ?? 0.1) * (enemy ? 2.5 : 6);
   const g = shotMesh(color, d.size ?? 0.1, len);
   g.position.set(x, y, z); g.rotation.y = Math.atan2(dx, dz);
-  shots.push({ kind: 'bullet', g, owner: m, team: m.team, x, y, z, dx, dz, speed, life: d.life * d.speed / speed, dmg: d.dmg * (m.dmgMul ?? 1), power: d.dmg, kb: d.kb, type: d.type, trail: d.trail, heavy: d.heavy, splash: d.splash });
+  shots.push({ kind: 'bullet', g, owner: m, team: m.team, x, y, z, dx, dz, speed, life: d.life * d.speed / speed, dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: d.kb, type: d.type, trail: d.trail, heavy: d.heavy, splash: d.splash });
 }
 function spawnMissile(m, d, x, y, z, v, target, point) {
   const g = new THREE.Group();
@@ -125,7 +126,7 @@ function spawnMissile(m, d, x, y, z, v, target, point) {
   g.position.set(x, y, z);
   scene.add(g);
   shots.push({ kind: d.kind, g, owner: m, team: m.team, x, y, z, vx: v.vx, vy: v.vy, vz: v.vz, speed: Math.hypot(v.vx, v.vz) || 1, life: d.life, age: 0,
-    dmg: d.dmg * (m.dmgMul ?? 1), power: d.dmg, kb: 1.2, type: d.type, target, point, d, splash: d.splash });
+    dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: 1.2, type: d.type, target, point, d, splash: d.splash });
 }
 
 // ---------- 光束劍 ----------
@@ -162,7 +163,7 @@ function updateSwing(m, dt) {
       if (dist > d.reach + o.r || Math.abs(da) > d.arc / 2 + 0.2) continue;
       s.done.add(o);
       const nx = ox / dist, nz = oz / dist;
-      const r = hitMech(o, d.dmg * (m.dmgMul ?? 1), nx, nz, d.kb, 'energy', null, d.dmg);
+      const r = hitMech(o, d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), nx, nz, d.kb, 'energy', null, d.dmg);
       hitSparks(o.x - nx * o.r, 1.2, o.z - nz * o.r, -nx, -nz, 2.2, r && r.eff < 1);
       sparks(o.x - nx * o.r, 1.2, o.z - nz * o.r, 0x60e0ff, 14, nx, nz);
       sfx.saberHit();

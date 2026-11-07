@@ -7,6 +7,7 @@
 // 裝甲（複合 / 陶瓷 / 鏡面）與武器屬性互相剋制：
 //   動能 → 鏡面（碎）   化學 → 複合（聚能穿透）   能量 → 陶瓷（受熱裂）
 //   反過來：複合擋動能、陶瓷擋化學、鏡面擋能量
+import { CHIPS, DEVICES, techWeight } from './tech.js';
 
 export const DMG_TYPES = {
   kinetic: { name: '動能', css: '#e8d070', hex: 0xe8d070 },
@@ -270,7 +271,7 @@ export function computeSpec(lo) {
   const head = HEADS[lo.head], core = CORES[lo.core], legs = LEGS[lo.legs];
   const w = id => id ? WEAPONS[id].weight : 0;
   const armW = w(lo.armL) + w(lo.armR), backW = w(lo.backL) + w(lo.backR);
-  const total = head.weight + core.weight + armW + backW;
+  const total = head.weight + core.weight + armW + backW + techWeight(lo);
   const loadK = total / legs.maxLoad;
   const moveK = loadK > 1 ? Math.max(0.5, 1 - (loadK - 1) * 1.6) : 1;
   const armOver = armW > core.armLoad, backOver = backW > core.backLoad;
@@ -291,6 +292,8 @@ export function loadLoadout() {
     const lo = JSON.parse(localStorage.getItem(KEY));
     if (lo && HEADS[lo.head] && CORES[lo.core] && LEGS[lo.legs] && lo.armor) {
       for (const s of SLOTS) if (lo[s] && (!WEAPONS[lo[s]] || WEAPONS[lo[s]].low)) lo[s] = null;
+      lo.chips = [0, 1].map(i => CHIPS[lo.chips?.[i]] ? lo.chips[i] : null);
+      if (!DEVICES[lo.device]) lo.device = null;
       return lo;
     }
   } catch { /* 用預設 */ }

@@ -19,6 +19,7 @@ import { burst, explosion, hitSparks, makeLaser, setLaser, smoke, sparks } from 
 import { blastBuildings } from './buildings.js';
 import { sfx } from './audio.js';
 import { flowDir, flyDir } from './pathing.js';
+import { smokeBlocks } from './tech.js';
 import { UNIT_BOX } from './core.js';
 
 export const enemies = [];
@@ -163,7 +164,7 @@ export function updateEnemy(e, dt, player) {
   const A = e.ai, DF = e.diff ?? AI.diff;
   const dx = player.x - e.x, dz = player.z - e.z, dist = Math.hypot(dx, dz) || 1;
   const nx = dx / dist, nz = dz / dist;
-  const los = rayBlock(e.x, e.z, nx, nz, dist) >= dist - 0.9;
+  const los = rayBlock(e.x, e.z, nx, nz, dist) >= dist - 0.9 && !smokeBlocks(e.x, e.z, player.x, player.z);   // 煙霧彈：看不穿
 
   // 衝鋒機：預告、衝刺、暈眩的時候不走一般的移動
   if (e.charger && updateCharger(e, dt, player, dist, nx, nz, los)) { updateGuns(e, { L: false, R: false }, dt, [], null); e.laser.g.visible = false; return; }
@@ -265,7 +266,7 @@ export function updateEnemy(e, dt, player) {
   if (e.lockBreak) { A.lockT = 0; e.lockBreak = false; }   // 失衡：鎖定被打斷
   updateReadyChoice(e, dt, dist, canShoot, player);
   // 長距鎖定頭：隔著牆也能鎖；頭被打掉還是能鎖（距離短、慢）
-  const lockable = player.alive && !AI.passive && (los || H.radarLock);
+  const lockable = player.alive && !AI.passive && (los || (H.radarLock && !smokeBlocks(e.x, e.z, player.x, player.z)));
   A.lockT = lockable && wantsLock(e) && dist < H.lockRange ? A.lockT + dt : Math.max(0, A.lockT - dt * 2);
   const locks = A.lockT >= H.lockTime * DF.lock ? [player] : [];
 
