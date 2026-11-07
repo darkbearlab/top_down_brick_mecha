@@ -160,7 +160,7 @@ function removeWreck(w) {
 // ---------- 雜魚的擊破演出（startDying） ----------
 // 兩種（隨機，飛的一定是第一種）：
 //   chain：某個部位先炸開，其他部位一個接一個被誘爆（間隔 0.1～0.35 秒），還沒炸的部位冒火、燒紅；軀幹最後大爆炸
-//   burn：不炸，原地燒：慢慢歪倒、陷下去、越燒越黑，3.5～5 秒後變成焦炭塌掉散開
+//   burn：不炸，原地燒：慢慢歪倒、陷下去、越燒越黑，3.5～5 秒後火熄掉，焦炭殘骸一直留著（toHusk）
 // 模型歸這裡管（removeMech 看到 m.dying 不會拿掉），演完自己拿掉
 const dyings = [];
 const CHAR_D = new THREE.Color(0x231e1a), WHITE = new THREE.Color(0xffffff);
@@ -251,19 +251,34 @@ function updateDying(dt) {
       spawnPuff({ x: d.x + R(-0.3, 0.3), y: ty + 0.3, z: d.z + R(-0.3, 0.3), vx: R(-0.2, 0.2) + 0.2, vy: R(1.2, 1.8), vz: R(-0.2, 0.2) - 0.1,
         life: R(2, 3), s: R(0.4, 0.6), c0: 0x121216, c1: 0x46484e, drag: 0.35 });
     }
-    if (d.t >= d.end) {
-      // 燒完：焦炭塌掉，碎塊幾乎是原地落下，冒一團灰
-      for (const k in d.m.parts) if (d.m.parts[k].g.visible) voxelBurst(d.m.parts[k].g, 45, 1.2, d.x, d.z, 0, 0, { char: 1 });
-      for (let i = 0; i < 6; i++) spawnPuff({ x: d.x + R(-0.6, 0.6), y: R(0.3, 1.2), z: d.z + R(-0.6, 0.6), vx: R(-0.5, 0.5), vy: R(0.3, 0.9), vz: R(-0.5, 0.5),
-        life: R(1.5, 2.4), s: R(0.5, 0.9), c0: 0x3a3836, c1: 0x5a5856, drag: 0.6 });
-      sfx.partBreak();
-      endDying(d);
-    }
+    if (d.t >= d.end) toHusk(d);
   }
+}
+// ---------- 焦炭殘骸（原地燒完的雜魚） ----------
+// 燒完不散掉，焦黑的機體一直留在原地（只是看的，不擋路）；每層各自一份（換層隱藏、回來再出現），換關 / 換模式時清掉
+// 最多 HUSK_MAX 台，超過就拿掉最舊的
+const husks = [], HUSK_MAX = 150;
+let huskLayer = 0;
+function toHusk(d) {
+  for (const mat of d.mats) { mat.color.copy(CHAR_D); mat.emissive.setHex(0x000000); }
+  d.root.rotation.set(d.dz * 0.3, d.root.rotation.y, -d.dx * 0.3);
+  d.root.position.y = d.y0 - 0.37;
+  const i = dyings.indexOf(d);
+  if (i >= 0) dyings.splice(i, 1);
+  husks.push({ root: d.root, layer: huskLayer });
+  while (husks.length > HUSK_MAX) scene.remove(husks.shift().root);
+}
+export function setHuskLayer(k) {
+  huskLayer = k;
+  for (const h of husks) h.root.visible = h.layer === k;
+}
+export function clearHusks() {
+  for (const h of husks) scene.remove(h.root);
+  husks.length = 0;
 }
 
 export function clearWrecks() {
-  while (dyings.length) endDying(dyings[0]);
+  while (dyings.length) dyings[0].mode === 'burn' ? toHusk(dyings[0]) : endDying(dyings[0]);   // 正在燒的直接變成焦炭殘骸
   while (wrecks.length) removeWreck(wrecks[0]);
   killCam.t = 0;
   document.body.classList.remove('killcam');

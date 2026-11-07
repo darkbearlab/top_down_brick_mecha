@@ -11,7 +11,7 @@ import { RADIUS, exploredAt, fogActive, fogOff, initFogLayers, setFogLayer, upda
 import { hideMinimap, initMinimap, setMinimapLayer, updateMinimap } from './minimap.js';
 import { ENEMY_COLORS, PLAYER_COLORS, activeSlot, collideMechs, driveMech, facing, makeMech, mechs, poseMech, muzzleOf, removeMech, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { ARENA_LAYOUT, buildLayerBuildings, resetBuildings, setBuildingLayer, setLayout, updateBuildings } from './buildings.js';
-import { SLOW_K, clearWrecks, killCam, updateWrecks } from './wreck.js';
+import { SLOW_K, clearHusks, clearWrecks, killCam, setHuskLayer, updateWrecks } from './wreck.js';
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
 import { AI, DIFFS, clearEnemies, enemies, keepEnemies, parkEnemy, removeEnemy, spawnEnemy, unparkEnemy, updateEnemy } from './ai.js';
 import { burst, clearRubble, makeLaser, setLaser, setRubbleLayer, smoke, updateParticles } from './fx.js';
@@ -86,7 +86,7 @@ function resetWorld(map = null) {
   for (const b of blips) b.visible = false;
   clearShots();
   G.paused = false; G.slowMo = 0; G.hitStop = 0;
-  clearWrecks();
+  clearWrecks(); clearHusks(); setHuskLayer(0);
   clearPickups();
   clearProps();
   $('boss').classList.add('hidden'); $('prompt').classList.add('hidden'); fxHide('warning', true); fxHide('bossIntro', true);
@@ -814,7 +814,7 @@ function switchLayer(to) {
 // 換到第 k 層（地圖、建築、迷霧、小地圖、之後新增的物件、燈光、那層地上的掉落物）
 function enterLayer(k) {
   EX.layer = k;
-  setLayer(k); setBuildingLayer(k); setFogLayer(k); setMinimapLayer(k); setPropLayer(k); setRubbleLayer(k, layerGroup(k), layerU(k));
+  setLayer(k); setBuildingLayer(k); setFogLayer(k); setMinimapLayer(k); setPropLayer(k); setRubbleLayer(k, layerGroup(k), layerU(k)); setHuskLayer(k);
   applyLight(!!EX.map.layers[k].under);
   restorePickups(EX.stash[k]); EX.stash[k] = null;
   updateFog(1, player.x, player.z);
