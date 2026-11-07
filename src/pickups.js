@@ -1,6 +1,6 @@
 // ---------- 掉落物（無盡 / 遠征模式） ----------
 // 敵機被打爆有機率掉：彈藥（黃）、修理（綠）、強化模組（紫）；遠征模式另外一定掉零件（金色小方塊，吸得比較遠、放得比較久）
-// 浮在地上轉圈、地上一圈光環；玩家靠近 2.5 格會被吸過來，碰到就撿起；放 25 秒沒撿就消失（最後 5 秒閃爍）
+// 浮在地上轉圈、地上一圈光環；玩家靠近 2.5 格會被吸過來，碰到就撿起；放超過 PICKUP_LIFE 秒沒撿就消失（最後 5 秒閃爍；預設全部永遠留著）
 import * as THREE from 'three';
 import { addMat, scene } from './core.js';
 
@@ -8,12 +8,14 @@ export const PICK_KINDS = {
   ammo: { name: '彈藥', hex: 0xffd060 },
   repair: { name: '修理', hex: 0x60ff90 },
   mod: { name: '強化模組', hex: 0xc080ff },
-  scrap: { name: '零件', hex: 0xffb830, size: 0.55, magnet: 6, life: 40 },
-  tech: { name: '晶片 / 裝置', hex: 0x60e0ff, size: 0.9, magnet: 4, life: 90 },   // val = 晶片或裝置的 id
+  scrap: { name: '零件', hex: 0xffb830, size: 0.55, magnet: 6 },
+  tech: { name: '晶片 / 裝置', hex: 0x60e0ff, size: 0.9, magnet: 4 },   // val = 晶片或裝置的 id
 };
+// ---- 旋鈕：每種掉落物在地上放多久會消失（秒；Infinity = 永遠留著）----
+export const PICKUP_LIFE = { ammo: Infinity, repair: Infinity, mod: Infinity, scrap: Infinity, tech: Infinity };
 export const pickups = [];
 const BOX = new THREE.BoxGeometry(0.42, 0.42, 0.42), RING = new THREE.RingGeometry(0.5, 0.62, 24);
-const LIFE = 25, MAGNET = 2.5, TAKE = 1.0;
+const MAGNET = 2.5, TAKE = 1.0;
 
 export function spawnPickup(kind, x, z, val = 0) {
   const K = PICK_KINDS[kind], g = new THREE.Group();
@@ -29,7 +31,7 @@ export function spawnPickup(kind, x, z, val = 0) {
   scene.add(g);
   // 掉出來時往外彈一下
   const a = Math.random() * Math.PI * 2, s = 1.5 + Math.random() * 2;
-  pickups.push({ kind, val, g, box, glow, ring, x, z, vx: Math.sin(a) * s, vz: Math.cos(a) * s, life: K.life ?? LIFE, magnet: K.magnet ?? MAGNET, t: Math.random() * 6 });
+  pickups.push({ kind, val, g, box, glow, ring, x, z, vx: Math.sin(a) * s, vz: Math.cos(a) * s, life: PICKUP_LIFE[kind] ?? Infinity, magnet: K.magnet ?? MAGNET, t: Math.random() * 6 });
 }
 
 function removeAt(i) {

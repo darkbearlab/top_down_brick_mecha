@@ -41,7 +41,7 @@ export const isBlock = (x, z) => tileAt(tileC(x), tileR(z)) === '#';
 // 站得上去嗎（岩壁、建築、懸空都不行）
 export const isSolid = (x, z) => { const t = tileAt(tileC(x), tileR(z)); return t === '#' || t === 'v'; };
 export const surfaceAt = (x, z) => SURF[tileAt(tileC(x), tileR(z))] ?? SURF['.'];
-setWallTest(isBlock);
+setWallTest(isBlock, (x, z) => tileAt(tileC(x), tileR(z)) === 'v');   // 碎片撞牆、掉進空洞
 
 // ---------- 地板與岩壁 ----------
 // 地板：每格一個顏色畫在一張貼圖上（大地圖每格的像素少一點，貼圖最多 4096 寬）；懸空的格子透明（看得到下面那層）

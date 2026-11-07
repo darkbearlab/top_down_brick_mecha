@@ -1,10 +1,50 @@
 import * as THREE from 'three';
 import { sampleVoxels } from './voxel.js';
 import { DEBRIS_GEO, FLASH_GEO, UNIT_BOX, WALL_H, addMat, debrisMat, scene } from './core.js';
+import { fogMaterial, fogU } from './fog.js';
 
-// 粒子撞牆判定由場地模組注入
-let wallTest = () => false;
-export function setWallTest(fn) { wallTest = fn; }
+// 粒子撞牆判定由場地模組注入（pitTest：那裡是空洞 → 碎片掉下去）
+let wallTest = () => false, pitTest = () => false;
+export function setWallTest(fn, pit = null) { wallTest = fn; if (pit) pitTest = pit; }
+
+// ---------- 留在地上的碎片 ----------
+// 噴出去的碎片（建築被打掉的方塊、機體炸開的碎塊）落地停住之後，「壓」進一個共用的 InstancedMesh（一整批只畫一次），一直留著
+// 每層一個（掛在那層的 group 底下、用那層的迷霧）；最多 RUBBLE_MAX 塊，超過就蓋掉最舊的；換關 / 換模式時清掉
+const RUBBLE_MAX = 20000;
+const rubblePools = new Map();
+let rubble = null;
+const rM = new THREE.Matrix4(), rQ = new THREE.Quaternion(), rS = new THREE.Vector3(), rC = new THREE.Color();
+// 換到第 k 層的碎片（parent = 那層的 group、U = 那層的迷霧 uniforms）
+export function setRubbleLayer(k, parent = scene, U = fogU) {
+  if (!rubblePools.has(k)) {
+    const mesh = new THREE.InstancedMesh(DEBRIS_GEO, fogMaterial(new THREE.MeshLambertMaterial({ color: 0xffffff }), U), RUBBLE_MAX);
+    mesh.count = 0; mesh.frustumCulled = false; mesh.receiveShadow = true;
+    mesh.setColorAt(0, rC.set(0xffffff));
+    parent.add(mesh);
+    rubblePools.set(k, { mesh, next: 0 });
+  }
+  rubble = rubblePools.get(k);
+  // 還在飛的碎片是上一層的：直接收掉
+  for (const d of debris) scene.remove(d.m);
+  debris.length = 0;
+}
+export function clearRubble() {
+  for (const P of rubblePools.values()) { P.mesh.parent?.remove(P.mesh); P.mesh.dispose(); P.mesh.material.dispose(); }
+  rubblePools.clear(); rubble = null;
+  for (const d of debris) scene.remove(d.m);
+  debris.length = 0;
+}
+function bake(d) {
+  if (!rubble) setRubbleLayer(0);
+  const R = rubble, i = R.next;
+  rQ.setFromEuler(d.m.rotation);
+  rM.compose(d.m.position, rQ, rS.setScalar(d.s));
+  R.mesh.setMatrixAt(i, rM);
+  R.mesh.setColorAt(i, rC.copy(d.m.material.color));
+  R.next = (i + 1) % RUBBLE_MAX;
+  R.mesh.count = Math.max(R.mesh.count, i + 1);
+  R.mesh.instanceMatrix.needsUpdate = true; R.mesh.instanceColor.needsUpdate = true;
+}
 
 // ---------- 雷射（瞄準線） ----------
 export function makeLaser(color) {
@@ -233,9 +273,16 @@ export function updateParticles(dt) {
     d.vy -= 24 * dt;
     p.x += d.vx * dt; p.y += d.vy * dt; p.z += d.vz * dt;
     d.m.rotation.x += d.sx * dt; d.m.rotation.z += d.sz * dt;
-    if (p.y < 0.08) { p.y = 0.08; d.vy *= -0.35; d.vx *= 0.55; d.vz *= 0.55; d.sx *= 0.5; d.sz *= 0.5; }
+    const pit = pitTest(p.x, p.z);
+    if (p.y < 0.08 && !pit) { p.y = 0.08; d.vy *= -0.35; d.vx *= 0.55; d.vz *= 0.55; d.sx *= 0.5; d.sz *= 0.5; }
     if (wallTest(p.x, p.z) && p.y < WALL_H) { d.vx *= -0.4; d.vz *= -0.4; p.x += d.vx * dt * 2; p.z += d.vz * dt * 2; }
     d.life -= dt;
+    // 掉進空洞：一路掉下去，看不到了就收掉
+    if (pit && p.y < -8) { scene.remove(d.m); debris.splice(i, 1); continue; }
+    // 落地停住（或時間到、已經在地上）：壓進留在地上的碎片
+    const rest = p.y <= 0.09 && !pit && Math.abs(d.vy) < 0.8 && Math.hypot(d.vx, d.vz) < 0.25;
+    if (!pit && p.y <= 0.09 && (rest && !(d.burn && d.life > 0.3) || d.life <= 0)) { p.y = 0.08 * d.s; bake(d); scene.remove(d.m); debris.splice(i, 1); continue; }
+    if (d.life <= 0 && !pit) { d.life = 0.1; continue; }   // 還在空中：等落地
     // 著火的碎塊：一路冒火、拖黑煙，火慢慢變小
     if (d.burn && d.life > 0.3) {
       d.burnAcc += dt * 28;
@@ -246,7 +293,6 @@ export function updateParticles(dt) {
       }
       if (Math.random() < dt * 6) spawnPuff({ x: p.x, y: p.y + 0.15, z: p.z, vx: 0, vy: R(0.6, 1.1), vz: 0, life: R(0.8, 1.3), s: R(0.12, 0.2), c0: 0x16161a, c1: 0x3a3c42, drag: 0.6 });
     }
-    if (d.life < 0.4) d.m.scale.setScalar(d.s * Math.max(0, d.life / 0.4));
     if (d.life <= 0) { scene.remove(d.m); debris.splice(i, 1); }
   }
   for (let i = burners.length - 1; i >= 0; i--) {

@@ -14,7 +14,7 @@ import { ARENA_LAYOUT, buildLayerBuildings, resetBuildings, setBuildingLayer, se
 import { SLOW_K, clearWrecks, killCam, updateWrecks } from './wreck.js';
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
 import { AI, DIFFS, clearEnemies, enemies, keepEnemies, parkEnemy, removeEnemy, spawnEnemy, unparkEnemy, updateEnemy } from './ai.js';
-import { burst, makeLaser, setLaser, smoke, updateParticles } from './fx.js';
+import { burst, clearRubble, makeLaser, setLaser, setRubbleLayer, smoke, updateParticles } from './fx.js';
 import { clearWarp, startWarp, updateWarp } from './warp.js';
 import { CHIPS, DEVICES, hasChip, techName } from './tech.js';
 import { clearDevices, deviceReady, updateDeviceCd, updateDevices, useDevice } from './devices.js';
@@ -93,6 +93,7 @@ function resetWorld(map = null) {
   fxHide('warpFade');   // 傳送進下一關：白畫面在新地圖上淡掉
   clearWarp();
   clearDevices();
+  clearRubble();   // 留在地上的碎片：換關 / 換模式清掉
   if (bossIntro.t > 0) { bossIntro.t = 0; document.body.classList.remove('killcam'); }
   $('endless').classList.add('hidden');
   sensors.progress.clear(); sensors.locks = [];
@@ -813,7 +814,7 @@ function switchLayer(to) {
 // 換到第 k 層（地圖、建築、迷霧、小地圖、之後新增的物件、燈光、那層地上的掉落物）
 function enterLayer(k) {
   EX.layer = k;
-  setLayer(k); setBuildingLayer(k); setFogLayer(k); setMinimapLayer(k); setPropLayer(k);
+  setLayer(k); setBuildingLayer(k); setFogLayer(k); setMinimapLayer(k); setPropLayer(k); setRubbleLayer(k, layerGroup(k), layerU(k));
   applyLight(!!EX.map.layers[k].under);
   restorePickups(EX.stash[k]); EX.stash[k] = null;
   updateFog(1, player.x, player.z);
