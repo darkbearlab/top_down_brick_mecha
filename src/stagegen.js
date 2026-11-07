@@ -8,8 +8,8 @@
 //   stairs 地下入口：雙向（a = 地下、b = 地表，同一個位置）
 // 關卡地形（terrain）：
 //   ruins 沙漠廢墟：現在這張大地圖（mapgen.js）當地表，加 2～3 條地下隧道：兩頭各是地表上的一個入口，中間有一兩個地下大廳（駐軍、補給）
-//   hive  層疊城塞：同一套分區產生器，但每個區域有自己的「層」（往右越高），一層一層像山坡上的貧民窟
-//         比自己低的區域 = 懸空（往下看得到）；比自己高的 = 崖壁；不同層的區域之間的隘口變成升降梯 / 彈射台，崖邊另外有幾個跳下點
+//   hive  層疊城塞：同一套分區產生器，但每個區域有自己的「層」（離出發區越遠越高），一層一層像山坡上的貧民窟
+//         比自己低的區域 = 懸空（往下看得到）；比自己高的 = 崖壁；（層：離出發區越遠越高）不同層的區域之間的隘口變成升降梯 / 彈射台，崖邊另外有幾個跳下點
 //         傳送門在最高那層
 import { genWorld, rng } from './mapgen.js';
 
@@ -51,13 +51,13 @@ function genRuins(seed, stage) {
   const links = [], sites = [], caches = [];
   const tunnels = 2 + (stage >= 3 ? 1 : 0);
   const cand = [...Array(m.zones.length).keys()].filter(k => k !== m.startZ);
-  for (let n = 0, tries = 0; n < tunnels && tries < 40; tries++) {
+  for (let n = 0, tries = 0; n < tunnels && tries < 200; tries++) {
     const za = cand[Math.floor(R() * cand.length)], zb = cand[Math.floor(R() * cand.length)];
     if (za === zb) continue;
     const pa = entrance(za); if (!pa) continue;
     const pb = entrance(zb); if (!pb) continue;
     const L = Math.hypot(pb.c - pa.c, pb.r - pa.r);
-    if (L < 45 || L > 130) continue;
+    if (L < 45 || L > 150) continue;
     used.push(pa, pb);
     zoneId = zones.length;
     // 路線：起點、一兩個大廳（往旁邊偏）、終點；沿線挖 5～6 格寬、寬度慢慢變的隧道
@@ -102,7 +102,7 @@ function genRuins(seed, stage) {
     spawn: { ...m.spawn, layer: 1 },
     layers: [
       { name: '地下', grid: B, buildings: [], edge: edgeB, zoneOf: zoneB, under: true, sight: 20 },
-      { name: '地表', grid: A, buildings: m.buildings, edge: m.edgeBand, zoneOf: m.zoneOf },
+      { name: '地表', grid: A, buildings: m.buildings, deep: m.edgeBand, zoneOf: m.zoneOf },
     ],
   };
 }
@@ -111,9 +111,9 @@ function genRuins(seed, stage) {
 function genHive(seed, stage) {
   const m = genWorld(seed, { themePool: ['city', 'city', 'city', 'ruins', 'plaza'] }), R = rng(seed * 5 + 77), { W, H } = m, toX = toXf(W), toZ = toZf(H);
   const NZ = m.zones.length, NL = stage >= 4 ? 4 : 3;
-  // 每個區域的層：越往右越高（加一點亂數），出發區 0；用到的層壓緊成 0..n-1
-  const cs = m.zones.map(Z => Z.c), c0 = Math.min(...cs), c1 = Math.max(...cs);
-  let lvl = m.zones.map((Z, k) => k === m.startZ ? 0 : Math.max(0, Math.min(NL - 1, Math.floor((Z.c - c0) / (c1 - c0 + 1e-6) * NL + (R() - 0.5) * 0.9))));
+  // 每個區域的層：離出發區越遠越高（加一點亂數），出發區 0；用到的層壓緊成 0..n-1
+  const S0 = m.zones[m.startZ], far = m.zones.map(Z => Math.hypot(Z.c - S0.c, Z.r - S0.r)), fmax = Math.max(...far) + 1e-6;
+  let lvl = m.zones.map((Z, k) => k === m.startZ ? 0 : Math.max(0, Math.min(NL - 1, Math.floor(far[k] / fmax * NL + (R() - 0.5) * 0.9))));
   const usedL = [...new Set(lvl)].sort((a, b) => a - b);
   lvl = lvl.map(l => usedL.indexOf(l));
   const NLy = usedL.length;
@@ -124,13 +124,13 @@ function genHive(seed, stage) {
     for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
       const i = r * W + c, base = m.grid[r][c], l1 = lvl[m.zoneOf[i]], l2 = lvl[m.zone2[i]];
       let t;
-      if (m.edgeBand[i]) { t = '#'; edge[i] = 1; }
+      if (m.edgeBand[i]) t = '#';
       else if (l1 === k) t = base === '#' && m.edge[i] < RIDGE && l2 !== k ? 'd' : base;   // 跟不同層的區域交界：岩脊打開（崖邊 / 崖腳）
       else if (l1 < k) t = 'v';
       else { t = '#'; edge[i] = 1; tall[i] = 1; }
       g[r][c] = t;
     }
-    layers.push({ name: `第 ${k + 1} 層`, grid: g, edge, tall, zoneOf: m.zoneOf, buildings: m.buildings.filter(([c, r, w, h]) => lvl[m.zoneOf[(r + (h >> 1)) * W + c + (w >> 1)]] === k) });
+    layers.push({ name: `第 ${k + 1} 層`, grid: g, edge, deep: m.edgeBand, tall, zoneOf: m.zoneOf, buildings: m.buildings.filter(([c, r, w, h]) => lvl[m.zoneOf[(r + (h >> 1)) * W + c + (w >> 1)]] === k) });
   }
   const at = (k, c, r) => layers[k].grid[r]?.[c];
   const stand = (k, c, r, n = 1) => { for (let y = r - n; y <= r + n; y++) for (let x = c - n; x <= c + n; x++) { const t = at(k, x, y); if (t === undefined || t === '#' || t === 'v') return false; } return !inBld(k, c, r); };
@@ -147,20 +147,23 @@ function genHive(seed, stage) {
   };
   const P = (k, q) => ({ layer: k, x: toX(q.c), z: toZ(q.r) });
   // 連接：不同層的區域之間的隘口 → 樹上的是升降梯（雙向），多開的是彈射台（只能往上）
-  const links = [];
-  for (const ps of m.passes) {
+  // 同一層 GAP 格內不要有兩個連接點（不然崖邊會有兩個往下的點擠在一起）；主幹上的升降梯一定放（連通要靠它），先放
+  const links = [], GAP = 18;
+  const crowded = (k, q) => links.some(L => [L.a, L.b].some(e => e.layer === k && Math.hypot(e.x - toX(q.c), e.z - toZ(q.r)) < GAP));
+  for (const ps of [...m.passes].sort((a, b) => b.tree - a.tree)) {
     const la = lvl[ps.a], lb = lvl[ps.b];
     if (la === lb) continue;
     const [lo, hi] = la < lb ? [ps.a, ps.b] : [ps.b, ps.a];
-    const qa = near(lvl[lo], lo, ps.c, ps.r), qb = near(lvl[hi], hi, ps.c, ps.r);
+    const qa = near(lvl[lo], lo, ps.c, ps.r) ?? near(lvl[lo], lo, ps.c, ps.r, 22, 0), qb = near(lvl[hi], hi, ps.c, ps.r) ?? near(lvl[hi], hi, ps.c, ps.r, 22, 0);
     if (!qa || !qb) continue;
+    if (!ps.tree && (crowded(lvl[lo], qa) || crowded(lvl[hi], qb))) continue;
     links.push({ kind: ps.tree ? 'lift' : 'pad', a: P(lvl[lo], qa), b: P(lvl[hi], qb) });
   }
   // 跳下點：崖邊（旁邊兩格內就是懸空）往外看，下面那層站得住的地方
   const drops = [];
   for (let t = 0; t < 4000 && drops.length < 4 + NLy; t++) {
     const k = 1 + Math.floor(R() * (NLy - 1)), c = 10 + Math.floor(R() * (W - 20)), r = 10 + Math.floor(R() * (H - 20));
-    if (!stand(k, c, r, 1) || drops.some(d => Math.hypot(d.c - c, d.r - r) < 30)) continue;
+    if (!stand(k, c, r, 1) || drops.some(d => Math.hypot(d.c - c, d.r - r) < 30) || crowded(k, { c, r })) continue;
     let hit = null;
     for (let a = 0; a < 8 && !hit; a++) {
       const dx = Math.round(Math.cos(a * Math.PI / 4)), dy = Math.round(Math.sin(a * Math.PI / 4));
@@ -170,7 +173,7 @@ function genHive(seed, stage) {
         if (lk < k && stand(lk, x, y, 1)) { hit = { k: lk, c: x, r: y }; break; }
       }
     }
-    if (!hit) continue;
+    if (!hit || crowded(hit.k, hit)) continue;
     drops.push({ c, r });
     links.push({ kind: 'drop', a: P(k, { c, r }), b: P(hit.k, hit) });
   }
@@ -206,7 +209,12 @@ function genHive(seed, stage) {
     }
     if (portal) break;
   }
-  if (!portal) { const z = top[0], q = near(NLy - 1, z, Math.round(m.zones[z].c), Math.round(m.zones[z].r), 30, 2); portal = { c: q.c, r: q.r, x: toX(q.c), z: toZ(q.r), zone: z, layer: NLy - 1 }; }
+  // 找不到（最高那層的區域被崖壁圍死、填平了）：從高往低每層每個區域找一塊站得住的地方
+  for (let k = NLy - 1; k >= 0 && !portal; k--) for (let z = 0; z < NZ && !portal; z++) {
+    if (lvl[z] !== k) continue;
+    const q = near(k, z, Math.round(m.zones[z].c), Math.round(m.zones[z].r), 40, 2);
+    if (q) portal = { c: q.c, r: q.r, x: toX(q.c), z: toZ(q.r), zone: z, layer: k };
+  }
   return {
     ...m, terrain: 'hive', links, sites, caches, portal,
     zones: m.zones.map((Z, k) => ({ ...Z, layer: lvl[k] })),

@@ -1,7 +1,7 @@
 // ---------- 戰爭迷霧（遠征模式） ----------
 // 視線：從玩家所在位置往四周打 720 條射線（每 0.5 格一步），最遠 sight 格（每層可以不一樣：地下短一點）
 //   碰到擋視線的格子：繼續穿過「這個障礙物本身」（最多 THROUGH 格，整棟建築 / 整段岩壁都算看得到），一出到後面的空地就停 → 只有後面被蓋住
-//   地圖邊緣那圈岩壁、地下的岩層、上一層的崖壁不穿（edge：只看得到表面）
+//   地下的岩層、上一層的崖壁不穿（edge：只看得到表面）；地圖邊緣那圈山（deep）看得進去 DEEP 格，再裡面是黑的 → 看起來是一大片山，不是一道牆
 //   擋視線：'#'（岩壁、高的建築）；1 層樓的矮建築（掩體、廢墟的小屋）不擋視線、只擋子彈 —— 機體比它高；'v'（懸空，往下看得到下一層）不擋
 // 三種狀態：沒去過（全黑）、去過但現在看不到（變暗）、看得到（正常）；一秒算 10 次，亮度每幀慢慢過渡
 // 多層地圖：每層一份迷霧（看過哪裡各自記）；從懸空的地方往下看 = 下一層那一格也算看過
@@ -12,7 +12,7 @@ import * as THREE from 'three';
 import { H, W, grid } from './arena.js';
 
 export const RADIUS = 32;
-const THROUGH = 12;
+const THROUGH = 12, DEEP = 8;   // 穿過障礙物最多幾格；地圖邊緣那圈山最多看進去幾格
 const DIM = 80, LIT = 255, BELOW = 200;   // 去過 / 看得到 / 從上一層往下看得到 的亮度（0～255）
 export const makeFogU = () => ({ fogTex: { value: null }, fogOn: { value: 0 }, fogSize: { value: new THREE.Vector2(64, 48) }, fogDim: { value: 1 } });
 export const fogU = makeFogU();
@@ -36,7 +36,7 @@ export function fogMaterial(mat, U = fogU) {
 }
 
 // 一層的迷霧：low = 1 層樓建築佔的格子（不擋視線）、edge = 不穿的格子、sight = 視線距離、g = 這層的格子
-function makeLayer({ low = new Set(), edge = null, sight = RADIUS, g = grid, U = null } = {}) {
+function makeLayer({ low = new Set(), edge = null, deep = null, sight = RADIUS, g = grid, U = null } = {}) {
   const data = new Uint8Array(W * H);
   const tex = new THREE.DataTexture(data, W, H, THREE.RedFormat, THREE.UnsignedByteType);
   tex.magFilter = tex.minFilter = THREE.LinearFilter;
@@ -44,7 +44,7 @@ function makeLayer({ low = new Set(), edge = null, sight = RADIUS, g = grid, U =
   tex.needsUpdate = true;
   U ??= makeFogU();
   U.fogTex.value = tex; U.fogOn.value = 1; U.fogSize.value.set(W, H);
-  return { low, edge, sight, g, vis: new Uint8Array(W * H), seen: new Uint8Array(W * H), data, tex, U };
+  return { low, edge, deep, sight, g, vis: new Uint8Array(W * H), seen: new Uint8Array(W * H), data, tex, U };
 }
 function disposeAll() { for (const l of layers) l.tex.dispose(); layers = []; }
 // 單層（舊的用法）
@@ -69,21 +69,21 @@ export const fogActive = () => on;
 
 const blocksSight = i => L.g[(i / W) | 0][i % W] === '#' && !L.low.has(i);
 function compute(x, z) {
-  const vis = L.vis, seen = L.seen, edge = L.edge, R = L.sight;
+  const vis = L.vis, seen = L.seen, edge = L.edge, deep = L.deep, R = L.sight;
   vis.fill(0);
   const ox = x + W / 2, oz = z + H / 2;
   pc = Math.floor(ox); pr = Math.floor(oz);
   const N = 720;
   for (let k = 0; k < N; k++) {
     const a = k / N * Math.PI * 2, dx = Math.cos(a) * 0.5, dz = Math.sin(a) * 0.5;
-    let px = ox, pz = oz, wall = -1;
+    let px = ox, pz = oz, wall = -1, lim = THROUGH * 2;
     for (let s = 0; s <= R * 2; s++) {
       const c = Math.floor(px), r = Math.floor(pz);
       if (c < 0 || r < 0 || c >= W || r >= H) break;
       const i = r * W + c, b = s > 1 && blocksSight(i);
-      if (wall >= 0 && (!b || edge?.[i] || s - wall > THROUGH * 2)) break;   // 穿出障礙物（或太厚、碰到邊緣那圈）：後面看不到
+      if (wall >= 0 && (!b || edge?.[i] || s - wall > lim)) break;   // 穿出障礙物（或太厚、碰到邊緣那圈）：後面看不到
       vis[i] = 1; seen[i] = 1;
-      if (b && wall < 0) { if (edge?.[i]) break; wall = s; }
+      if (b && wall < 0) { if (edge?.[i]) break; wall = s; lim = deep?.[i] ? DEEP * 2 : THROUGH * 2; }
       px += dx; pz += dz;
     }
   }

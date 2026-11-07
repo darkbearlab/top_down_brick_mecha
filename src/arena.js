@@ -113,11 +113,21 @@ function buildLayer(map, L, k) {
   floor.rotation.x = -Math.PI / 2;
   floor.receiveShadow = true;
 
-  const open = (c, r) => c >= 0 && r >= 0 && c < W && r < H && g[r][c] !== '#';
-  const nearOpen = (c, r, d) => { for (let y = r - d; y <= r + d; y++) for (let x = c - d; x <= c + d; x++) if (open(x, y)) return true; return false; };
+  // 岩塊離空地幾格（8 方向 BFS，最多算到 10）：看不穿的岩層只蓋表面 2 格、邊緣那圈山蓋 9 格（迷霧看得進去 8 格），再裡面反正看不到
+  const dist = new Uint8Array(W * H).fill(255), q = [];
+  for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) if (g[r][c] !== '#') { dist[r * W + c] = 0; q.push(r * W + c); }
+  for (let h = 0; h < q.length; h++) {
+    const i = q[h], c = i % W, r = (i - c) / W, d = dist[i] + 1;
+    if (d > 10) continue;
+    for (let y = r - 1; y <= r + 1; y++) for (let x = c - 1; x <= c + 1; x++) { const j = y * W + x; if (x >= 0 && y >= 0 && x < W && y < H && dist[j] > d) { dist[j] = d; q.push(j); } }
+  }
   const blocks = [];
   // 外圍的灰色圍牆只有競技場有；大地圖的邊緣也是岩塊
-  for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) if (g[r][c] === '#' && (!L.edge?.[r * W + c] || nearOpen(c, r, 2))) blocks.push([c, r, map.id === 'arena' && (r === 0 || c === 0 || r === H - 1 || c === W - 1)]);
+  for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
+    const i = r * W + c;
+    if (g[r][c] !== '#' || (L.edge?.[i] && dist[i] > 2) || (L.deep?.[i] && dist[i] > 9)) continue;
+    blocks.push([c, r, map.id === 'arena' && (r === 0 || c === 0 || r === H - 1 || c === W - 1)]);
+  }
   const walls = own(new THREE.InstancedMesh(UNIT_BOX, fogMaterial(new THREE.MeshLambertMaterial({ color: 0xffffff }), U), Math.max(1, blocks.length)));
   blocks.forEach(([c, r, edge], i) => {
     const x = toWorldX(c), z = toWorldZ(r);

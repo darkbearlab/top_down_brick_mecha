@@ -77,6 +77,7 @@ function resetWorld(map = null) {
   }
   setPropLayer(0);
   applyLight(false);
+  scene.background.setHex(want.layers ? 0x000000 : 0x0b0d12);   // 遠征：地圖外面跟沒去過的地方一樣全黑
   hideMinimap();
   fogOff();
   for (const b of blips) b.visible = false;
@@ -441,7 +442,7 @@ function startStage(seed) {
   initFogLayers(map.layers.map((L, k) => {
     const low = new Set();
     for (const [c, r, w, h, f] of L.buildings) if (f === 1) for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) low.add(y * map.W + x);
-    return { low, edge: L.edge, sight: L.sight ?? RADIUS, g: layerGrid(k), U: layerU(k) };
+    return { low, edge: L.edge, deep: L.deep, sight: L.sight ?? RADIUS, g: layerGrid(k), U: layerU(k) };
   }));
   initMinimap(map.layers.map((L, k) => ({ grid: layerGrid(k), buildings: L.buildings, under: L.under })));
   enterLayer(map.spawn.layer ?? 0);

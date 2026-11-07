@@ -1,5 +1,5 @@
 // ---------- 大地圖產生器（遠征模式） ----------
-// 256 × 192。區域不是整齊的格子：撒 13～15 個種子點（有抖動、各自的「大小權重」），每格歸最近的種子 → 大小、形狀都不一樣的區域
+// 312 × 240（外圍一大圈是山，實際能走的差不多 240 × 170）。區域不是整齊的格子：撒 13～15 個種子點（有抖動、各自的「大小權重」），每格歸最近的種子 → 大小、形狀都不一樣的區域
 //   座標先用幾個正弦扭一下再算距離 → 邊界彎彎曲曲；離兩個種子差不多近的格子（在邊界上）就是岩壁（厚 4～8 格、打不壞）
 // 隘口：相鄰的區域（共用的岩壁夠長）先連成一棵樹（每個區域都走得到），再多開三成左右，讓路線有選擇
 // 每個區域一種地形主題，決定建築怎麼蓋：
@@ -14,26 +14,26 @@ export const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let 
 
 export const THEMES = { city: '街區', open: '荒野', ruins: '廢墟', plaza: '廣場', under: '地下' };
 
-export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 256, H = 192, NX = 5, NY = 3, themePool = ['city', 'city', 'open', 'ruins', 'plaza'] } = {}) {
+export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 312, H = 240, NX = 5, NY = 3, themePool = ['city', 'city', 'open', 'ruins', 'plaza'] } = {}) {
   const rand = rng(seed), ri = (a, b) => a + Math.floor(rand() * (b - a + 1)), pick = a => a[Math.floor(rand() * a.length)];
   const grid = Array.from({ length: H }, (_, r) => Array.from({ length: W }, (_, c) => (r === 0 || c === 0 || r === H - 1 || c === W - 1) ? '#' : '.'));
   const inside = (c, r) => c > 0 && r > 0 && c < W - 1 && r < H - 1;
-  // 地圖邊緣：一圈厚薄不一的岩壁往內長（3～10 格，沿著邊緣起伏），看起來是山壁而不是圍牆
-  const ep = Array.from({ length: 4 }, () => rand() * 6.28), edgeBand = new Uint8Array(W * H);   // edgeBand：邊緣那圈（迷霧不看穿）
+  // 地圖邊緣：一大片厚薄差很多的岩壁往內長（平均 34 格、22～46 格，有大的山灣和凸出的山脊），看起來是山區而不是圍牆；
+  //   迷霧不看穿這圈，小地圖也只畫玩家周圍 → 玩起來感覺不到地圖的邊在哪裡
+  const ep = Array.from({ length: 5 }, () => rand() * 6.28), edgeBand = new Uint8Array(W * H);   // edgeBand：邊緣那圈（迷霧不看穿）
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
-    const t = c + r, th = 6 + 2.2 * Math.sin(t / 9 + ep[0]) + 1.5 * Math.sin(t / 4.3 + ep[1]) + 1.2 * Math.sin((c - r) / 6 + ep[2]);
+    const t = c + r, th = 34 + 7 * Math.sin(c / 31 + ep[0]) * Math.sin(r / 27 + ep[1]) + 3 * Math.sin(t / 13 + ep[2]) + 1.6 * Math.sin((c - r) / 6 + ep[3]) + 1 * Math.sin(t / 4.3 + ep[4]);
     if (Math.min(c, r, W - 1 - c, H - 1 - r) < th) { grid[r][c] = '#'; edgeBand[r * W + c] = 1; }
   }
 
-  // 種子：5 × 3 格各一個、大幅抖動；隨機拿掉 0～2 個 → 有的區域特別大
-  const seeds = [];
-  const cw = W / NX, ch = H / NY;
+  // 種子：邊緣那圈以內分成 5 × 3 格各一個、大幅抖動；隨機拿掉 0～2 個 → 有的區域特別大
+  const seeds = [], M = 40;
+  const cw = (W - 2 * M) / NX, ch = (H - 2 * M) / NY;
   for (let j = 0; j < NY; j++) for (let i = 0; i < NX; i++)
-    seeds.push({ c: Math.max(18, Math.min(W - 18, (i + 0.5 + (rand() - 0.5) * 0.7) * cw)), r: Math.max(18, Math.min(H - 18, (j + 0.5 + (rand() - 0.5) * 0.6) * ch)), w: rand() * 9 });
-  // 出發區：最左邊、偏中間的那個
-  const startOf = () => seeds.reduce((b, s, k) => s.c + Math.abs(s.r - H / 2) * 0.6 < seeds[b].c + Math.abs(seeds[b].r - H / 2) * 0.6 ? k : b, 0);
-  for (let n = ri(0, 2); n > 0; n--) { const s = startOf(); let k; do k = ri(0, seeds.length - 1); while (k === s); seeds.splice(k, 1); }
-  const NZ = seeds.length, startZ = startOf();
+    seeds.push({ c: Math.max(M + 6, Math.min(W - M - 6, M + (i + 0.5 + (rand() - 0.5) * 0.7) * cw)), r: Math.max(M + 6, Math.min(H - M - 6, M + (j + 0.5 + (rand() - 0.5) * 0.6) * ch)), w: rand() * 9 });
+  for (let n = ri(0, 2); n > 0; n--) seeds.splice(ri(0, seeds.length - 1), 1);
+  // 出發區：隨便哪一個（不一定在左邊）
+  const NZ = seeds.length, startZ = ri(0, NZ - 1);
 
   // 每格：最近的區域、第二近的、邊界距離（第二近 - 最近）
   const p = Array.from({ length: 6 }, () => rand() * 6.28);
@@ -50,11 +50,12 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 256, H = 
   }
   // 岩壁：邊界附近；厚度沿著邊界慢慢變。順便記下每一對相鄰區域的邊界格子
   const pairs = new Map();
+  const nearBand = (c, r) => { for (let y = r - 7; y <= r + 7; y++) for (let x = c - 7; x <= c + 7; x++) if (edgeBand[y * W + x] || x < 0 || y < 0 || x >= W || y >= H) return true; return false; };
   for (let r = 1; r < H - 1; r++) for (let c = 1; c < W - 1; c++) {
     const i = r * W + c, T = 6 + 2 * Math.sin(c / 9 + p[4]) * Math.sin(r / 11 + p[5]);
     if (edge[i] >= T) continue;
     grid[r][c] = '#';
-    if (edge[i] > 2) continue;
+    if (edge[i] > 2 || nearBand(c, r)) continue;   // 邊緣那圈山裡 / 旁邊的邊界不算（隘口開在那裡會通不到任何地方）
     const a = Math.min(zoneOf[i], zone2[i]), b = Math.max(zoneOf[i], zone2[i]), key = a * 64 + b;
     if (!pairs.has(key)) pairs.set(key, { a, b, n: 0, sc: 0, sr: 0, tiles: [] });
     const P = pairs.get(key); P.n++; P.sc += c; P.sr += r; P.tiles.push([c, r]);

@@ -1,5 +1,6 @@
 // ---------- 小地圖（遠征模式） ----------
 // 右上角。地圖先整張畫一次（岩壁、建築、泥地、空地），沒去過的地方蓋黑：有迷霧（fog.js）就照迷霧「看過的格子」，不然玩家周圍 REVEAL 格內會慢慢揭開
+// 只畫以玩家為中心 VW × VH 格的範圍（看不出自己在整張地圖的哪裡、邊在哪）；傳送門在範圍外就貼在框邊上指方向
 // 上面畫：玩家（白色箭頭）、發現過的遭遇點（紅圈 = 還在、灰叉 = 清掉了）、交戰中的敵機（紅點）、
 //   揭開的地方裡的箱子（紫 = 補給箱、黃 = 武器箱、灰 = 開過了）、傳送門（菱形，看過或條件達成後才標；在別層 = 空心）
 // 多層地圖：每層一張底圖（setMinimapLayer 換），懸空的地方畫成深藍灰；連接點畫成三角形（青色朝上 = 往上、橘色朝下 = 往下）
@@ -10,12 +11,13 @@ import { exploredAt, fogSeen } from './fog.js';
 const el = document.getElementById('minimap');
 const g = el.getContext('2d');
 const CELL = 4, REVEAL = 26;   // 揭開的解析度（格）、半徑（格）
+const VW = 84, VH = 63;         // 小地圖看得到的範圍（格）
 let base = null, bases = [], seen = null, sc = 1, CW = 0, CH = 0, acc = 0, fogC = null, fogImg = null;
 
 // list：每層 { grid, buildings }（不給 grid = 目前的）
 export function initMinimap(list) {
-  sc = Math.min(220 / W, 165 / H);
-  el.width = Math.round(W * sc); el.height = Math.round(H * sc);
+  el.width = 210; el.height = Math.round(210 * VH / VW);
+  sc = el.width / VW;
   bases = list.map(({ grid: gg = grid, buildings, under }) => {
     const cv = document.createElement('canvas');
     cv.width = W; cv.height = H;
@@ -49,16 +51,23 @@ export function updateMinimap(dt, player, enemies, squads, ex = null) {
   if ((acc += dt) < 0.1) return;   // 一秒畫十次就夠
   acc = 0;
   g.imageSmoothingEnabled = false;
-  g.drawImage(base, 0, 0, el.width, el.height);
+  // 範圍：以玩家為中心（格座標）；超出地圖的地方是黑的
+  const x0 = player.x + W / 2 - VW / 2, y0 = player.z + H / 2 - VH / 2;
+  const crop = img => {
+    const sx = Math.max(0, x0), sy = Math.max(0, y0), ex = Math.min(W, x0 + VW), ey = Math.min(H, y0 + VH);
+    if (ex > sx && ey > sy) g.drawImage(img, sx, sy, ex - sx, ey - sy, (sx - x0) * sc, (sy - y0) * sc, (ex - sx) * sc, (ey - sy) * sc);
+  };
+  g.fillStyle = '#07080b'; g.fillRect(0, 0, el.width, el.height);
+  crop(base);
   const fs = fogSeen();
   if (fs) {
     const d = fogImg.data;
     for (let i = 0; i < fs.length; i++) { d[i * 4] = 7; d[i * 4 + 1] = 8; d[i * 4 + 2] = 11; d[i * 4 + 3] = fs[i] ? 0 : 255; }
     fogC.getContext('2d').putImageData(fogImg, 0, 0);
-    g.drawImage(fogC, 0, 0, el.width, el.height);
+    crop(fogC);
   } else g.fillStyle = '#07080b';
-  if (!fs) for (let y = 0; y < CH; y++) for (let x = 0; x < CW; x++) if (!seen[y * CW + x]) g.fillRect(Math.floor(x * CELL * sc), Math.floor(y * CELL * sc), Math.ceil(CELL * sc) + 1, Math.ceil(CELL * sc) + 1);
-  const P = (x, z) => [(x + W / 2) * sc, (z + H / 2) * sc];
+  if (!fs) for (let y = 0; y < CH; y++) for (let x = 0; x < CW; x++) if (!seen[y * CW + x]) g.fillRect(Math.floor((x * CELL - x0) * sc), Math.floor((y * CELL - y0) * sc), Math.ceil(CELL * sc) + 1, Math.ceil(CELL * sc) + 1);
+  const P = (x, z) => [(x + W / 2 - x0) * sc, (z + H / 2 - y0) * sc];
   for (const S of squads) {
     if (!S.found) continue;
     const [x, y] = P(S.x, S.z);
@@ -81,7 +90,10 @@ export function updateMinimap(dt, player, enemies, squads, ex = null) {
       g.fillRect(x - 2, y - 2, 4, 4);
     }
     if (ex.portalKnown) {
-      const [x, y] = P(ex.portal.x, ex.portal.z);
+      // 範圍外：貼在框邊上（往傳送門的方向）
+      let [x, y] = P(ex.portal.x, ex.portal.z);
+      const cx = el.width / 2, cy = el.height / 2, dx = x - cx, dy = y - cy, k = Math.min(1, (cx - 7) / Math.abs(dx || 1e-6), (cy - 7) / Math.abs(dy || 1e-6));
+      x = cx + dx * k; y = cy + dy * k;
       g.fillStyle = { idle: '#a04030', ready: '#ff9030', boss: '#ff3020', open: '#60f0ff' }[ex.portal.state];
       g.beginPath(); g.moveTo(x, y - 5); g.lineTo(x + 5, y); g.lineTo(x, y + 5); g.lineTo(x - 5, y); g.closePath();
       if (ex.layer === undefined || ex.portal.layer === ex.layer) g.fill(); else { g.strokeStyle = g.fillStyle; g.lineWidth = 1.5; g.stroke(); }
