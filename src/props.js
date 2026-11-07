@@ -3,6 +3,7 @@
 // weapon 武器箱：上面投影出裡面是哪一把（屬性色），花零件打開 → 變成地上的 gun（武器）
 // gun 地上的武器：靠近按 F 裝上（換下來的那把也會丟在地上）
 // station 修復站：花零件把整台修好（包括壞掉的部位），用一次就沒了
+// supply 彈藥補給站：花零件把所有武器的彈藥補滿，用一次就沒了（橘色、上面是三條彈藥）
 // portal 傳送門：state = idle（條件未達成，暗紅）/ ready（可以啟動，橘色脈動）/ boss（頭目戰中，紅）/ open（可以傳送，青色光柱）
 // link 層與層的連接點（多層地圖）：p.up = 通往上面那層；地上幾圈光環往目的地的方向流動（往上 = 往上飄、往下 = 往下沉）
 //   style：pad（台座，升降梯 / 彈射台）、hole（地下入口：黑色的洞）、shaft（地下那頭：往上的光柱）、edge（崖邊的跳下點：只有光環）
@@ -42,12 +43,21 @@ export function addProp(kind, x, z, data = {}) {
     p.bar.position.y = kind === 'weapon' ? 1.2 : 0.7;
     p.ring = new THREE.Mesh(RING_S, addMat(c, 0.6)); p.ring.rotation.x = -Math.PI / 2; p.ring.position.y = 0.04;
     g.add(p.bar, p.ring);
-  } else if (kind === 'station') {
+  } else if (kind === 'station' || kind === 'supply') {
+    const c = kind === 'station' ? 0x60ff90 : 0xff9a30;
     p.box = new THREE.Mesh(PAD, DARK); p.box.position.y = 0.12; p.box.castShadow = true;
-    p.glow = new THREE.Mesh(CROSS, addMat(0x60ff90, 0.9)); p.glow.position.y = 0.3;
-    p.glow2 = new THREE.Mesh(CROSS, p.glow.material); p.glow2.position.y = 0.3; p.glow2.rotation.y = Math.PI / 2;
-    p.ring = new THREE.Mesh(RING_S, addMat(0x60ff90, 0.5)); p.ring.rotation.x = -Math.PI / 2; p.ring.position.y = 0.04; p.ring.scale.setScalar(1.6);
-    g.add(p.box, p.glow, p.glow2, p.ring);
+    if (kind === 'station') {
+      p.glow = new THREE.Mesh(CROSS, addMat(c, 0.9)); p.glow.position.y = 0.3;
+      p.glow2 = new THREE.Mesh(CROSS, p.glow.material); p.glow2.position.y = 0.3; p.glow2.rotation.y = Math.PI / 2;
+    } else {
+      // 三條並排的彈藥
+      p.glow = new THREE.Group(); p.glow.position.y = 0.3;
+      const m = addMat(c, 0.9);
+      for (const dx of [-0.4, 0, 0.4]) { const b = new THREE.Mesh(CROSS, m); b.rotation.y = Math.PI / 2; b.scale.set(0.9, 1, 0.55); b.position.x = dx; p.glow.add(b); }
+      p.glow.material = m;
+    }
+    p.ring = new THREE.Mesh(RING_S, addMat(c, 0.5)); p.ring.rotation.x = -Math.PI / 2; p.ring.position.y = 0.04; p.ring.scale.setScalar(1.6);
+    g.add(p.box, p.glow, ...(p.glow2 ? [p.glow2] : []), p.ring);
   } else if (kind === 'link') {
     const c = p.up ? 0x60d0ff : 0xffb040;
     if (p.style === 'pad') { p.box = new THREE.Mesh(PAD, DARK); p.box.position.y = 0.12; p.box.castShadow = true; g.add(p.box); }
@@ -85,9 +95,9 @@ export function spendProp(p) {
   p.used = true;
   if (p.glow) p.glow.visible = false;
   if (p.glow2) p.glow2.visible = false;
-  if (p.kind === 'station') p.ring.visible = false;
+  if (p.kind === 'station' || p.kind === 'supply') p.ring.visible = false;
   if (p.bar && p.kind === 'weapon') p.bar.visible = p.ring.visible = false;
-  if (p.box && p.kind !== 'station') { p.box.rotation.z = 0.25; p.box.position.y = 0.32; }
+  if (p.box && p.kind !== 'station' && p.kind !== 'supply') { p.box.rotation.z = 0.25; p.box.position.y = 0.32; }
 }
 export function removeProp(p) {
   const i = props.indexOf(p);

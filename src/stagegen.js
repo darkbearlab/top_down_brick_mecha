@@ -6,6 +6,7 @@
 //   pad    彈射台：只能從 a（下面）往上跳到 b
 //   drop   跳下點：只能從 a（崖邊）往下跳到 b
 //   stairs 地下入口：雙向（a = 地下、b = 地表，同一個位置）
+// 傳送門附近一定有一個彈藥補給站（supplyNearPortal）
 // 關卡地形（terrain）：
 //   ruins 沙漠廢墟：現在這張大地圖（mapgen.js）當地表，加 2～3 條地下隧道：兩頭各是地表上的一個入口，中間有一兩個地下大廳（駐軍、補給）
 //   hive  層疊城塞：同一套分區產生器，但每個區域有自己的「層」（離出發區越遠越高），一層一層像山坡上的貧民窟
@@ -17,7 +18,22 @@ export const TERRAINS = { ruins: '沙漠廢墟', hive: '層疊城塞' };
 export const terrainOf = stage => stage % 2 === 0 ? 'hive' : 'ruins';   // 第 1、3、5… 關廢墟，2、4… 關城塞
 
 export function genStage(seed = Math.floor(Math.random() * 1e9), stage = 1, terrain = terrainOf(stage)) {
-  return terrain === 'hive' ? genHive(seed, stage) : genRuins(seed, stage);
+  const m = terrain === 'hive' ? genHive(seed, stage) : genRuins(seed, stage);
+  supplyNearPortal(m);
+  return m;
+}
+// 傳送門那層、離傳送門 10～24 格的地方保證一個彈藥補給站（頭目戰打到沒彈藥可以回頭補）
+function supplyNearPortal(m) {
+  const { W, H, portal } = m, L = m.layers[portal.layer], g = L.grid;
+  const inB = (c, r) => L.buildings.some(([bc, br, bw, bh]) => c >= bc - 1 && c < bc + bw + 1 && r >= br - 1 && r < br + bh + 1);
+  const stand = (c, r) => { for (let y = r - 1; y <= r + 1; y++) for (let x = c - 1; x <= c + 1; x++) { const t = g[y]?.[x]; if (t === undefined || t === '#' || t === 'v') return false; } return !inB(c, r); };
+  const R = rng(m.seed * 11 + 5);
+  for (let t = 0; t < 400; t++) {
+    const a = R() * Math.PI * 2, d = 10 + R() * 14, c = Math.round(portal.c + Math.cos(a) * d), r = Math.round(portal.r + Math.sin(a) * d);
+    if (c < 1 || r < 1 || c >= W - 1 || r >= H - 1 || !stand(c, r) || m.caches.some(q => q.layer === portal.layer && Math.hypot(q.c - c, q.r - r) < 5)) continue;
+    m.caches.push({ c, r, x: c - W / 2 + 0.5, z: r - H / 2 + 0.5, zone: portal.zone, kind: 'supply', layer: portal.layer });
+    return;
+  }
 }
 
 const toXf = W => c => c - W / 2 + 0.5, toZf = H => r => r - H / 2 + 0.5;

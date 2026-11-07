@@ -378,7 +378,7 @@ function showEndlessResult() {
 // 越後面的關卡 / 越深的區域：敵人傷害和耐久越高；箱子也越貴
 const SPAWN_R = 58, DESPAWN_R = 72, WAKE_R = 24, LOSE_R = 85;
 const START_WEAPONS = { armL: null, armR: 'mg', backL: 'missile', backR: null };   // 右手機槍、左背飛彈
-const COST = { cache: 25, weapon: 35 };
+const COST = { cache: 25, weapon: 35, supply: 15 };
 let EX = null;
 const costOf = base => Math.round(base * (1 + 0.35 * (EN.stage - 1)));
 function exDiff(depth) {
@@ -427,6 +427,7 @@ function startStage(seed) {
     const layer = c.layer ?? 0;
     if (c.kind === 'mod') addProp('cache', c.x, c.z, { cost: costOf(COST.cache), layer });
     else if (c.kind === 'station') addProp('station', c.x, c.z, { cost: costOf(COST.cache), layer });
+    else if (c.kind === 'supply') addProp('supply', c.x, c.z, { cost: costOf(COST.supply), layer });
     else addProp('weapon', c.x, c.z, { cost: costOf(COST.weapon), weapon: PLAYER_WEAPONS[Math.floor(R() * PLAYER_WEAPONS.length)], layer });
   }
   // 連接點：能從這頭走的那頭才放（彈射台的落點、跳下點的下面不放）
@@ -594,6 +595,7 @@ function promptText(p) {
   if (p.kind === 'weapon') return `F・打開武器箱：${WEAPONS[p.weapon].name}（${p.cost} 零件）${EN.scrap < p.cost ? '・零件不足' : ''}`;
   if (p.kind === 'gun') return `F・拿起 ${WEAPONS[p.weapon].name}`;
   if (p.kind === 'station') return !damaged() ? '修復站・機體沒有損傷' : `F・全機修復（${p.cost} 零件）${EN.scrap < p.cost ? '・零件不足' : ''}`;
+  if (p.kind === 'supply') return !lowAmmo() ? '彈藥補給站・彈藥是滿的' : `F・彈藥全部補滿（${p.cost} 零件）${EN.scrap < p.cost ? '・零件不足' : ''}`;
   if (p.kind === 'link') {
     const to = p.link[p.end === 'a' ? 'b' : 'a'], name = EX.map.layers[to.layer].name;
     return p.style === 'hole' ? `F・下到${name}` : p.style === 'shaft' ? `F・回到${name}` : p.style === 'edge' ? `F・跳下去（${name}）` : p.up ? `F・${p.link.kind === 'pad' ? '彈射' : '升'}到${name}` : `F・降到${name}`;
@@ -607,6 +609,12 @@ function interact(p) {
     EN.scrap -= p.cost; spendProp(p); sfx.reload();
     if (p.kind === 'cache') spawnPickup('mod', p.x, p.z);
     else offerGun(addProp('gun', p.x, p.z + 1.2, { weapon: p.weapon }));
+  } else if (p.kind === 'supply') {
+    if (!lowAmmo()) { toast('彈藥是滿的'); sfx.click(); return; }
+    if (EN.scrap < p.cost) { toast(`零件不足（需要 ${p.cost}，現在 ${EN.scrap}）`); sfx.click(); return; }
+    EN.scrap -= p.cost; spendProp(p);
+    for (const g of Object.values(player.guns)) if (g.max !== Infinity) g.ammo = g.max;
+    toast('彈藥補滿'); sfx.reloadDone();
   } else if (p.kind === 'station') {
     if (!damaged()) { toast('機體沒有損傷'); sfx.click(); return; }
     if (EN.scrap < p.cost) { toast(`零件不足（需要 ${p.cost}，現在 ${EN.scrap}）`); sfx.click(); return; }
@@ -639,6 +647,7 @@ function equip(p, slot) {
   toast(`${SLOT_NAMES[slot]}：${WEAPONS[p.weapon].name}`); sfx.reload();
 }
 // 換武器 = 照新的配裝重組一台，再把原本的狀態搬過去（各部位耐久比例、壞掉的部位、其他武器的彈藥比例、速度、能量）
+const lowAmmo = () => Object.values(player.guns).some(g => g.max !== Infinity && g.ammo < g.max);
 const damaged = () => Object.values(player.parts).some(q => q.broken || q.hp < q.max - 0.5);
 function refit(slot, id) {
   const prev = EN.loadout[slot];
@@ -676,7 +685,12 @@ function startBoss(p) {
 function spawnBoss(p) {
   fxHide('warning');
   let at = null;
-  for (let t = 0; t < 40 && !at; t++) { const a = Math.random() * Math.PI * 2, x = p.x + Math.cos(a) * 10, z = p.z + Math.sin(a) * 10; if (openAround(x, z)) at = { x, z }; }
+  // 落點：傳送門周圍 8～14 格的空地，而且走得到玩家（路程不超過直線的 2.5 倍）→ 不會掉進被建築圍住的角落出不來
+  for (let t = 0; t < 120 && !at; t++) {
+    const a = Math.random() * Math.PI * 2, r = 8 + Math.random() * 6, x = p.x + Math.cos(a) * r, z = p.z + Math.sin(a) * r;
+    if (openAround(x, z) && flowDist(x, z) < Math.hypot(x - player.x, z - player.z) * 2.5 + 6) at = { x, z };
+  }
+  if (!at && openAround(player.x + 6, player.z)) at = { x: player.x + 6, z: player.z };
   const P = randomLoadout(), D = EN.stage >= 3 ? DIFFS.hard : DIFFS.normal;
   const e = spawnEnemy(player, P, at ?? { x: p.x, z: p.z + 6 }, { diff: { ...D, hp: D.hp * (2.2 + 0.4 * EN.stage), dmg: D.dmg * (0.75 + 0.15 * EN.stage) } });
   e.boss = true;
