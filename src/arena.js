@@ -84,6 +84,43 @@ export function setLayer(k) {
     B.U.fogDim.value = j === k ? 1 : 0.72 * Math.pow(0.7, k - j - 1);
   });
 }
+// 地板：每格一塊高度略為不同的石板（頂面在 −0.02～−0.09 之間，低的稍暗），相鄰兩格有高低差就補一片側面
+// → 不用畫格線也分得出一格一格，地面多一點層次；懸空（'v'）不蓋，坑邊的側面往下接到崖壁柱子的頂（−FLOOR_LO）
+const FLOOR_LO = 0.12;
+const tileH = (c, r) => -(0.02 + hash(c * 3 + 1, r * 5 + 2) * 0.07);
+const DIRS4 = [[1, 0], [-1, 0], [0, 1], [0, -1]];
+function floorGeo(g) {
+  const pos = [], nor = [], uv = [], cl = [];
+  const vert = (x, y, z, nx, ny, nz, u, v, k) => { pos.push(x, y, z); nor.push(nx, ny, nz); uv.push(u, v); cl.push(k, k, k); };
+  const hAt = (c, r) => g[r][c] === 'v' ? -FLOOR_LO : tileH(c, r);
+  for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
+    if (g[r][c] === 'v') continue;
+    const h = tileH(c, r), x0 = c - W / 2, z0 = r - H / 2, x1 = x0 + 1, z1 = z0 + 1;
+    const u0 = c / W, u1 = (c + 1) / W, v0 = 1 - r / H, v1 = 1 - (r + 1) / H, k = 1 + h * 1.6;
+    // 頂面（兩個三角形，從上面看逆時針）
+    vert(x0, h, z0, 0, 1, 0, u0, v0, k); vert(x0, h, z1, 0, 1, 0, u0, v1, k); vert(x1, h, z1, 0, 1, 0, u1, v1, k);
+    vert(x0, h, z0, 0, 1, 0, u0, v0, k); vert(x1, h, z1, 0, 1, 0, u1, v1, k); vert(x1, h, z0, 0, 1, 0, u1, v0, k);
+    // 側面：比旁邊高的那格負責畫（顏色取這格中心、壓暗一點）
+    const uc = (c + 0.5) / W, vc = 1 - (r + 0.5) / H, cx = x0 + 0.5, cz = z0 + 0.5;
+    for (const [nx, nz] of DIRS4) {
+      const c2 = c + nx, r2 = r + nz;
+      if (c2 < 0 || r2 < 0 || c2 >= W || r2 >= H) continue;
+      const lo = hAt(c2, r2);
+      if (lo >= h) continue;
+      const mx = cx + nx * 0.5, mz = cz + nz * 0.5, ex = nz * 0.5, ez = -nx * 0.5;   // A = M − e、B = M + e：a b c / a c d 朝外
+      const ax = mx - ex, az = mz - ez, bx = mx + ex, bz = mz + ez, sk = 0.62;
+      vert(ax, lo, az, nx, 0, nz, uc, vc, sk); vert(bx, lo, bz, nx, 0, nz, uc, vc, sk); vert(bx, h, bz, nx, 0, nz, uc, vc, sk);
+      vert(ax, lo, az, nx, 0, nz, uc, vc, sk); vert(bx, h, bz, nx, 0, nz, uc, vc, sk); vert(ax, h, az, nx, 0, nz, uc, vc, sk);
+    }
+  }
+  const geo = new THREE.BufferGeometry();
+  geo.setAttribute('position', new THREE.Float32BufferAttribute(pos, 3));
+  geo.setAttribute('normal', new THREE.Float32BufferAttribute(nor, 3));
+  geo.setAttribute('uv', new THREE.Float32BufferAttribute(uv, 2));
+  geo.setAttribute('color', new THREE.Float32BufferAttribute(cl, 3));
+  geo.computeBoundingSphere();
+  return geo;
+}
 function buildLayer(map, L, k) {
   const g = L.grid.map(row => row.slice()), group = new THREE.Group(), U = makeFogU(), mine = [];
   const own = o => { mine.push(o); group.add(o); return o; };
@@ -113,15 +150,13 @@ function buildLayer(map, L, k) {
       x2.fillStyle = rgb(76 + m, 70 + m, 58 + m); x2.fillRect(x, y, PX, PX);
       if (hash(c, r) < 0.3) { x2.fillStyle = 'rgba(40,34,26,.35)'; x2.fillRect(x + ((c * 3) % 9) * q, y + ((r * 7) % 9) * q, 3 * q, 2 * q); }
     } else {
-      x2.fillStyle = rgb(62 + n, 66 + n, 74 + n); x2.fillRect(x, y, PX, PX);
-      x2.fillStyle = 'rgba(0,0,0,.28)'; x2.fillRect(x, y, PX, Math.max(1, q)); x2.fillRect(x, y, Math.max(1, q), PX);
+      x2.fillStyle = rgb(62 + n, 66 + n, 74 + n); x2.fillRect(x, y, PX, PX);   // 格線不畫了：地磚高低差自己會分出格子
     }
   }
   const tex = new THREE.CanvasTexture(cv);
   tex.magFilter = THREE.NearestFilter;
   tex.colorSpace = THREE.SRGBColorSpace;
-  const floor = own(new THREE.Mesh(new THREE.PlaneGeometry(W, H), fogMaterial(new THREE.MeshLambertMaterial({ map: tex, alphaTest: 0.5 }), U)));
-  floor.rotation.x = -Math.PI / 2;
+  const floor = own(new THREE.Mesh(floorGeo(g), fogMaterial(new THREE.MeshLambertMaterial({ map: tex, vertexColors: true }), U)));
   floor.receiveShadow = true;
 
   // 岩塊離空地幾格（8 方向 BFS，最多算到 10）：看不穿的岩層只蓋表面 2 格、邊緣那圈山蓋 9 格（迷霧看得進去 8 格），再裡面反正看不到
@@ -167,7 +202,7 @@ function buildLayer(map, L, k) {
     const sk = own(new THREE.InstancedMesh(UNIT_BOX, fogMaterial(new THREE.MeshLambertMaterial({ color: 0xffffff }), U), skirt.length));
     const hgt = Math.max(k * SINK, 9);   // 至少 9 格深：最底層的坑看起來看不到底
     skirt.forEach(([c, r], i) => {
-      mtx.makeScale(1.02, hgt, 1.02).setPosition(toWorldX(c), -hgt / 2 - 0.01, toWorldZ(r));
+      mtx.makeScale(1.02, hgt, 1.02).setPosition(toWorldX(c), -hgt / 2 - FLOOR_LO, toWorldZ(r));
       sk.setMatrixAt(i, mtx);
       const kk = hash(c, r);
       sk.setColorAt(i, col.setRGB(0.26 + kk * 0.05, 0.25 + kk * 0.05, 0.25 + kk * 0.04, THREE.SRGBColorSpace));

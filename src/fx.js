@@ -11,6 +11,7 @@ export function setWallTest(fn, pit = null) { wallTest = fn; if (pit) pitTest = 
 // 噴出去的碎片（建築被打掉的方塊、機體炸開的碎塊）落地停住之後，「壓」進一個共用的 InstancedMesh（一整批只畫一次），一直留著
 // 每層一個（掛在那層的 group 底下、用那層的迷霧）；最多 RUBBLE_MAX 塊，超過就蓋掉最舊的；換關 / 換模式時清掉
 const RUBBLE_MAX = 20000;
+const RUBBLE_DIM = 0.55;   // 留在地上的碎片暗多少（1 = 跟飛的時候一樣亮）
 const rubblePools = new Map();
 let rubble = null;
 const rM = new THREE.Matrix4(), rQ = new THREE.Quaternion(), rS = new THREE.Vector3(), rC = new THREE.Color();
@@ -40,7 +41,7 @@ function bake(d) {
   rQ.setFromEuler(d.m.rotation);
   rM.compose(d.m.position, rQ, rS.setScalar(d.s));
   R.mesh.setMatrixAt(i, rM);
-  R.mesh.setColorAt(i, rC.copy(d.m.material.color));
+  R.mesh.setColorAt(i, rC.copy(d.m.material.color).multiplyScalar(RUBBLE_DIM));
   R.next = (i + 1) % RUBBLE_MAX;
   R.mesh.count = Math.max(R.mesh.count, i + 1);
   R.mesh.instanceMatrix.needsUpdate = true; R.mesh.instanceColor.needsUpdate = true;

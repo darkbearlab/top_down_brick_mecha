@@ -15,7 +15,7 @@ import { sfx } from './audio.js';
 import { EFFECT, WEAPONS, computeSpec } from './parts.js';
 import { buildMechModel } from './model.js';
 import { CHIPS, DEVICES, hasChip } from './tech.js';
-import { collideWrecks, isWreck, startWreck } from './wreck.js';
+import { collideWrecks, isWreck, startDying, startWreck } from './wreck.js';
 import { damageBuilding } from './buildings.js';
 
 export const PART_NAMES = { head: '頭部', torso: '軀幹', armL: '左臂', armR: '右臂', backL: '左背', backR: '右背', legs: '腳部' };
@@ -412,6 +412,14 @@ function destroyMech(m, dx, dz) {
   m.alive = false;
   // 主力機體：慢動作特寫 + 留下燒著的殘骸（src/wreck.js）
   if (m.ace) { startWreck(m, dx, dz); m.onDeath?.(m); return; }
+  // 雜魚（自爆機、蟲群以外）：部位一個個被誘爆，或原地燒成焦炭（src/wreck.js 的 startDying）
+  if (m.grunt && !m.bomber && !m.swarm) {
+    startDying(m, dx, dz, { chain: !!m.fly, boom: () => gruntBoom(m, dx, dz) });
+    G.hitStop = Math.max(G.hitStop, 0.02);
+    addTrauma(0.2);
+    m.onDeath?.(m);
+    return;
+  }
   // 雜魚：碎片燒得焦黑、三成還著火（被火焰籠罩的感覺）
   const fxOpts = m.grunt ? { char: 0.72, burn: 0.3 } : null;
   for (const k in m.parts) if (m.parts[k].g.visible) voxelBurst(m.parts[k].g, m.grunt ? 55 : 40, 7, m.x, m.z, dx * 3, dz * 3, fxOpts);
@@ -438,7 +446,7 @@ function destroyMech(m, dx, dz) {
 }
 
 export function removeMech(m) {
-  if (!isWreck(m)) scene.remove(m.model.root);   // 殘骸的模型歸 wreck.js 管
+  if (!isWreck(m) && !m.dying) scene.remove(m.model.root);   // 殘骸 / 擊破演出中的模型歸 wreck.js 管
   const i = mechs.indexOf(m);
   if (i >= 0) mechs.splice(i, 1);
 }

@@ -6,7 +6,7 @@
 // 殘骸留到 clearWrecks()（競技場 = 下一局開始；以後的任務 = 任務結束）
 import * as THREE from 'three';
 import { G, addTrauma, scene } from './core.js';
-import { RAMP, explosion, fire, spawnGlow, spawnPuff, voxelBurst } from './fx.js';
+import { RAMP, burnAt, explosion, fire, spawnGlow, spawnPuff, voxelBurst } from './fx.js';
 import { sfx } from './audio.js';
 
 export const wrecks = [];
@@ -64,6 +64,7 @@ function torsoY(w) { return w.m.model.hipY + 0.9; }
 
 export function updateWrecks(dt, raw) {
   if (killCam.t > 0 && (killCam.t -= raw) <= 0) document.body.classList.remove('killcam');
+  updateDying(dt);
   for (const w of wrecks) {
     w.t += dt;
     if (w.whiteT > 0 && (w.whiteT -= raw) <= 0) for (const k in w.m.parts) w.m.parts[k].mat.emissive.setHex(w.m.parts[k].base);
@@ -156,7 +157,113 @@ function removeWreck(w) {
   if (i >= 0) wrecks.splice(i, 1);
   scene.remove(w.root);
 }
+// ---------- 雜魚的擊破演出（startDying） ----------
+// 兩種（隨機，飛的一定是第一種）：
+//   chain：某個部位先炸開，其他部位一個接一個被誘爆（間隔 0.1～0.35 秒），還沒炸的部位冒火、燒紅；軀幹最後大爆炸
+//   burn：不炸，原地燒：慢慢歪倒、陷下去、越燒越黑，3.5～5 秒後變成焦炭塌掉散開
+// 模型歸這裡管（removeMech 看到 m.dying 不會拿掉），演完自己拿掉
+const dyings = [];
+const CHAR_D = new THREE.Color(0x231e1a), WHITE = new THREE.Color(0xffffff);
+const DYING_CHAIN = 0.6;   // 誘爆的機率（其他是原地燒）
+export function startDying(m, dx, dz, o = {}) {
+  const dl = Math.hypot(dx, dz) || 1;
+  const keys = Object.keys(m.parts).filter(k => m.parts[k].g.visible);
+  const d = { m, root: m.model.root, x: m.x, z: m.z, dx: dx / dl, dz: dz / dl, t: 0, boom: o.boom, y0: m.model.root.position.y,
+    fireAcc: 0, smokeAcc: 0, flick: Math.random() * 10, mats: keys.map(k => m.parts[k].mat) };
+  m.dying = true;
+  const rest = keys.filter(k => k !== 'torso');
+  if (o.chain || rest.length === 0 || Math.random() < DYING_CHAIN) {
+    d.mode = 'chain'; d.queue = [];
+    for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
+    let t = 0;
+    for (const k of rest) { d.queue.push({ k, t }); t += R(0.1, 0.35); }
+    d.queue.push({ k: 'torso', t: t + R(0.05, 0.25) });
+  } else {
+    d.mode = 'burn'; d.end = R(3.5, 5);
+    explosion(d.x, d.y0 + m.model.hipY + 0.6, d.z, 0.55);
+    sfx.partBreak();
+  }
+  dyings.push(d);
+  return d;
+}
+function partPos(d, k) { d.m.parts[k].g.getWorldPosition(tmp); return tmp; }
+function popPart(d, k) {
+  const p = d.m.parts[k];
+  if (k === 'torso') {
+    d.boom?.();
+    for (const kk in d.m.parts) if (d.m.parts[kk].g.visible) voxelBurst(d.m.parts[kk].g, kk === 'torso' ? 55 : 30, 7, d.x, d.z, d.dx * 3, d.dz * 3, { char: 0.72, burn: 0.3 });
+    burnAt(d.x, 0.25, d.z, 3.5, 0.9);
+    sfx.explode(); addTrauma(0.3);
+    endDying(d);
+    return;
+  }
+  if (!p?.g.visible) return;
+  voxelBurst(p.g, 40, 6, d.x, d.z, d.dx * 2, d.dz * 2, { char: 0.55, burn: 0.35 });
+  const P = partPos(d, k);
+  explosion(P.x, Math.max(0.5, P.y), P.z, 0.5);
+  p.g.visible = false;
+  sfx.partBreak(); addTrauma(0.15);
+}
+function endDying(d) {
+  const i = dyings.indexOf(d);
+  if (i >= 0) dyings.splice(i, 1);
+  scene.remove(d.root);
+}
+function updateDying(dt) {
+  for (const d of dyings.slice()) {
+    d.t += dt;
+    const ty = d.y0 + d.m.model.hipY + 0.5;
+    if (d.mode === 'chain') {
+      while (d.queue.length && d.queue[0].t <= d.t) { const q = d.queue.shift(); popPart(d, q.k); if (!dyings.includes(d)) break; }
+      if (!dyings.includes(d)) continue;
+      // 還沒炸的部位：冒火、火花，鋼板燒紅（越接近下一次爆炸越亮）
+      d.fireAcc += dt * 40;
+      while (d.fireAcc >= 1) { d.fireAcc--; fire(d.x + R(-0.4, 0.4), ty + R(-0.3, 0.4), d.z + R(-0.4, 0.4), 0.55); }
+      if (Math.random() < dt * 25) {
+        const a = Math.random() * Math.PI * 2, sp = R(3, 9);
+        spawnGlow({ x: d.x, y: ty, z: d.z, vx: Math.cos(a) * sp, vy: R(2, 7), vz: Math.sin(a) * sp, life: R(0.3, 0.7), s0: 0.08, s1: 0.02, ramp: RAMP.spark, g: 18, drag: 1, bounce: true });
+      }
+      d.flick += dt * 30;
+      const g = 0.6 + 0.4 * Math.sin(d.flick);
+      const hex = (Math.round(0x70 * g) << 16) | (Math.round(0x18 * g) << 8);
+      for (const mat of d.mats) mat.emissive.setHex(hex);
+      continue;
+    }
+    // burn：歪倒、陷下去、燒黑
+    const f = Math.min(1, d.t / d.end), e = 1 - (1 - Math.min(1, d.t / 1.2)) ** 3;
+    d.root.rotation.set(d.dz * 0.3 * e, d.root.rotation.y, -d.dx * 0.3 * e);
+    d.root.position.y = d.y0 - 0.22 * e - 0.15 * f;
+    const ck = Math.min(1, d.t / 2.4);
+    for (const mat of d.mats) mat.color.copy(WHITE).lerp(CHAR_D, ck);
+    d.flick += dt * 9;
+    const glow = (0.5 + 0.5 * Math.sin(d.flick) * Math.sin(d.flick * 0.37 + 1)) * (1 - f * 0.7);
+    const hex = (Math.round(0x50 * glow) << 16) | (Math.round(0x10 * glow) << 8);
+    for (const mat of d.mats) mat.emissive.setHex(hex);
+    d.fireAcc += dt * 34 * (1 - f * 0.65);
+    while (d.fireAcc >= 1) {
+      d.fireAcc--;
+      const ks = Object.keys(d.m.parts).filter(k => d.m.parts[k].g.visible), P = partPos(d, ks[Math.floor(Math.random() * ks.length)]);
+      fire(P.x + R(-0.25, 0.25), Math.max(0.3, P.y), P.z + R(-0.25, 0.25), 0.45 + 0.4 * (1 - f));
+    }
+    d.smokeAcc += dt * 3;
+    while (d.smokeAcc >= 1) {
+      d.smokeAcc--;
+      spawnPuff({ x: d.x + R(-0.3, 0.3), y: ty + 0.3, z: d.z + R(-0.3, 0.3), vx: R(-0.2, 0.2) + 0.2, vy: R(1.2, 1.8), vz: R(-0.2, 0.2) - 0.1,
+        life: R(2, 3), s: R(0.4, 0.6), c0: 0x121216, c1: 0x46484e, drag: 0.35 });
+    }
+    if (d.t >= d.end) {
+      // 燒完：焦炭塌掉，碎塊幾乎是原地落下，冒一團灰
+      for (const k in d.m.parts) if (d.m.parts[k].g.visible) voxelBurst(d.m.parts[k].g, 45, 1.2, d.x, d.z, 0, 0, { char: 1 });
+      for (let i = 0; i < 6; i++) spawnPuff({ x: d.x + R(-0.6, 0.6), y: R(0.3, 1.2), z: d.z + R(-0.6, 0.6), vx: R(-0.5, 0.5), vy: R(0.3, 0.9), vz: R(-0.5, 0.5),
+        life: R(1.5, 2.4), s: R(0.5, 0.9), c0: 0x3a3836, c1: 0x5a5856, drag: 0.6 });
+      sfx.partBreak();
+      endDying(d);
+    }
+  }
+}
+
 export function clearWrecks() {
+  while (dyings.length) endDying(dyings[0]);
   while (wrecks.length) removeWreck(wrecks[0]);
   killCam.t = 0;
   document.body.classList.remove('killcam');
