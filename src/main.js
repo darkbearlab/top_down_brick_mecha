@@ -1098,9 +1098,10 @@ function gunState(m, slot) {
   return g.def.ammo ? `${g.ammo}/${g.max}` : g.cd > 0 ? '冷卻' : '就緒';
 }
 let gunsKey = '';
-// 游標旁的彈藥（只有用滑鼠時）：每個掛點一個數字，正在用的（左右鍵現在打的那把）亮起來；
-//   能量武器 / 劍 ∞、盾牌顯示盾的耐久、壞掉 ×、打光 0（紅）、空的掛點不顯示
-const retKey = {};
+// 游標旁的彈藥（只有用滑鼠時）：每個掛點一個數字，正在用的（左右鍵現在打的那把）白色、其他灰色；
+//   能量武器 / 劍 ∞、盾牌顯示盾的耐久、壞掉 ×、打光 0（紅）、沒裝東西 NaN；開火時那個數字閃一下（放大、變亮）
+const retKey = {}, retCd = {};
+const RET_BASE = 'scale(1.18, 0.78)', RET_FLASH = [{ transform: 'scale(1.5, 1)', filter: 'brightness(2.2)' }, { transform: RET_BASE, filter: 'brightness(1)' }];
 function updateReticle(show) {
   const el = $('reticle');
   el.classList.toggle('hidden', !show);
@@ -1109,18 +1110,21 @@ function updateReticle(show) {
   const p = player;
   for (const s of SLOTS) {
     const g = p.guns[s], side = s.slice(-1);
-    let txt = '', bad = false;
+    let txt = 'NaN', bad = false;
     if (g) {
       if (p.parts[s]?.broken) { txt = '×'; bad = true; }
       else if (g.def.kind === 'shield') txt = p.shield ? `盾${Math.ceil(p.shield.hp)}` : '';
       else if (g.max === Infinity) txt = '∞';
       else { txt = String(g.ammo); bad = g.ammo <= 0; }
     }
-    const cls = `${s.startsWith('arm') ? 'top' : 'bot'} ${side} ${activeSlot(p, side) === s ? 'act' : ''} ${bad ? 'bad' : ''}`;
+    const cls = `${s.startsWith('arm') ? 'top' : 'bot'} ${side === 'L' ? 'L' : 'R'} ${activeSlot(p, side) === s ? 'act' : ''} ${bad ? 'bad' : ''} ${g ? '' : 'none'}`;
+    const sp = $('r' + s);
+    // 開火：冷卻剛被重新設定（比上一幀大）
+    if (g && g.cd > (retCd[s] ?? 0) + 0.005) sp.animate(RET_FLASH, { duration: 110, easing: 'ease-out' });
+    retCd[s] = g?.cd ?? 0;
     const k = txt + '|' + cls;
     if (retKey[s] === k) continue;
     retKey[s] = k;
-    const sp = $('r' + s);
     sp.textContent = txt; sp.className = cls;
   }
 }

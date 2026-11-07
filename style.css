@@ -9,13 +9,14 @@ html, body {
 /* 游標旁的彈藥：左上 / 右上 = 左右手、左下 / 右下 = 左右背；正在用的那把亮起來 */
 #reticle { position: fixed; left: 0; top: 0; width: 0; height: 0; pointer-events: none; z-index: 6; }
 #reticle.hidden { display: none; }
-#reticle span { position: absolute; white-space: nowrap; font: 700 12px/1 ui-monospace, Consolas, monospace; color: #e8ecf2; opacity: .42;
-  text-shadow: 0 0 3px #000, 0 1px 2px #000; transition: opacity .12s, color .12s; }
-#reticle span.L { right: 22px; text-align: right; } #reticle span.R { left: 22px; }
-#reticle span.top { bottom: 6px; } #reticle span.bot { top: 6px; }
-#reticle span.act { opacity: 1; color: #7ff0ff; font-size: 14px; }
+/* 字壓扁（橫的拉寬、直的壓矮）；開火時閃一下（main.js 用 animate） */
+#reticle span { position: absolute; white-space: nowrap; font: 700 13px/1 Bahnschrift, 'DIN Alternate', ui-monospace, Consolas, monospace; color: #8a909a;
+  text-shadow: 0 0 3px #000, 0 1px 2px #000; transform: scale(1.18, 0.78); transition: color .12s; }
+#reticle span.L { right: 30px; text-align: right; transform-origin: right center; } #reticle span.R { left: 30px; transform-origin: left center; }
+#reticle span.top { bottom: 5px; } #reticle span.bot { top: 5px; }
+#reticle span.act { color: #ffffff; font-size: 15px; }
 #reticle span.bad { color: #ff6a50; }
-#reticle span.act.bad { color: #ff6a50; }
+#reticle span.none { color: #5a5f68; }
 #game canvas { cursor: url("data:image/svg+xml,<svg xmlns='http://www.w3.org/2000/svg' width='32' height='32'><g fill='none' stroke-linecap='round'><g stroke='%23000' stroke-opacity='.65' stroke-width='4'><circle cx='16' cy='16' r='8'/><path d='M16 2v7M16 23v7M2 16h7M23 16h7'/></g><g stroke='%23fff' stroke-width='2'><circle cx='16' cy='16' r='8'/><path d='M16 2v7M16 23v7M2 16h7M23 16h7'/></g></g><circle cx='16' cy='16' r='1.6' fill='%237ff0ff'/></svg>") 16 16, crosshair; }
 
 #hud { position: fixed; inset: 0; pointer-events: none; z-index: 5; }
