@@ -14,6 +14,7 @@ import { SLOW_K, clearWrecks, killCam, updateWrecks } from './wreck.js';
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
 import { AI, DIFFS, clearEnemies, enemies, keepEnemies, removeEnemy, spawnEnemy, updateEnemy } from './ai.js';
 import { makeLaser, setLaser, updateParticles } from './fx.js';
+import { clearWarp, startWarp, updateWarp } from './warp.js';
 import { ARMORS, DMG_TYPES, ENEMY_PRESETS, GRUNTS, GRUNTS_LOW, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, SQUADS, WEAPONS, gruntOf, loadLoadout, pickSquad, randomGrunt, randomLoadout } from './parts.js';
 import { clearPickups, pickups, spawnPickup, updatePickups } from './pickups.js';
 import { sensors, setSensorsVisible, updateSensors } from './sensors.js';
@@ -49,6 +50,15 @@ function spawnPlayer(x = PLAYER_START.x, z = PLAYER_START.z, yaw = Math.PI, lo =
   return player;
 }
 const guides = { L: makeLaser(0x7ff0ff), R: makeLaser(0x7ff0ff) };
+// 演出用的覆蓋層：出現時 CSS 動畫淡入；收起來先淡出（.fadeout）再藏（now = 直接藏）
+function fxShow(id) { const el = $(id); clearTimeout(el.fadeT); el.classList.remove('hidden', 'fadeout'); }
+function fxHide(id, now = false) {
+  const el = $(id);
+  clearTimeout(el.fadeT);
+  if (now || el.classList.contains('hidden')) { el.classList.add('hidden'); el.classList.remove('fadeout'); return; }
+  el.classList.add('fadeout');
+  el.fadeT = setTimeout(() => { el.classList.add('hidden'); el.classList.remove('fadeout'); }, 700);
+}
 
 // map：要用的地圖（不給 = 競技場）；換了才重新載入
 const ARENA = arenaMap();
@@ -65,7 +75,9 @@ function resetWorld(map = null) {
   clearPickups();
   clearProps();
   resetBuildings();
-  $('boss').classList.add('hidden'); $('prompt').classList.add('hidden'); $('warning').classList.add('hidden'); $('bossIntro').classList.add('hidden');
+  $('boss').classList.add('hidden'); $('prompt').classList.add('hidden'); fxHide('warning', true); fxHide('bossIntro', true);
+  fxHide('warpFade');   // 傳送進下一關：白畫面在新地圖上淡掉
+  clearWarp();
   if (bossIntro.t > 0) { bossIntro.t = 0; document.body.classList.remove('killcam'); }
   $('endless').classList.add('hidden');
   sensors.progress.clear(); sensors.locks = [];
@@ -540,7 +552,7 @@ function updateExplore(dt) {
 // ---------- 互動：箱子、武器、傳送門 ----------
 const weaponLine = id => { const W = WEAPONS[id]; return `<span class="wt" style="--c:${DMG_TYPES[W.type].css}">${DMG_TYPES[W.type].name}</span> ${W.mount === 'arm' ? '手臂' : '背部'}・傷害 ${W.dmg}${W.pellets ? ' ×' + W.pellets : ''}${W.salvo > 1 ? ' ×' + W.salvo : ''}${W.splash ? '・爆風' : ''}・${W.ammo ? '彈藥 ' + W.ammo : '吃能量'}・重量 ${W.weight}`; };
 function promptText(p) {
-  if (!p) return '';
+  if (!p || EX.warpT != null) return '';
   if (p.kind === 'cache') return `F・打開補給箱（${p.cost} 零件）${EN.scrap < p.cost ? '・零件不足' : ''}`;
   if (p.kind === 'weapon') return `F・打開武器箱：${WEAPONS[p.weapon].name}（${p.cost} 零件）${EN.scrap < p.cost ? '・零件不足' : ''}`;
   if (p.kind === 'gun') return `F・拿起 ${WEAPONS[p.weapon].name}`;
@@ -563,7 +575,7 @@ function interact(p) {
   } else if (p.kind === 'gun') offerGun(p);
   else if (p.kind === 'portal') {
     if (p.state === 'ready') startBoss(p);
-    else if (p.state === 'open') { EN.stage++; startStage(); }
+    else if (p.state === 'open') warpOut();
     else { toast(promptText(p)); sfx.click(); }
   }
 }
@@ -617,10 +629,10 @@ function startBoss(p) {
   setPortal(p, 'boss');
   EX.pending = [];   // 頭目是完整機體、不比玩家差：啟動後所有增援都關掉（已經在場上的留著，不再新增）
   EX.warnT = WARN_T; EX.beepT = 0;
-  $('warning').classList.remove('hidden');
+  fxShow('warning');
 }
 function spawnBoss(p) {
-  $('warning').classList.add('hidden');
+  fxHide('warning');
   let at = null;
   for (let t = 0; t < 40 && !at; t++) { const a = Math.random() * Math.PI * 2, x = p.x + Math.cos(a) * 10, z = p.z + Math.sin(a) * 10; if (openAround(x, z)) at = { x, z }; }
   const P = randomLoadout(), D = EN.stage >= 3 ? DIFFS.hard : DIFFS.normal;
@@ -642,10 +654,22 @@ function updateBossIntro(dt) {
     EX.bossLanding = false;
     bossIntro.t = INTRO_T; bossIntro.x = b.x; bossIntro.z = b.z;
     document.body.classList.add('killcam');
-    $('bossIntro').classList.remove('hidden');
+    fxShow('bossIntro');
     $('boss').classList.remove('hidden');
     sfx.land(); G.trauma = Math.min(1, G.trauma + 0.6);
   }
+}
+// ---------- 傳送到下一關 ----------
+// 機體從頭頂往下分解成小方塊往上飛走（warp.js），這段時間世界停住；最後畫面白掉 → 換新地圖 → 白畫面淡掉
+const WARP_FADE = 1.3, WARP_T = 1.65;
+function warpOut() {
+  EX.warpT = 0;
+  startWarp(player.model.root);
+  sfx.warp();
+}
+function updateWarpOut(raw) {
+  if (EX.warpT < WARP_FADE && EX.warpT + raw >= WARP_FADE) fxShow('warpFade');
+  if ((EX.warpT += raw) >= WARP_T) { EX.warpT = null; EN.stage++; startStage(); }
 }
 function exLoot(e) {
   const x = e.x, z = e.z;
@@ -978,7 +1002,11 @@ function frame(t) {
 
   let dt = !playing || G.paused || garage.open || window.__dbg.paused ? 0 : raw;
   // 頭目著陸定格：時間停住（鏡頭照樣動）
-  if (bossIntro.t > 0 && !G.paused) { if ((bossIntro.t -= raw) <= 0) { document.body.classList.remove('killcam'); $('bossIntro').classList.add('hidden'); } dt = 0; }
+  if (bossIntro.t > 0 && !G.paused) { if ((bossIntro.t -= raw) <= 0) { document.body.classList.remove('killcam'); fxHide('bossIntro'); } dt = 0; }
+  // 傳送中：世界停住，只播分解演出（粒子照樣飛）
+  const warping = MODE.name === 'explore' && EX?.warpT != null;
+  if (warping && !G.paused) { dt = 0; updateWarpOut(raw); }
+  updateWarp(G.paused ? 0 : raw);
   if (dt > 0 && G.hitStop > 0) { G.hitStop -= raw; dt = 0; }
   // 慢動作：被擊墜時很慢（SLOW_K），最後 0.4 秒慢慢回到正常速度
   if (dt > 0 && G.slowMo > 0) { G.slowMo -= raw; const k = killCam.t > 0 ? SLOW_K : 0.35; dt *= G.slowMo < 0.4 ? k + (1 - k) * (1 - G.slowMo / 0.4) : k; }
@@ -1028,6 +1056,7 @@ function frame(t) {
     if (MODE.endT > 0 && (MODE.endT -= raw) <= 0) watching ? nextWatch() : MODE.name === 'endless' ? showEndlessResult() : MODE.name === 'explore' ? showExploreResult() : showResult(MODE.result === 'win');
   }
   if (!playing || dt > 0 || garage.open) updateParticles(playing ? dt : raw);
+  else if (warping && !G.paused) updateParticles(raw);
   for (const m of mechs) poseMech(m, dt);
   if (!playing) { player.torsoYaw = player.legYaw = G.now * 0.25; poseMech(player, 0); }
   clearPressed();
@@ -1035,7 +1064,7 @@ function frame(t) {
   // 瞄準線：左右各一條，從那一邊目前準備好的武器的槍口、沿上半身正前方射出（子彈就是這樣飛的）；空手、壞掉、劍不畫
   for (const side of ['L', 'R']) {
     const slot = activeSlot(player, side), g = player.guns?.[slot];
-    if (playing && !watching && player.alive && !garage.open && g && !player.parts[slot]?.broken && g.def.kind !== 'saber') {
+    if (playing && !watching && player.alive && !garage.open && !warping && g && !player.parts[slot]?.broken && g.def.kind !== 'saber') {
       const f = facing(player), mz = muzzleOf(player, slot);
       setLaser(guides[side], mz.x, mz.z, f.x, f.z, rayBlock(mz.x, mz.z, f.x, f.z, 22), mz.y, 0.3, 0.03);
     } else guides[side].g.visible = false;
@@ -1134,7 +1163,7 @@ addEventListener('pointerdown', unlockAudio);
 // 面板上的按鈕可以用數字鍵選（1 = 第一個）
 addEventListener('keydown', e => { if (panelOpen() && /^Digit[1-9]$/.test(e.code)) $('pButtons').children[+e.code.slice(5) - 1]?.click(); });
 addEventListener('keydown', unlockAudio);
-window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, startHorde, startSkirmish, startEndless, startRun, startStage, callReinforcements, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
+window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, startHorde, startSkirmish, startEndless, startRun, startStage, callReinforcements, warpOut, startBoss, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
 showMenu();
 camTarget.set(player.x, 0, player.z);
 nextFrame(frame);
