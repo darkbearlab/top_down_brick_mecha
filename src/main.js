@@ -490,8 +490,9 @@ function patrolRoute(S) {
 }
 // ---------- 小隊登場 ----------
 // spread：散開站在據點周圍（一般 3～7 格、守備據點 2～4 格），不會擠成一團
-// drop：一開始不在場上；玩家走到據點 DROP_R 格內，整隊從天上空降到玩家周圍 7～13 格（偏向據點那一側），落地就醒著
-const DROP_CHANCE = 0.4, DROP_R = 18;
+// drop：一開始不在場上；玩家走到據點 DROP_R 格內時，先在據點周圍 4～9 格挑好每台的空降點（包圍點，看不到）；
+//   玩家再走到任一個空降點 DROP_TRIG 格內（或據點 DROP_TRIG 格內）才開始空投：一台一台降，每台間隔 DROP_GAP 秒（紅圈不會同時出現），落地就醒著
+const DROP_CHANCE = 0.4, DROP_R = 18, DROP_TRIG = 7, DROP_GAP = [1.15, 1.5];   // 間隔比降落動畫（ai.js DROP_TIME 1.1 秒）長 → 一次只有一個紅圈
 function spreadSpot(cx, cz, r0, r1, taken) {
   for (let t = 0; t < 40; t++) {
     const a = Math.random() * Math.PI * 2, r = r0 + Math.random() * (r1 - r0), x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
@@ -499,32 +500,45 @@ function spreadSpot(cx, cz, r0, r1, taken) {
   }
   return null;
 }
-function spawnSquad(S, drop = false) {
+function spawnSquad(S) {
   S.members = [];
-  const taken = [], toS = Math.atan2(S.z - player.z, S.x - player.x);
+  const taken = [];
   S.units.forEach((u, i) => {
     if (u.dead || u.away) return;   // away：追到別層去了
     const a = i / S.units.length * Math.PI * 2;
-    let at = null;
-    if (drop) {
-      for (let t = 0; t < 40 && !at; t++) {
-        const b = toS + (Math.random() - 0.5) * (t < 20 ? 2.2 : 6.3), r = 7 + Math.random() * 6, x = player.x + Math.cos(b) * r, z = player.z + Math.sin(b) * r;
-        if (openAround(x, z) && (t >= 30 || flowDist(x, z) < r * 2.2) && !taken.some(p => Math.hypot(p.x - x, p.z - z) < 2.5)) at = { x, z };   // 最後幾次不管路程
-      }
-    }
-    at ??= S.hold ? spreadSpot(S.x, S.z, 2, 4, taken) : spreadSpot(S.x, S.z, 3, 7, taken);
+    let at = S.hold ? spreadSpot(S.x, S.z, 2, 4, taken) : spreadSpot(S.x, S.z, 3, 7, taken);
     at ??= { x: S.x + Math.sin(a) * 1.8, z: S.z + Math.cos(a) * 1.8 };
     taken.push(at);
-    const P = gruntOf(u.key), look = drop ? player : { x: at.x + Math.sin(a), z: at.z + Math.cos(a) };
-    const e = spawnEnemy(look, P, at, { colors: GRUNT_COLORS, diff: exDiff(S.depth), grunt: true, noDrop: !drop });
-    e.dormant = !S.awake; e.squad = S; e.unit = u; e.enElite = u.key.endsWith('*'); e.lvl = S.depth; e.fixed = !!P.fixed;
-    e.chase = chaseOf(e);
-    if (S.hold) e.hold = { x: S.x, z: S.z, r: S.hold };
-    e.slot = i;
-    if (u.hp != null) e.parts.torso.hp = Math.min(u.hp, e.parts.torso.max);
-    e.seenHp = e.parts.torso.hp;
-    S.members.push(e);
+    spawnUnit(S, u, i, at, false);
   });
+}
+function spawnUnit(S, u, i, at, drop) {
+  const a = i / S.units.length * Math.PI * 2;
+  const P = gruntOf(u.key), look = drop ? player : { x: at.x + Math.sin(a), z: at.z + Math.cos(a) };
+  const e = spawnEnemy(look, P, at, { colors: GRUNT_COLORS, diff: exDiff(S.depth), grunt: true, noDrop: !drop });
+  e.dormant = !S.awake; e.squad = S; e.unit = u; e.enElite = u.key.endsWith('*'); e.lvl = S.depth; e.fixed = !!P.fixed;
+  e.chase = chaseOf(e);
+  if (S.hold) e.hold = { x: S.x, z: S.z, r: S.hold };
+  e.slot = i;
+  if (u.hp != null) e.parts.torso.hp = Math.min(u.hp, e.parts.torso.max);
+  e.seenHp = e.parts.torso.hp;
+  S.members.push(e);
+  return e;
+}
+// 空投小隊的包圍點：據點周圍 4～9 格、走得到的空地，每台一個
+function dropPoints(S) {
+  const pts = [];
+  S.units.forEach((u, i) => {
+    if (u.dead || u.away) return;
+    let at = null;
+    for (let t = 0; t < 40 && !at; t++) {
+      const b = Math.random() * Math.PI * 2, r = 4 + Math.random() * 5, x = S.x + Math.cos(b) * r, z = S.z + Math.sin(b) * r;
+      if (openAround(x, z) && !pts.some(p => Math.hypot(p.x - x, p.z - z) < 3)) at = { x, z };
+    }
+    at ??= spreadSpot(S.x, S.z, 2, 6, pts) ?? { x: S.x + Math.sin(i * 2.1) * 1.8, z: S.z + Math.cos(i * 2.1) * 1.8 };
+    pts.push({ x: at.x, z: at.z, u, i });
+  });
+  return pts;
 }
 function despawnSquad(S) {
   for (const e of S.members) if (e.alive) { e.unit.hp = e.parts.torso.hp; removeEnemy(e); }
@@ -568,14 +582,26 @@ function updateExplore(dt) {
     if (S.cleared || S.layer !== EX.layer) continue;   // 別層的小隊不動（換層時已經收起來）
     const d = Math.hypot(S.x - player.x, S.z - player.z);
     if (S.members.some(e => e.alive && e.fogVis)) S.found = true;   // 親眼看到才算發現
+    // 空投進行中：時間到就降下一台
+    if (S.dropQ?.length) {
+      S.dropT = (S.dropT ?? 0) + dt;
+      while (S.dropQ.length && S.dropQ[0].t <= S.dropT) {
+        const q = S.dropQ.shift();
+        if (!q.u.dead && !q.u.away) spawnUnit(S, q.u, q.i, q, true).dormant = false;
+      }
+      if (S.dropQ.length) continue;
+    }
     if (!S.members.length) {
       if (S.entry === 'drop' && !S.dropped) {
-        // 空投小隊：玩家走進範圍才整隊空降（之後被甩掉收起來，再出現就照一般方式散開站著）
+        // 空投小隊：玩家走近據點時先挑好包圍點；再走到任一包圍點附近才開始一台一台空降
+        //   （之後被甩掉收起來，再出現就照一般方式散開站著）
         if (d < DROP_R && player.alive) {
-          S.dropped = S.awake = S.found = true;
-          spawnSquad(S, true);
-          for (const e of S.members) e.dormant = false;
-          toast('敵機空投！'); sfx.lock();
+          S.dropPts ??= dropPoints(S);
+          if (d < DROP_TRIG || S.dropPts.some(p => Math.hypot(p.x - player.x, p.z - player.z) < DROP_TRIG)) {
+            S.dropped = S.awake = S.found = true;
+            let t = 0;
+            S.dropQ = S.dropPts.map(p => { const q = { ...p, t }; t += DROP_GAP[0] + Math.random() * (DROP_GAP[1] - DROP_GAP[0]); return q; });
+          }
         }
         continue;
       }
