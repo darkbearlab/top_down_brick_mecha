@@ -47,6 +47,33 @@ function bake(d) {
   R.mesh.instanceMatrix.needsUpdate = true; R.mesh.instanceColor.needsUpdate = true;
 }
 
+// 地面被炸：幾片壓扁的深色方塊疊成一塊焦痕（直接寫進碎片堆，跟碎片一起留著），再噴一點土塊
+const SCORCH_C = [0x2a231c, 0x231d17, 0x30281f, 0x1c1814];
+const sE = new THREE.Euler(), sP = new THREE.Vector3();
+export function scorch(x, z, r) {
+  if (pitTest(x, z) || wallTest(x, z)) return;
+  if (!rubble) setRubbleLayer(0);
+  const P = rubble, n = Math.round(10 + r * 16);
+  for (let k = 0; k < n; k++) {
+    // 中間密、外圍稀；越外圍的方塊越小
+    const a = Math.random() * Math.PI * 2, t = Math.sqrt(Math.random()), d = t * r * 0.7;
+    const px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
+    if (wallTest(px, pz) || pitTest(px, pz)) continue;
+    const w = (0.14 + Math.random() * 0.2) * (1.25 - t * 0.6);
+    sP.set(px, 0.004 + Math.random() * 0.008, pz);
+    rQ.setFromEuler(sE.set(0, Math.random() * Math.PI, 0));
+    rM.compose(sP, rQ, rS.set(w / 0.16, 0.04, w / 0.16 * (0.7 + Math.random() * 0.3)));
+    const i = P.next;
+    P.mesh.setMatrixAt(i, rM);
+    P.mesh.setColorAt(i, rC.setHex(SCORCH_C[k % SCORCH_C.length]));
+    P.next = (i + 1) % RUBBLE_MAX;
+    P.mesh.count = Math.max(P.mesh.count, i + 1);
+  }
+  P.mesh.instanceMatrix.needsUpdate = true; P.mesh.instanceColor.needsUpdate = true;
+  // 土塊：往外噴、落地留著
+  for (let k = 0; k < 4 + r * 4; k++) chipDebris(x + R(-0.3, 0.3), 0.12, z + R(-0.3, 0.3), [0x4a4238, 0x3a342c, 0x5a5044][k % 3], 0, 0, 2 + r * 1.6);
+}
+
 // ---------- 雷射（瞄準線） ----------
 export function makeLaser(color) {
   const g = new THREE.Group();
@@ -100,6 +127,18 @@ export function shatterSmall(x, y, z, colors, n = 5, power = 2.2) {
       sx: (Math.random() - 0.5) * 24, sz: (Math.random() - 0.5) * 24 });
   }
   sparks(x, y + 0.1, z, 0xff5030, 4, 0, 0, 0.5);
+}
+// 部位被打掉的一顆方塊（mech.js syncChips）：從原位往被打的方向彈開，落地後跟其他碎片一樣留在地上
+export function chipDebris(x, y, z, c, dx, dz, power = 2.4) {
+  const m = new THREE.Mesh(DEBRIS_GEO, debrisMat(c));
+  const s = 0.38 + Math.random() * 0.22;   // 跟機體上的方塊差不多大（1/16 格 ≈ DEBRIS_GEO × 0.4）
+  m.scale.setScalar(s);
+  m.position.set(x, y, z);
+  scene.add(m);
+  const a = Math.random() * Math.PI * 2, p = power * (0.3 + Math.random() * 0.7);
+  debris.push({ m, s, life: 1.2 + Math.random() * 0.8,
+    vx: dx * p * 1.4 + Math.cos(a) * p * 0.6, vy: 1.5 + Math.random() * power, vz: dz * p * 1.4 + Math.sin(a) * p * 0.6,
+    sx: (Math.random() - 0.5) * 26, sz: (Math.random() - 0.5) * 26 });
 }
 // 零件炸開：直接拿零件身上的方塊往外噴（cx, cz = 爆炸中心）
 // opts.char：顏色往焦黑壓多少（0..1）；opts.burn：每塊有多少機率是著火的（飛的時候一路冒火）

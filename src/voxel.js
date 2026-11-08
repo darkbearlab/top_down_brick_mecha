@@ -62,7 +62,7 @@ export function sampleVoxels(root, n) {
   root.updateMatrixWorld(true);
   const all = [];
   root.traverse(o => {
-    if (o.isInstancedMesh && o.userData.voxels) for (const v of o.userData.voxels) all.push([o, v]);
+    if (o.isInstancedMesh && o.userData.voxels) for (const v of o.userData.voxels) if (!v.gone) all.push([o, v]);   // gone：已經被打掉（mech.js syncChips）
   });
   const out = [];
   for (let i = 0; i < n && all.length; i++) {

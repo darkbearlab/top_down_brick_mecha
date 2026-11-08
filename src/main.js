@@ -9,7 +9,8 @@ import { flowDist, flyDist, updateFlow } from './pathing.js';
 import { addProp, clearProps, nearProp, props, removeProp, setPortal, setPropLayer, spendProp, updateProps } from './props.js';
 import { RADIUS, exploredAt, fogActive, fogOff, initFogLayers, setFogLayer, updateFog, visibleAt } from './fog.js';
 import { hideMinimap, initMinimap, setMinimapLayer, updateMinimap } from './minimap.js';
-import { ENEMY_COLORS, PLAYER_COLORS, activeSlot, collideMechs, driveMech, facing, makeMech, mechs, poseMech, muzzleOf, removeMech, toggleReady, tryBoost, wantsLock } from './mech.js';
+import { renderFrame } from './post.js';
+import { ENEMY_COLORS, PLAYER_COLORS, activeSlot, collideMechs, driveMech, facing, makeMech, mechs, poseMech, muzzleOf, removeMech, syncWear, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { ARENA_LAYOUT, buildLayerBuildings, resetBuildings, setBuildingLayer, setLayout, updateBuildings } from './buildings.js';
 import { SLOW_K, clearHusks, clearWrecks, killCam, setHuskLayer, updateWrecks } from './wreck.js';
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
@@ -335,7 +336,7 @@ function takePickup(kind, val) {
     toast('彈藥補給'); sfx.reload();
   } else if (kind === 'repair') {
     let any = false;
-    for (const k in p.parts) { const q = p.parts[k]; if (q.broken || q.hp >= q.max) continue; q.hp = Math.min(q.max, q.hp + q.max * 0.25); any = true; }
+    for (const k in p.parts) { const q = p.parts[k]; if (q.broken || q.hp >= q.max) continue; q.hp = Math.min(q.max, q.hp + q.max * 0.25); syncWear(p, k); any = true; }
     if (!any) return false;
     toast('機體修理 +25%'); sfx.lock();
   } else {
@@ -520,7 +521,7 @@ function spawnUnit(S, u, i, at, drop) {
   e.chase = chaseOf(e);
   if (S.hold) e.hold = { x: S.x, z: S.z, r: S.hold };
   e.slot = i;
-  if (u.hp != null) e.parts.torso.hp = Math.min(u.hp, e.parts.torso.max);
+  if (u.hp != null) { e.parts.torso.hp = Math.min(u.hp, e.parts.torso.max); syncWear(e, 'torso', 0, 0, true); }
   e.seenHp = e.parts.torso.hp;
   S.members.push(e);
   return e;
@@ -745,7 +746,7 @@ function rebuild(lo, fresh, repair) {
     const q = player.parts[k], o = keep[k];
     if (!o || repair) continue;
     if (o.broken && k !== 'torso') { q.hp = 0; q.broken = true; if (k === 'legs') q.mat.color.setHex(0x5a5048); else q.g.visible = false; }
-    else q.hp = Math.max(1, q.max * o.r);
+    else { q.hp = Math.max(1, q.max * o.r); syncWear(player, k, 0, 0, true); }
   }
   for (const s in player.guns) { const g = player.guns[s]; if (s !== fresh && ammo[s] != null && g.max !== Infinity) g.ammo = Math.round(g.max * ammo[s]); }
 }
@@ -1464,7 +1465,7 @@ function frame(t) {
     $('wRound').textContent = `第 ${MODE.round} 場`;
     $('wNext').textContent = MODE.result && MODE.endT > 0 ? `${Math.ceil(MODE.endT)} 秒後下一場` : '';
   }
-  renderer.render(scene, camera);
+  renderFrame(scene, camera);   // 模型桌後製（src/post.js），O 鍵開關
 }
 addEventListener('pointerdown', unlockAudio);
 // 面板上的按鈕可以用數字鍵選（1 = 第一個）

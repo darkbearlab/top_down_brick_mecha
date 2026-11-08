@@ -10,7 +10,7 @@
 import * as THREE from 'three';
 import { G, addMat, addTrauma, angleDiff, approachAngle, scene } from './core.js';
 import { collideBlocks, surfaceAt } from './arena.js';
-import { RAMP, burnAt, burst, explosion, fire, flame, hitSparks, smoke, sparks, spawnGlow, spawnPuff, voxelBurst } from './fx.js';
+import { RAMP, burnAt, burst, chipDebris, explosion, fire, flame, hitSparks, smoke, sparks, spawnGlow, spawnPuff, voxelBurst } from './fx.js';
 import { sfx } from './audio.js';
 import { EFFECT, WEAPONS, computeSpec } from './parts.js';
 import { buildMechModel } from './model.js';
@@ -366,6 +366,58 @@ setStatusHooks({
     if (m.team === 'player') sfx.explode();
   },
 });
+// ---------- 外觀磨損：耐久掉多少，表面的方塊就被打掉多少 ----------
+// 部位耐久每少 1%，就打掉那個部位表面 WEAR_MAX% 的方塊（打滿 = 剩一口氣時缺了 WEAR_MAX 那麼多）；優先打朝向攻擊方向那一面
+// 打掉的方塊往外彈、落地留在地上（fx.js chipDebris → 碎片堆）；旁邊再挑一顆壓暗當焦痕。修回來就照比例補回去（最後打掉的先補）
+// 雜魚只有一條血（軀幹）：整台的方塊一起算；蟲子是另外做的模型，不磨損
+const WEAR_MAX = 0.32, WEAR_FX_MAX = 6, SCAR_K = 0.55;
+const wM = new THREE.Matrix4(), wV = new THREE.Vector3(), wC = new THREE.Color(), ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+function wearPool(m, p) {
+  if (p.wear) return p.wear;
+  const groups = m.grunt ? Object.values(m.parts).map(q => q.g) : [p.g];
+  const vox = [];
+  for (const g of groups) g.traverse(o => { if (o.isInstancedMesh && o.userData.voxels) o.userData.voxels.forEach((v, i) => vox.push({ o, i, v })); });
+  p.wear = { vox, gone: [], scar: [] };
+  return p.wear;
+}
+// quiet：不噴碎片（剛生出來 / 重組時照耐久直接套上去）
+export function syncWear(m, name, dx = 0, dz = 0, quiet = false) {
+  if (m.bug || m.swarm) return;
+  const p = m.parts[name];
+  if (!p?.g || p.broken && name !== 'legs') return;
+  const W = wearPool(m, p);
+  if (!W.vox.length) return;
+  const want = Math.floor(W.vox.length * WEAR_MAX * Math.max(0, 1 - p.hp / p.max));
+  const dirty = new Set();
+  let fx = 0;
+  // 被打：挑幾顆候選，選最朝向攻擊者的那顆打掉
+  for (let tries = 0; W.gone.length < want && tries < 400; tries++) {
+    let best = null, bs = Infinity;
+    for (let k = 0; k < 6; k++) {
+      const c = W.vox[Math.floor(Math.random() * W.vox.length)];
+      if (c.v.gone || c.o.parent && !c.o.parent.visible) continue;
+      wV.set(c.v.x, c.v.y, c.v.z).applyMatrix4(c.o.matrixWorld);
+      const sc = (dx || dz) ? (wV.x - m.x) * dx + (wV.z - m.z) * dz : Math.random();
+      if (sc < bs) { bs = sc; best = { c, x: wV.x, y: wV.y, z: wV.z }; }
+    }
+    if (!best) continue;
+    const { c } = best;
+    c.v.gone = true; c.o.setMatrixAt(c.i, ZERO); dirty.add(c.o);
+    W.gone.push(c);
+    if (!quiet && fx++ < WEAR_FX_MAX) chipDebris(best.x, best.y, best.z, c.v.c, -dx * 0.7, -dz * 0.7);   // 往打過來的那一側彈
+    // 旁邊的一顆壓暗（焦痕）
+    const s = W.vox[Math.floor(Math.random() * W.vox.length)];
+    if (!s.v.gone && !s.scar) { s.scar = true; s.o.setColorAt(s.i, wC.setHex(s.v.c).multiplyScalar(SCAR_K)); dirty.add(s.o); W.scar.push(s); }
+  }
+  // 修好：照比例補回去，焦痕也一起淡掉
+  while (W.gone.length > want) {
+    const c = W.gone.pop();
+    c.v.gone = false; c.o.setMatrixAt(c.i, wM.makeTranslation(c.v.x, c.v.y, c.v.z)); dirty.add(c.o);
+    const s = W.scar.pop();
+    if (s) { s.scar = false; s.o.setColorAt(s.i, wC.setHex(s.v.c)); dirty.add(s.o); }
+  }
+  for (const o of dirty) { o.instanceMatrix.needsUpdate = true; if (o.instanceColor) o.instanceColor.needsUpdate = true; }
+}
 export function damagePart(m, name, dmg, dx = 0, dz = 0) {
   if (m.grunt) name = 'torso';
   const p = m.parts[name];
@@ -373,7 +425,7 @@ export function damagePart(m, name, dmg, dx = 0, dz = 0) {
   p.flash = 0.07;
   if (p.broken && name !== 'torso') return;
   p.hp -= dmg;
-  if (p.hp > 0) return;
+  if (p.hp > 0) { syncWear(m, name, dx, dz); return; }
   p.hp = 0;
   if (name === 'torso') { destroyMech(m, dx, dz); return; }
   if (p.broken) return;

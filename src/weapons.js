@@ -18,7 +18,7 @@ import { UNIT_BOX, addMat, addTrauma, scene } from './core.js';
 import { isBlock, rayBlock } from './arena.js';
 import { blastBuildings, damageBuilding } from './buildings.js';
 import { facing, hitMech, mechs, muzzleOf, slotBroken, slotLive, updateReady, useEnergy } from './mech.js';
-import { RAMP, burnAt, explosion, flame, hitSparks, muzzleFlash, rampOf, smoke, spawnGlow, spawnPuff, sparks } from './fx.js';
+import { RAMP, burnAt, explosion, flame, hitSparks, muzzleFlash, rampOf, scorch, smoke, sparks, spawnGlow, spawnPuff } from './fx.js';
 import { DMG_TYPES, SLOTS, WEAPONS } from './parts.js';
 import { sfx } from './audio.js';
 import { chipDmgK, chipRateK, chipSpreadK, empOff } from './tech.js';
@@ -306,6 +306,7 @@ function blast(s, x, y, z, direct) {
   if (shell) { addTrauma(0.2); smoke(x, y, z, 6, 1.6, 0x55585f); }
   sfx.blast();
   blastBuildings(x, y, z, s.dmg, s.splash);
+  if (y < 1.8) scorch(x, z, Math.min(1.8, 0.5 + (s.splash ?? 1) * (shell ? 0.6 : 0.4)));   // 地上留一塊焦痕、噴土
   for (const o of mechs) {
     if (!o.alive || o.drop || o.team === s.team || o === direct) continue;
     const dx = o.x - x, dz = o.z - z, dist = Math.hypot(dx, dz);
