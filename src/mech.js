@@ -98,9 +98,12 @@ export function canReady(m, side) {
   return !!g && !slotBroken(m, 'back' + side) && g.ammo > 0;
 }
 const deployT = m => hasChip(m, 'quickSwap') ? 0.05 : DEPLOY_T;   // 快速換裝
+// 盾牌那一邊：盾一直舉著、不能被選成使用中，那一側的滑鼠鍵固定打背部武器
+const shieldArm = (m, side) => m.guns?.['arm' + side]?.def.kind === 'shield' && !slotBroken(m, 'arm' + side);
 export function toggleReady(m, side) {
   if (!m.alive || m.swing) return false;
   const on = !m.ready[side];
+  if (!on && shieldArm(m, side)) return false;
   if (on && !canReady(m, side)) return false;
   m.ready[side] = on;
   m.deployT[side] = deployT(m);
@@ -121,7 +124,7 @@ export function updateReady(m, dt) {
   for (const side of ['L', 'R']) {
     if (m.deployT[side] > 0) m.deployT[side] -= dt;
     // 背部打光或被打掉：換回手臂；手上沒武器（或打光、被打掉）就架著背部武器
-    const ag = m.guns?.['arm' + side], armOk = !!ag && !slotBroken(m, 'arm' + side) && ag.ammo > 0;
+    const ag = m.guns?.['arm' + side], armOk = !!ag && !slotBroken(m, 'arm' + side) && ag.ammo > 0 && ag.def.kind !== 'shield';
     if (m.ready[side] && armOk && !canReady(m, side)) { m.ready[side] = false; m.deployT[side] = deployT(m); }
     if (!m.ready[side] && !armOk && canReady(m, side)) { m.ready[side] = true; m.deployT[side] = deployT(m); }
     const k = m.readyK[side], to = m.ready[side] ? 1 : 0;
@@ -517,8 +520,8 @@ export function poseMech(m, dt) {
     const s = m.swing?.slot === slot ? m.swing : null;
     if (s) { const t = 1 - s.t / s.dur, side = slot === 'armL' ? 1 : -1; p.g.rotation.y = side * (1.1 - t * 2.4); }
     else p.g.rotation.y *= Math.exp(-12 * dt);
-    // 背部武器準備中：手臂垂下、往外張開一點
-    const e = ease(m.readyK[slot[3]]);
+    // 背部武器準備中：手臂垂下、往外張開一點（拿盾的手臂不放下，盾一直舉著）
+    const e = m.guns?.[slot]?.def.kind === 'shield' ? 0 : ease(m.readyK[slot[3]]);
     p.g.rotation.x = 0.85 * e;
     p.g.rotation.z = (slot === 'armL' ? 1 : -1) * 0.12 * e;
   }
