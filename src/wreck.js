@@ -172,7 +172,7 @@ export function startDying(m, dx, dz, o = {}) {
     fireAcc: 0, smokeAcc: 0, flick: Math.random() * 10, mats: keys.map(k => m.parts[k].mat) };
   m.dying = true;
   const rest = keys.filter(k => k !== 'torso');
-  if (o.chain || rest.length === 0 || Math.random() < DYING_CHAIN) {
+  if (!o.burn && (o.chain || rest.length === 0 || Math.random() < DYING_CHAIN)) {
     d.mode = 'chain'; d.queue = [];
     for (let i = rest.length - 1; i > 0; i--) { const j = Math.floor(Math.random() * (i + 1)); [rest[i], rest[j]] = [rest[j], rest[i]]; }
     let t = 0;

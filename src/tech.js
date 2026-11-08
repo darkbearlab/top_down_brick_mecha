@@ -4,6 +4,7 @@
 // 這個檔案只放資料和「查一下有沒有這個效果」的小函式（給 mech / weapons / ai / sensors 用，不 import 那些模組，避免循環）；
 // 主動裝置實際的效果在 devices.js
 import { G } from './core.js';
+import { hasStatus } from './status.js';
 
 export const CHIPS = {
   reactive: { name: '反應裝甲', basic: true, weight: 1, desc: '每個部位每 8 秒，第一次被打中的傷害減半' },
@@ -53,7 +54,7 @@ export function chipRateK(m) {
   if (o) { if (G.now < o.until) k /= 1.5; else if (G.now < o.until + 3) k *= 2; }
   return k;
 }
-export const empOff = m => (m.empT ?? 0) > G.now;   // 被電磁脈衝打到：武器停擺
+export const empOff = m => hasStatus(m, 'emp');   // 被電磁脈衝打到：武器停擺
 
 // ---------- 煙霧（devices.js 放，ai.js 判斷視線時查） ----------
 export const smokes = [];

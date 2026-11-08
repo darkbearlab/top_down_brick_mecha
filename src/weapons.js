@@ -9,16 +9,19 @@
 //   vmissile 垂直飛彈：先往上飛再從上方砸下來（越過掩體），要鎖定
 //   split   分裂飛彈：飛一段後分裂成好幾顆小飛彈
 //   rocket  火箭莢艙：不追蹤的直射火箭，一次好幾發
+//   flame   火焰噴射器：按著一直噴，短距離扇形、穿透、被牆擋；打中的部位疊燃燒（status.js）
+//   napalm  燒夷彈：拋到瞄準點，落地小爆炸 + 一片燒好幾秒的火海（站在裡面腳會一直被點燃）
 // 敵人的子彈和光束比較慢，看得到、閃得掉
 import * as THREE from 'three';
 import { UNIT_BOX, addMat, addTrauma, scene } from './core.js';
 import { isBlock, rayBlock } from './arena.js';
 import { blastBuildings, damageBuilding } from './buildings.js';
 import { facing, hitMech, mechs, muzzleOf, slotBroken, slotLive, updateReady, useEnergy } from './mech.js';
-import { explosion, flame, hitSparks, muzzleFlash, rampOf, smoke, spawnGlow, spawnPuff, sparks } from './fx.js';
+import { RAMP, burnAt, explosion, flame, hitSparks, muzzleFlash, rampOf, smoke, spawnGlow, spawnPuff, sparks } from './fx.js';
 import { DMG_TYPES, SLOTS, WEAPONS } from './parts.js';
 import { sfx } from './audio.js';
 import { chipDmgK, chipRateK, chipSpreadK, empOff } from './tech.js';
+import { applyStatus, burnSpreadK } from './status.js';
 
 export const ENEMY_SPEED = 0.55;
 export function makeGuns(lo) {
@@ -61,8 +64,10 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
 function fire(m, slot, d, locks, aim, salvoN = d.salvo ?? 1) {
   const enemy = m.team !== 'player';
   const mz = muzzleOf(m, slot), f = facing(m), base = Math.atan2(f.x, f.z);
-  const spreadK = m.spec.spreadMul * (m.parts.head.broken ? 2.5 : 1) * chipSpreadK(m);
+  const spreadK = m.spec.spreadMul * (m.parts.head.broken ? 2.5 : 1) * chipSpreadK(m) * burnSpreadK(m, slot);   // 那個掛點燒起來散布變大
   if (d.kind === 'saber') { startSwing(m, slot, d); return; }
+  if (d.kind === 'flame') { flameCone(m, d, mz, base, spreadK); return; }
+  if (d.kind === 'napalm') { lobNapalm(m, d, mz, aim, f); return; }
   if (d.kind === 'bullet' || d.kind === 'beam') {
     const n = d.pellets ?? 1;
     const spMul = enemy ? (d === WEAPONS.sniper ? 0.5 : ENEMY_SPEED) : 1;
@@ -127,6 +132,85 @@ function spawnMissile(m, d, x, y, z, v, target, point) {
   scene.add(g);
   shots.push({ kind: d.kind, g, owner: m, team: m.team, x, y, z, vx: v.vx, vy: v.vy, vz: v.vz, speed: Math.hypot(v.vx, v.vz) || 1, life: d.life, age: 0,
     dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: 1.2, type: d.type, target, point, d, splash: d.splash });
+}
+
+// ---------- 火焰噴射器 ----------
+// 每一下（interval）：扇形範圍內、看得到的敵機都吃一點傷害（化學、算爆風 → 繞得過盾、蟲群一次燒一片）+ 被打中的部位疊燃燒
+function flameCone(m, d, mz, base, spreadK) {
+  const fx = Math.sin(base), fz = Math.cos(base);
+  const reach = Math.min(d.range, rayBlock(mz.x, mz.z, fx, fz, d.range));
+  const arc = d.arc * Math.min(1.6, 0.7 + 0.3 * spreadK);
+  // 火舌：一團一團往前噴、越遠越大，噴到牆就停
+  for (let i = 0; i < 6; i++) {
+    const a = base + R(-1, 1) * arc * 0.8, sp = R(11, 15);
+    spawnGlow({ x: mz.x, y: mz.y, z: mz.z, vx: Math.sin(a) * sp, vy: R(-0.3, 1), vz: Math.cos(a) * sp,
+      life: reach / sp * R(0.75, 1.05), s0: R(0.08, 0.14), s1: R(0.4, 0.6), ramp: RAMP.fire, drag: 0.4 });
+  }
+  if (Math.random() < 0.35) spawnPuff({ x: mz.x + fx * reach, y: mz.y + 0.3, z: mz.z + fz * reach, vx: 0, vy: R(0.8, 1.4), vz: 0, life: R(0.6, 1), s: R(0.25, 0.4), c0: 0x2a2a2e, c1: 0x4a4c52, drag: 0.6 });
+  if (reach < d.range - 0.1) damageBuilding(mz.x + fx * reach, mz.y, mz.z + fz * reach, d.dmg * 0.5, fx, fz);
+  m._flameN = (m._flameN ?? 0) + 1;
+  if (m._flameN % 3 === 0) sfx.flame();
+  const dmg = d.dmg * (m.dmgMul ?? 1) * chipDmgK(m);
+  for (const o of mechs) {
+    if (!o.alive || o.drop || o.team === m.team) continue;
+    const ox = o.x - mz.x, oz = o.z - mz.z, dist = Math.hypot(ox, oz) || 0.01;
+    if (dist > reach + o.r) continue;
+    const ang = Math.atan2(ox, oz), da = Math.abs(Math.atan2(Math.sin(ang - base), Math.cos(ang - base)));
+    if (da > arc + Math.atan2(o.r, dist)) continue;
+    if (rayBlock(mz.x, mz.z, ox / dist, oz / dist, dist) < dist - o.r) continue;
+    const r = hitMech(o, dmg, ox / dist, oz / dist, d.kb, 'chemical', null, d.dmg, true);
+    if (r && o.alive) applyStatus(o, 'burn', { part: r.part, stacks: d.burn });
+  }
+}
+
+// ---------- 燒夷彈 ----------
+// 拋物線 0.75 秒落到瞄準點（最遠 d.range），落地：小爆炸 + 火海（d.zone 半徑、燒 d.zoneT 秒）
+const NAPALM_T = 0.75, LOB_G = 22;
+const ZONE_GEO = new THREE.CircleGeometry(1, 28);
+export const fireZones = [];
+function lobNapalm(m, d, mz, aim, f) {
+  let tx = aim?.x ?? m.x + f.x * 9, tz = aim?.z ?? m.z + f.z * 9;
+  const dx = tx - m.x, dz = tz - m.z, dl = Math.hypot(dx, dz);
+  if (dl > d.range) { tx = m.x + dx / dl * d.range; tz = m.z + dz / dl * d.range; }
+  const g = new THREE.Group();
+  const body = new THREE.Mesh(UNIT_BOX, new THREE.MeshLambertMaterial({ color: 0x5a3a24 })); body.scale.setScalar(d.size);
+  const glow = new THREE.Mesh(UNIT_BOX, glowMat(0xff7a30)); glow.scale.setScalar(d.size * 1.5);
+  g.add(body, glow); g.position.set(mz.x, mz.y, mz.z); scene.add(g);
+  shots.push({ kind: 'napalm', g, owner: m, team: m.team, x: mz.x, y: mz.y, z: mz.z, vx: (tx - mz.x) / NAPALM_T, vz: (tz - mz.z) / NAPALM_T,
+    vy: (0.2 - mz.y + 0.5 * LOB_G * NAPALM_T * NAPALM_T) / NAPALM_T, d, dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: 0.6, type: 'chemical', splash: d.splash });
+  smoke(mz.x, mz.y, mz.z, 2, 0.7, 0x8a8c92);
+  sfx.missile();
+}
+function stepNapalm(s, i, dt) {
+  s.vy -= LOB_G * dt;
+  s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
+  if (Math.random() < 0.7) spawnGlow({ x: s.x, y: s.y, z: s.z, vx: 0, vy: 0.3, vz: 0, life: 0.3, s0: 0.16, s1: 0, ramp: RAMP.fire });
+  if (s.y > 0.2) { s.g.position.set(s.x, s.y, s.z); s.g.rotation.x += dt * 9; return; }
+  blast(s, s.x, 0.3, s.z, null);
+  const D = s.d, ring = new THREE.Mesh(ZONE_GEO, addMat(0xff5a18, 0.3));
+  ring.rotation.x = -Math.PI / 2; ring.position.set(s.x, 0.06, s.z); ring.scale.setScalar(D.zone); scene.add(ring);
+  // 火海的火：幾個點分散在圓裡
+  for (let k = 0; k < 6; k++) { const a = Math.random() * 6.28, r = Math.sqrt(Math.random()) * D.zone * 0.85; burnAt(s.x + Math.cos(a) * r, 0.15, s.z + Math.sin(a) * r, D.zoneT * R(0.8, 1), 0.8); }
+  fireZones.push({ x: s.x, z: s.z, r: D.zone, t: D.zoneT, burn: D.burn, team: s.team, ring, acc: 0 });
+  kill(i);
+}
+// 火海：每 0.2 秒點燃裡面的敵機的腳（雜魚整台算一個部位；會飛的燒不到）
+function updateFireZones(dt) {
+  for (let i = fireZones.length - 1; i >= 0; i--) {
+    const z = fireZones[i];
+    z.t -= dt; z.acc += dt;
+    z.ring.material.opacity = 0.3 * Math.min(1, z.t) * (0.85 + 0.15 * Math.sin(z.t * 17));
+    if (Math.random() < dt * 10) { const a = Math.random() * 6.28, r = Math.sqrt(Math.random()) * z.r; spawnGlow({ x: z.x + Math.cos(a) * r, y: 0.15, z: z.z + Math.sin(a) * r, vx: 0, vy: R(1.2, 2.4), vz: 0, life: R(0.3, 0.6), s0: R(0.18, 0.3), s1: 0, ramp: RAMP.fire, drag: 1 }); }
+    while (z.acc >= 0.2) {
+      z.acc -= 0.2;
+      for (const o of mechs) {
+        if (!o.alive || o.drop || o.fly || o.team === z.team) continue;
+        if (Math.hypot(o.x - z.x, o.z - z.z) > z.r + o.r * 0.5) continue;
+        applyStatus(o, 'burn', { part: o.parts.legs && !o.parts.legs.broken ? 'legs' : 'torso', stacks: z.burn * 0.2 });
+      }
+    }
+    if (z.t <= 0) { scene.remove(z.ring); z.ring.material.dispose(); fireZones.splice(i, 1); }
+  }
 }
 
 // ---------- 光束劍 ----------
@@ -213,8 +297,10 @@ export function updateShots(dt) {
   for (let i = shots.length - 1; i >= 0; i--) {
     const s = shots[i];
     if (s.kind === 'bullet') stepBullet(s, i, dt);
+    else if (s.kind === 'napalm') stepNapalm(s, i, dt);
     else stepMissile(s, i, dt);
   }
+  updateFireZones(dt);
 }
 
 function stepBullet(s, i, dt) {
@@ -344,4 +430,8 @@ function trail(s) {
 }
 
 function kill(i) { scene.remove(shots[i].g); shots.splice(i, 1); }
-export function clearShots() { while (shots.length) kill(shots.length - 1); }
+export function clearShots() {
+  while (shots.length) kill(shots.length - 1);
+  for (const z of fireZones) { scene.remove(z.ring); z.ring.material.dispose(); }
+  fireZones.length = 0;
+}

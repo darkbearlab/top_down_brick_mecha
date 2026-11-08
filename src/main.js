@@ -18,6 +18,7 @@ import { burst, clearRubble, makeLaser, setLaser, setRubbleLayer, smoke, updateP
 import { clearWarp, startWarp, updateWarp } from './warp.js';
 import { CHIPS, DEVICES, hasChip, techName } from './tech.js';
 import { clearDevices, deviceReady, updateDeviceCd, updateDevices, useDevice } from './devices.js';
+import { updateStatus } from './status.js';
 import { closeReasm, openReasm, reasmActive, renderReasm, updateReasm } from './reasm.js';
 import { ARMORS, DMG_TYPES, ENEMY_PRESETS, GRUNTS, GRUNTS_LOW, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, SQUADS, WEAPONS, gruntOf, loadLoadout, pickSquad, randomGrunt, randomLoadout } from './parts.js';
 import { clearPickups, pickups, restorePickups, spawnPickup, stashPickups, updatePickups } from './pickups.js';
@@ -635,7 +636,10 @@ function updateExplore(dt) {
   updatePickups(dt, player, takePickup, canTake);
 }
 // ---------- 互動：箱子、武器、傳送門 ----------
-const weaponLine = id => { const W = WEAPONS[id]; if (W.kind === 'shield') return `<span class="wt" style="--c:${DMG_TYPES[W.type].css}">盾牌</span> 手臂・耐久 ${W.guard}・純被動：盾那一側前方的攻擊先打在盾上（爆風擋一半）・上半身轉速 ×${W.turnMul}・重量 ${W.weight}`; return `<span class="wt" style="--c:${DMG_TYPES[W.type].css}">${DMG_TYPES[W.type].name}</span> ${W.mount === 'arm' ? '手臂' : '背部'}・傷害 ${W.dmg}${W.pellets ? ' ×' + W.pellets : ''}${W.salvo > 1 ? ' ×' + W.salvo : ''}${W.splash ? '・爆風' : ''}・${W.ammo ? '彈藥 ' + W.ammo : '吃能量'}・重量 ${W.weight}`; };
+const weaponLine = id => { const W = WEAPONS[id]; const tg = `<span class="wt" style="--c:${DMG_TYPES[W.type].css}">${DMG_TYPES[W.type].name}</span>`;
+  if (W.kind === 'flame') return `${tg} 手臂・火焰噴射：${W.range} 格內扇形、穿透、疊燃燒・燃料 ${W.ammo}・重量 ${W.weight}`;
+  if (W.kind === 'napalm') return `${tg} 背部・燒夷彈：拋到游標、留下 ${W.zoneT} 秒火海・彈藥 ${W.ammo}・重量 ${W.weight}`;
+  if (W.kind === 'shield') return `<span class="wt" style="--c:${DMG_TYPES[W.type].css}">盾牌</span> 手臂・耐久 ${W.guard}・純被動：盾那一側前方的攻擊先打在盾上（爆風擋一半）・上半身轉速 ×${W.turnMul}・重量 ${W.weight}`; return `<span class="wt" style="--c:${DMG_TYPES[W.type].css}">${DMG_TYPES[W.type].name}</span> ${W.mount === 'arm' ? '手臂' : '背部'}・傷害 ${W.dmg}${W.pellets ? ' ×' + W.pellets : ''}${W.salvo > 1 ? ' ×' + W.salvo : ''}${W.splash ? '・爆風' : ''}・${W.ammo ? '彈藥 ' + W.ammo : '吃能量'}・重量 ${W.weight}`; };
 function promptText(p) {
   if (!p || EX.warpT != null) return '';
   if (p.kind === 'cache') return `F・打開補給箱（${p.cost} 零件）${EN.scrap < p.cost ? '・零件不足' : ''}`;
@@ -1306,6 +1310,7 @@ function frame(t) {
     keepEnemies(player);
     collideMechs();
     updateShots(dt);
+    for (const m of mechs.slice()) updateStatus(m, dt);   // 持續效果（燃燒之類，status.js）
     updateWrecks(dt, raw);
     updateBuildings(dt);
     updateDevices(dt);

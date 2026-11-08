@@ -21,6 +21,7 @@ import { sfx } from './audio.js';
 import { flowDir, flyDir } from './pathing.js';
 import { smokeBlocks } from './tech.js';
 import { UNIT_BOX } from './core.js';
+import { burnLockK } from './status.js';
 
 export const enemies = [];
 // 難度：dmg 敵機傷害倍率、hp 耐久倍率、rest 射擊間隔倍率、err 瞄準晃動（弧度）、dodge 會不會噴開閃避、lock 鎖定時間倍率
@@ -49,7 +50,7 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   const has = k => ws.includes(k) || ws.includes(k + '_l');   // 低階版也算
   e.ai = {
     strafe: Math.random() < 0.5 ? -1 : 1, t: 1, burst: 0, rest: 1 + Math.random(), reposition: 3 + Math.random() * 3, lockT: 0, snipeT: 0, hold: { L: Math.random(), R: Math.random() },
-    want: has('saber') || has('shotgun') ? 3 : has('sniper') ? 13 : 8,
+    want: has('saber') || has('shotgun') || has('flamer') ? 3 : has('sniper') ? 13 : 8,
   };
   e.laser = makeLaser(0xff3020);
   // 特殊雜魚
@@ -142,7 +143,7 @@ function updateDrop(e, dt, player) {
 }
 
 // 這把武器打得到多遠
-const reachOf = d => d.kind === 'saber' ? d.reach + 1.2 : d.kind === 'bullet' || d.kind === 'beam' ? d.speed * d.life : d.kind === 'rocket' ? 26 : 18;   // 敵人子彈慢，但飛得一樣久 → 射程一樣
+const reachOf = d => d.kind === 'flame' ? d.range + 0.3 : d.kind === 'napalm' ? d.range : d.kind === 'saber' ? d.reach + 1.2 : d.kind === 'bullet' || d.kind === 'beam' ? d.speed * d.life : d.kind === 'rocket' ? 26 : 18;   // 敵人子彈慢，但飛得一樣久 → 射程一樣
 
 export function updateEnemy(e, dt, player) {
   if (e.fall) { updateFall(e, dt); return; }
@@ -268,7 +269,7 @@ export function updateEnemy(e, dt, player) {
   // 長距鎖定頭：隔著牆也能鎖；頭被打掉還是能鎖（距離短、慢）
   const lockable = player.alive && !AI.passive && (los || (H.radarLock && !smokeBlocks(e.x, e.z, player.x, player.z)));
   A.lockT = lockable && wantsLock(e) && dist < H.lockRange ? A.lockT + dt : Math.max(0, A.lockT - dt * 2);
-  const locks = A.lockT >= H.lockTime * DF.lock ? [player] : [];
+  const locks = A.lockT >= H.lockTime * DF.lock * burnLockK(e) ? [player] : [];
 
   // 手臂：連射武器一陣一陣打；狙擊先亮雷射；劍貼近才揮；飛彈有鎖定才射
   const trig = { L: false, R: false };
@@ -312,7 +313,7 @@ export function updateEnemy(e, dt, player) {
 // 射線檢查：從槍口沿著上半身正前方，到目標的距離內有沒有方塊
 //   子彈 / 光束：整段要通；直射 / 分裂飛彈：轉得慢，前面 5 格要空；垂直飛彈越過掩體、劍是近戰，不用管
 function lineClear(e, slot, d, tgt) {
-  if (d.kind === 'saber' || d.kind === 'vmissile') return true;
+  if (d.kind === 'saber' || d.kind === 'vmissile' || d.kind === 'napalm') return true;
   const mz = muzzleOf(e, slot), f = facing(e);
   const md = Math.hypot(tgt.x - mz.x, tgt.z - mz.z);
   const need = d.kind === 'missile' || d.kind === 'split' ? Math.min(md - 0.5, 5) : md - tgt.r;

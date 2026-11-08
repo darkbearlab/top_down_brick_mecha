@@ -17,6 +17,7 @@ import { buildMechModel } from './model.js';
 import { CHIPS, DEVICES, hasChip } from './tech.js';
 import { collideWrecks, isWreck, startDying, startWreck } from './wreck.js';
 import { damageBuilding } from './buildings.js';
+import { burnLegK, clearStatus, hasStatus, reduceStatus, setStatusHooks } from './status.js';
 
 export const PART_NAMES = { head: '頭部', torso: '軀幹', armL: '左臂', armR: '右臂', backL: '左背', backR: '右背', legs: '腳部' };
 const ARMOR_OF = { head: 'head', torso: 'torso', armL: 'arms', armR: 'arms', backL: 'torso', backR: 'torso', legs: 'legs' };
@@ -149,6 +150,7 @@ export function tryBoost(m, mx, mz) {
   m.stuckT = 0;
   m.boostDir = d; m.boostK = k; m.boostT = BOOST_TIME; m.boostCd = BOOST_TIME + (hasChip(m, 'doubleBoost') ? 0.02 : BOOST_CD);
   m.energy -= BOOST_COST; m.energyT = ENERGY_DELAY;
+  reduceStatus(m, 'burn', 1.5);   // 推進甩掉一些火
   sfx.boost();
   if (m.team === 'player') addTrauma(0.12);
   return true;
@@ -164,7 +166,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   if (!m.alive) return;
   const S = m.spec, L = S.legs, s = m.surf = surfaceAt(m.x, m.z);
   const lk = legK(m);
-  const vmax = S.vmax * lk * (L.noMud ? 1 : (s.speed ?? 1));
+  const vmax = S.vmax * lk * (L.noMud ? 1 : (s.speed ?? 1)) * burnLegK(m);   // 腳燒起來會變慢（status.js）
   m.boostCd -= dt;
   m.energyT -= dt;
   if (m.energyT <= 0) m.energy = Math.min(100, m.energy + ENERGY_REGEN * S.regen * (hasChip(m, 'doubleBoost') ? 0.75 : 1) * dt);
@@ -315,7 +317,7 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null,
   // 雜魚機整台算同一個部位
   let part = m.grunt ? 'torso' : forced ?? pickPart(m, dir, right);
   // 弱點標定：被標記的機體，大多打到軀幹以外還沒壞的部位
-  if (!m.grunt && !forced && (m.markT ?? 0) > G.now && Math.random() < 0.75) {
+  if (!m.grunt && !forced && hasStatus(m, 'mark') && Math.random() < 0.75) {
     const opts = Object.keys(m.parts).filter(k => k !== 'torso' && !m.parts[k].broken);
     if (opts.length) part = opts[Math.floor(Math.random() * opts.length)];
   }
@@ -347,6 +349,23 @@ export function stagger(m, dmg, dx, dz) {
   if (m.team === 'player') addTrauma(0.35);
 }
 
+// 持續效果（status.js）要扣血 / 殉爆時用的：燃燒照化學對那個部位裝甲的倍率扣
+setStatusHooks({
+  damage(m, part, dmg, type) {
+    const p = m.parts[m.grunt ? 'torso' : part] ?? m.parts.torso;
+    damagePart(m, m.grunt ? 'torso' : part, dmg * (EFFECT[type][p.armor] ?? 1));
+  },
+  // 背部武器被燒到殉爆：還有彈藥（不是能量武器）才會；那個掛點直接炸掉，軀幹也吃一下
+  cookOff(m, slot) {
+    const g = m.guns?.[slot];
+    if (!m.alive || !g || !isFinite(g.ammo) || g.ammo <= 0 || m.parts[slot]?.broken) return;
+    g.ammo = 0;
+    damagePart(m, slot, 1e6);
+    if (m.alive) damagePart(m, 'torso', 18 + (g.def.dmg ?? 20) * 0.4);
+    addTrauma(m.team === 'player' ? 0.5 : 0.15);
+    if (m.team === 'player') sfx.explode();
+  },
+});
 export function damagePart(m, name, dmg, dx = 0, dz = 0) {
   if (m.grunt) name = 'torso';
   const p = m.parts[name];
@@ -412,13 +431,15 @@ function gruntBoom(m, dx, dz) {
   G.hitStop = Math.max(G.hitStop, 0.03);
 }
 function destroyMech(m, dx, dz) {
+  const burning = hasStatus(m, 'burn');
+  clearStatus(m);
   m.alive = false;
   if (m.model.teamRing) m.model.teamRing.visible = false;   // 被擊毀就把腳下的派系光環收掉
   // 主力機體：慢動作特寫 + 留下燒著的殘骸（src/wreck.js）
   if (m.ace) { startWreck(m, dx, dz); m.onDeath?.(m); return; }
   // 雜魚（自爆機、蟲群以外）：部位一個個被誘爆，或原地燒成焦炭（src/wreck.js 的 startDying）
   if (m.grunt && !m.bomber && !m.swarm) {
-    startDying(m, dx, dz, { chain: !!m.fly, boom: () => gruntBoom(m, dx, dz) });
+    startDying(m, dx, dz, { chain: !!m.fly, burn: burning && !m.fly, boom: () => gruntBoom(m, dx, dz) });   // 燒死的一定是原地燒成焦炭
     G.hitStop = Math.max(G.hitStop, 0.02);
     addTrauma(0.2);
     m.onDeath?.(m);

@@ -9,6 +9,7 @@ import * as THREE from 'three';
 import { addMat, angleDiff, scene } from './core.js';
 import { rayBlock } from './arena.js';
 import { wantsLock } from './mech.js';
+import { burnLockK } from './status.js';
 
 export const sensors = { locks: [], progress: new Map(), head: null };
 
@@ -89,7 +90,7 @@ export function headStats(p) {
 
 export function updateSensors(p, enemies, aim, dt) {
   const H = sensors.head = headStats(p);
-  const lockTime = H.lockTime * (p.lockMul ?? 1);   // 無盡模式的強化
+  const lockTime = H.lockTime * (p.lockMul ?? 1) * burnLockK(p);   // 無盡模式的強化；頭燒起來鎖得慢
   const key = p.alive ? `${H.lockArc}|${H.lockRange.toFixed(1)}` : '';
   if (key !== fanKey) { fanKey = key; if (key) buildFan(H.lockArc, H.lockRange); else fanG.clear(); }
   fanG.position.set(p.x, 0.04, p.z);

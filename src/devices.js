@@ -10,6 +10,7 @@ import { blastBuildings } from './buildings.js';
 import { burst, explosion, hitSparks, smoke, spawnPuff, sparks } from './fx.js';
 import { sfx } from './audio.js';
 import { DEVICES, smokes } from './tech.js';
+import { applyStatus, hasStatus } from './status.js';
 
 const R = (a, b) => a + Math.random() * (b - a);
 const things = [];   // 場上的東西：{ kind, ..., update(dt) → false 就收掉, dispose() }
@@ -126,14 +127,14 @@ const USE = {
       if (d < bd) { bd = d; best = e; }
     }
     if (!best) return false;
-    best.markT = G.now + 8;
+    applyStatus(best, 'mark', { dur: 8 });
     const ring = new THREE.Mesh(RING, addMat(0xffc040, 0.9)); ring.rotation.x = -Math.PI / 2; scene.add(ring);
     const cross = new THREE.Group();
     for (const a of [0, Math.PI / 2]) { const b = new THREE.Mesh(UNIT_BOX, ring.material); b.scale.set(2.6, 0.03, 0.06); b.rotation.y = a; cross.add(b); }
     scene.add(cross);
     things.push({
       update() {
-        if (!best.alive || G.now > best.markT) return false;
+        if (!best.alive || !hasStatus(best, 'mark')) return false;
         const k = best.boss ? 1.4 : 1;
         ring.position.set(best.x, 0.08, best.z); ring.scale.setScalar(k * (1.1 + 0.08 * Math.sin(G.now * 8)));
         cross.position.set(best.x, 0.09, best.z); cross.rotation.y = G.now * 1.5; cross.scale.setScalar(k);
@@ -149,7 +150,7 @@ const USE = {
     const RAD = 7;
     for (const e of enemies) {
       if (!e.alive || e.team === m.team || Math.hypot(e.x - m.x, e.z - m.z) > RAD + e.r) continue;
-      e.empT = G.now + 2;
+      applyStatus(e, 'emp', { dur: 2 });
       e.staggerT = e.staggerMax = e.grunt ? 1.5 : 0.8;
       e.stagDir = { x: (e.x - m.x) / RAD, z: (e.z - m.z) / RAD };
       if (e.ai) e.ai.lockT = 0;
