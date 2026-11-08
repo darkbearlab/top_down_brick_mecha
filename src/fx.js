@@ -86,6 +86,21 @@ export function burst(x, y, z, colors, n, power, bx = 0, bz = 0) {
       sx: (Math.random() - 0.5) * 20, sz: (Math.random() - 0.5) * 20 });
   }
 }
+// 小東西碎掉（蟲群的一隻蟲）：幾塊小碎片往外彈 + 一點火花，不爆炸
+export function shatterSmall(x, y, z, colors, n = 5, power = 2.2) {
+  for (let i = 0; i < n; i++) {
+    const m = new THREE.Mesh(DEBRIS_GEO, debrisMat(colors[i % colors.length]));
+    const s = 0.35 + Math.random() * 0.35;
+    m.scale.setScalar(s);
+    m.position.set(x + (Math.random() - 0.5) * 0.15, y + 0.05, z + (Math.random() - 0.5) * 0.15);
+    scene.add(m);
+    const a = Math.random() * Math.PI * 2, p = power * (0.4 + Math.random() * 0.8);
+    debris.push({ m, s, life: 1 + Math.random() * 0.8,
+      vx: Math.cos(a) * p, vy: 2 + Math.random() * power, vz: Math.sin(a) * p,
+      sx: (Math.random() - 0.5) * 24, sz: (Math.random() - 0.5) * 24 });
+  }
+  sparks(x, y + 0.1, z, 0xff5030, 4, 0, 0, 0.5);
+}
 // 零件炸開：直接拿零件身上的方塊往外噴（cx, cz = 爆炸中心）
 // opts.char：顏色往焦黑壓多少（0..1）；opts.burn：每塊有多少機率是著火的（飛的時候一路冒火）
 const CHAR_C = new THREE.Color(0x16120f), charC = new THREE.Color();

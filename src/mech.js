@@ -424,6 +424,8 @@ function destroyMech(m, dx, dz) {
     m.onDeath?.(m);
     return;
   }
+  // 蟲群：不爆炸，剩下的蟲各自碎掉（ai.js 的 onDeath）
+  if (m.swarm) { m.onDeath?.(m); return; }
   // 雜魚：碎片燒得焦黑、三成還著火（被火焰籠罩的感覺）
   const fxOpts = m.grunt ? { char: 0.72, burn: 0.3 } : null;
   for (const k in m.parts) if (m.parts[k].g.visible) voxelBurst(m.parts[k].g, m.grunt ? 55 : 40, 7, m.x, m.z, dx * 3, dz * 3, fxOpts);

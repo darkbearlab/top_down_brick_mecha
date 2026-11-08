@@ -15,7 +15,7 @@ import { headStats } from './sensors.js';
 import { BOOST_DV, BOOST_PUSH, BOOST_TIME, ENEMY_COLORS, activeSlot, boostDirOf, boostKOf, legK, damagePart, facing, hitMech, makeMech, muzzleOf, mechs, removeMech, slotBroken, stagger, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { makeGuns, shots, updateGuns } from './weapons.js';
 import { ENEMY_PRESETS, SLOTS } from './parts.js';
-import { burst, explosion, hitSparks, makeLaser, setLaser, smoke, sparks } from './fx.js';
+import { burst, explosion, hitSparks, makeLaser, setLaser, shatterSmall, smoke, sparks } from './fx.js';
 import { blastBuildings } from './buildings.js';
 import { sfx } from './audio.js';
 import { flowDir, flyDir } from './pathing.js';
@@ -75,7 +75,7 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
     e.laser.g.visible = false;
     clearTele(e);
     if (e.bomber && !e.bomber.done) { e.bomber.done = true; bomberBlast(e, 0.75); }   // 被打爆也會炸（小一點）
-    if (e.swarm) burst(e.x, 0.3, e.z, [0x2a2a30, 0xff3020], 18, 5);
+    if (e.swarm) { const S = e.swarm; for (let i = 0; i < S.live; i++) shatterSmall(S.wx[i], 0.1, S.wz[i], BUG_BITS); S.body.visible = S.eye.visible = false; sfx.hit(); }   // 最後幾隻各自碎掉，不爆炸
     if (e.quad) burst(e.x, 2, e.z, [0x3a3d45, 0xa8321a, 0x8a8e98], 14, 6);
     AI.onEnemyDeath?.(e);
     setTimeout(() => removeEnemy(e), 2500);   // 殘骸留一下才補新的
@@ -539,20 +539,40 @@ function setupSwarm(e, n) {
   body.frustumCulled = eye.frustumCulled = false;
   body.castShadow = true;
   e.model.root.add(body, eye);
-  e.swarm = { n, per: e.parts.torso.max / n, body, eye, ph: Array.from({ length: n }, () => [Math.random() * 6.28, 0.35 + Math.random() * 1.1, 0, 1 + Math.random() * 1.5]) };
+  e.swarm = { n, per: e.parts.torso.max / n, body, eye, ph: Array.from({ length: n }, () => [Math.random() * 6.28, 0.35 + Math.random() * 1.1, 0, 1 + Math.random() * 1.5]),
+    live: n, wx: new Float32Array(n).fill(e.x), wz: new Float32Array(n).fill(e.z), yaw: new Float32Array(n), init: false };
 }
-function updateSwarmFx(e) {
+const BUG_BITS = [0x2c2d34, 0x1c1d22, 0xff3020];
+// 頭朝實際跑的方向：整群在移動時，整群的速度佔比較重 → 大家頭朝同一邊；停下來時才各自亂竄
+const SWARM_VW = 1.6, BUG_TURN = 10;
+function updateSwarmFx(e, dt) {
   const S = e.swarm, t = G.now, live = Math.max(1, Math.ceil(e.parts.torso.hp / e.parts.torso.max * S.n));
+  // 被打掉的那幾隻：在牠最後的位置各自碎掉
+  for (let i = live; i < S.live; i++) shatterSmall(S.wx[i], 0.1, S.wz[i], BUG_BITS);
+  S.live = Math.min(S.live, live);
+  const ev = Math.hypot(e.vx, e.vz);
   for (let i = 0; i < S.n; i++) {
-    // 在地上亂竄：各自在中心附近繞來繞去、頭朝著跑的方向，身體貼地微微顛
+    // 在地上亂竄：各自在中心附近繞來繞去，身體貼地微微顛
     const [ph, rad, , sp] = S.ph[i], a = ph + Math.sin(t * 0.9 * sp + ph * 3) * 1.3, r = rad * (0.75 + 0.35 * Math.sin(t * 1.4 * sp + ph));
-    tmpP.set(Math.cos(a) * r, 0.05 + Math.abs(Math.sin(t * 22 + ph * 5)) * 0.025, Math.sin(a) * r);
-    tmpQ.setFromEuler(tmpE.set(0, -a + Math.sin(t * 6 + ph) * 0.8, 0));
+    const lx = Math.cos(a) * r, lz = Math.sin(a) * r, wx = e.x + lx, wz = e.z + lz;
+    if (S.init && dt > 0) {
+      // 實際移動的速度（自己亂竄 + 整群的移動，整群在走時加重）→ 頭轉過去
+      const vx = (wx - S.wx[i]) / dt + e.vx * (SWARM_VW - 1), vz = (wz - S.wz[i]) / dt + e.vz * (SWARM_VW - 1);
+      if (Math.hypot(vx, vz) > 0.3 + (ev > 1 ? 0 : 0.5)) S.yaw[i] = approachYaw(S.yaw[i], Math.atan2(vx, vz), BUG_TURN * dt);
+    } else S.yaw[i] = Math.atan2(lx, lz);
+    S.wx[i] = wx; S.wz[i] = wz;
+    tmpP.set(lx, 0.05 + Math.abs(Math.sin(t * 22 + ph * 5)) * 0.025, lz);
+    tmpQ.setFromEuler(tmpE.set(0, S.yaw[i], 0));
     tmpM.compose(tmpP, tmpQ, i < live ? ONE : ZERO);   // 打掉的那幾隻縮成 0
     S.body.setMatrixAt(i, tmpM);
     S.eye.setMatrixAt(i, tmpM.multiply(EYE_OFF));
   }
+  S.init = true;
   S.body.instanceMatrix.needsUpdate = true; S.eye.instanceMatrix.needsUpdate = true;
+}
+function approachYaw(a, b, step) {
+  const d = Math.atan2(Math.sin(b - a), Math.cos(b - a));
+  return a + Math.sign(d) * Math.min(Math.abs(d), step);
 }
 
 // ---------- 旋停機：四旋翼無人機 ----------

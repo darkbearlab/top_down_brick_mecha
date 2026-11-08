@@ -136,7 +136,7 @@ export const GRUNTS_LOW = {
   bomber: { name: '自爆機', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: null, backL: null, backR: null, hp: 28, bomber: true, speedMul: 1.35 },
   charger: { name: '衝鋒機', head: 'dome', core: 'std', legs: 'biped', armL: null, armR: null, backL: null, backR: null, hp: 170, charger: true },
   gunship: { name: '旋停機', head: 'hunter', core: 'light', legs: 'hover', armL: null, armR: 'mg_l', backL: 'missile_l', backR: null, hp: 60, fly: true, quad: true },
-  swarm: { name: '蟲群', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: null, backL: null, backR: null, hp: 100, swarm: 16, speedMul: 1.05 },
+  swarm: { name: '蟲群', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: null, backL: null, backR: null, hp: 60, swarm: 16, speedMul: 1.05 },
   shielder: { name: '盾兵', head: 'dome', core: 'std', legs: 'biped', armL: 'shield', armR: 'autocannon_l', backL: null, backR: null, hp: 120 },
 };
 // 出場比例：步兵最多，砲車 / 狙擊兵少
