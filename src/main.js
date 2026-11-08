@@ -422,8 +422,9 @@ function startStage(seed) {
   const zones = map.zones.map((Z, k) => ({ ...Z, squads: [pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R), pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R)], reinforce: k !== map.startZ && Z.depth >= 2 && R() < 0.35, n: 0 }));
   const squads = map.sites.map(S => {
     const Z = zones[S.zone], key = Z.squads[Z.n++ % 2], D = SQUADS[key];
-    const units = [...D.units, ...(S.depth >= 2 ? [D.units[D.units.length - 1]] : [])];
-    return { ...S, layer: S.layer ?? 0, key, name: D.name, units: units.map(k => ({ key: k, hp: null, dead: false })), members: [], awake: false, found: false, cleared: false, hold: D.hold ?? 0, patrol: !!D.patrol, wp: 0, legT: 0 };
+    const units = D.units.slice(0, 3);   // 每隊最多 3 台（深處也不加人）
+    return { ...S, layer: S.layer ?? 0, key, name: D.name, units: units.map(k => ({ key: k, hp: null, dead: false })), members: [], awake: false, found: false, cleared: false, hold: D.hold ?? 0, patrol: !!D.patrol, wp: 0, legT: 0,
+      entry: !D.hold && !D.patrol && R() < DROP_CHANCE ? 'drop' : 'spread' };   // 登場方式：散開站著 / 玩家靠近才整隊空投
   });
   for (const S of squads) if (S.hold) fortify(map.layers[S.layer], map.W, map.H, S, R);
   resetWorld(map);
@@ -486,12 +487,35 @@ function patrolRoute(S) {
   }
   return pts;
 }
-function spawnSquad(S) {
+// ---------- 小隊登場 ----------
+// spread：散開站在據點周圍（一般 3～7 格、守備據點 2～4 格），不會擠成一團
+// drop：一開始不在場上；玩家走到據點 DROP_R 格內，整隊從天上空降到玩家周圍 7～13 格（偏向據點那一側），落地就醒著
+const DROP_CHANCE = 0.4, DROP_R = 18;
+function spreadSpot(cx, cz, r0, r1, taken) {
+  for (let t = 0; t < 40; t++) {
+    const a = Math.random() * Math.PI * 2, r = r0 + Math.random() * (r1 - r0), x = cx + Math.cos(a) * r, z = cz + Math.sin(a) * r;
+    if (openAround(x, z) && !taken.some(p => Math.hypot(p.x - x, p.z - z) < 2.5)) return { x, z };
+  }
+  return null;
+}
+function spawnSquad(S, drop = false) {
   S.members = [];
+  const taken = [], toS = Math.atan2(S.z - player.z, S.x - player.x);
   S.units.forEach((u, i) => {
     if (u.dead || u.away) return;   // away：追到別層去了
-    const a = i / S.units.length * Math.PI * 2, at = { x: S.x + Math.sin(a) * 1.8, z: S.z + Math.cos(a) * 1.8 };
-    const P = gruntOf(u.key), e = spawnEnemy({ x: at.x + Math.sin(a), z: at.z + Math.cos(a) }, P, at, { colors: GRUNT_COLORS, diff: exDiff(S.depth), grunt: true, noDrop: true });
+    const a = i / S.units.length * Math.PI * 2;
+    let at = null;
+    if (drop) {
+      for (let t = 0; t < 40 && !at; t++) {
+        const b = toS + (Math.random() - 0.5) * (t < 20 ? 2.2 : 6.3), r = 7 + Math.random() * 6, x = player.x + Math.cos(b) * r, z = player.z + Math.sin(b) * r;
+        if (openAround(x, z) && (t >= 30 || flowDist(x, z) < r * 2.2) && !taken.some(p => Math.hypot(p.x - x, p.z - z) < 2.5)) at = { x, z };   // 最後幾次不管路程
+      }
+    }
+    at ??= S.hold ? spreadSpot(S.x, S.z, 2, 4, taken) : spreadSpot(S.x, S.z, 3, 7, taken);
+    at ??= { x: S.x + Math.sin(a) * 1.8, z: S.z + Math.cos(a) * 1.8 };
+    taken.push(at);
+    const P = gruntOf(u.key), look = drop ? player : { x: at.x + Math.sin(a), z: at.z + Math.cos(a) };
+    const e = spawnEnemy(look, P, at, { colors: GRUNT_COLORS, diff: exDiff(S.depth), grunt: true, noDrop: !drop });
     e.dormant = !S.awake; e.squad = S; e.unit = u; e.enElite = u.key.endsWith('*'); e.lvl = S.depth; e.fixed = !!P.fixed;
     e.chase = chaseOf(e);
     if (S.hold) e.hold = { x: S.x, z: S.z, r: S.hold };
@@ -543,7 +567,20 @@ function updateExplore(dt) {
     if (S.cleared || S.layer !== EX.layer) continue;   // 別層的小隊不動（換層時已經收起來）
     const d = Math.hypot(S.x - player.x, S.z - player.z);
     if (S.members.some(e => e.alive && e.fogVis)) S.found = true;   // 親眼看到才算發現
-    if (!S.members.length) { if (d < SPAWN_R) spawnSquad(S); continue; }
+    if (!S.members.length) {
+      if (S.entry === 'drop' && !S.dropped) {
+        // 空投小隊：玩家走進範圍才整隊空降（之後被甩掉收起來，再出現就照一般方式散開站著）
+        if (d < DROP_R && player.alive) {
+          S.dropped = S.awake = S.found = true;
+          spawnSquad(S, true);
+          for (const e of S.members) e.dormant = false;
+          toast('敵機空投！'); sfx.lock();
+        }
+        continue;
+      }
+      if (d < SPAWN_R) spawnSquad(S);
+      continue;
+    }
     if (!S.awake && d > DESPAWN_R) { despawnSquad(S); continue; }
     const live = S.members.filter(e => e.alive);
     // 巡邏：待命中沿著路線走；大家都到了（或走了 25 秒還沒到）就換下一個點
@@ -570,7 +607,7 @@ function updateExplore(dt) {
         S.awake = S.found = true; for (const e of live) e.dormant = false;
         const Z = EX.zones[S.zone], call = Z.reinforce && !S.called && EN.t - (Z.lastCall ?? -99) > 45 && (EX.portal.state === 'idle' || EX.portal.state === 'ready');   // 傳送門啟動後不再叫增援
         // 增援據點：小隊第一次被驚動，5 秒後從兩三個方向來增援（用這個區域的駐軍兵種）；同一個區域 45 秒內只叫一次
-        if (call) { S.called = true; Z.lastCall = EN.t; EX.pending.push({ t: 5, groups: 2 + (S.depth >= 4 ? 1 : 0), n: 2, depth: S.depth, pool: Z.squads.flatMap(k => SQUADS[k].units) }); }
+        if (call) { S.called = true; Z.lastCall = EN.t; EX.pending.push({ t: 5, groups: 1 + (S.depth >= 3 ? 1 : 0), n: 2, depth: S.depth, pool: Z.squads.flatMap(k => SQUADS[k].units) }); }
       }
     } else if (live.length && live.every(e => (e.fly ? flyDist(e.x, e.z) : flowDist(e.x, e.z)) > LOSE_R)) {   // 用實際要走的路程算（繞岩壁追過來的不算跟丟）
       S.awake = false; for (const e of live) { e.dormant = true; e.seenHp = e.parts.torso.hp; }
@@ -835,7 +872,7 @@ function updateChasers(dt) {
 function exLoot(e) {
   const x = e.x, z = e.z;
   spawnPickup('scrap', x, z, (e.enElite ? 9 : 3) + (e.lvl ?? 0) + (EN.stage - 1) * 2);
-  const [a, r] = e.enElite ? [0.18, 0.12] : [0.14, 0.08];
+  const [a, r] = e.enElite ? [0.08, 0.05] : [0.05, 0.03];   // 彈藥 / 修理掉落率（零件一定掉）
   if (Math.random() < a) spawnPickup('ammo', x, z);
   if (Math.random() < r) spawnPickup('repair', x, z);
 }
@@ -857,7 +894,8 @@ function exploreKill(e) {
   e.unit.dead = true;
   if (S.wave || !S.units.every(u => u.dead)) return;
   S.cleared = true; S.awake = false; EX.cleared++;
-  spawnPickup('repair', e.x, e.z); spawnPickup('ammo', e.x, e.z);
+  if (Math.random() < 0.35) spawnPickup('repair', e.x, e.z);
+  if (Math.random() < 0.35) spawnPickup('ammo', e.x, e.z);
   spawnPickup('scrap', e.x, e.z, 8 + S.depth * 2);
   if (EX.cleared <= EX.need) toast(`小隊清除 ${EX.cleared} / ${EX.need}`);   // 只報傳送門進度，不報是哪一隊
 }

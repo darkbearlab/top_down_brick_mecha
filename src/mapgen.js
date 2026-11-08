@@ -234,8 +234,8 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 312, H = 
   };
   for (let k = 0; k < NZ; k++) if (rand() < 0.7) place(k, 'mod');
   for (let n = 0; n < 4; n++) { let k; do k = ri(0, NZ - 1); while (k === startZ); place(k, 'weapon'); }
-  for (let n = 0; n < 3; n++) { let k; do k = ri(0, NZ - 1); while (k === startZ); place(k, 'station'); }
-  for (let n = 0; n < 3; n++) { let k; do k = ri(0, NZ - 1); while (k === startZ); place(k, 'supply'); }
+  for (let n = 0; n < 5; n++) { let k; do k = ri(0, NZ - 1); while (k === startZ); place(k, 'station'); }   // 維修站、彈藥補給站各 5 個
+  for (let n = 0; n < 5; n++) { let k; do k = ri(0, NZ - 1); while (k === startZ); place(k, 'supply'); }
 
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) if (grid[r][c] === 'B') grid[r][c] = '.';
   return {

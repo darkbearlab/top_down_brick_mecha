@@ -157,7 +157,7 @@ export function gruntOf(key) {
   return { ...pool[k], id: k, elite, armor: { head: a, torso: a, arms: a, legs: a } };
 }
 // ---------- 遭遇小隊（遠征模式） ----------
-// 每隊 3～4 台，組合針對不同的裝備：
+// 每隊最多 3 台（main.js 只取前 3 台），組合針對不同的裝備：
 //   巡邏隊：基本款；突擊隊 / 火箭伏擊：貼臉衝過來（考驗後退射擊、失衡、霰彈）；
 //   砲擊陣地 / 狙擊組：遠距離壓制（考驗掩體和機動、長射程武器）；飛彈小隊：鎖定（考驗打頭、繞掩體）；
 //   重裝隊 / 砲車隊：帶一台精英（考驗高單發傷害、屬性剋制）
@@ -177,11 +177,10 @@ export const SQUADS = {
   missile: { name: '飛彈小隊', units: ['launcher', 'launcher', 'marksman'], themes: { open: 2, plaza: 2, city: 1 } },
   heavy: { name: '重裝隊', units: ['heavy*', 'scout', 'scout'], themes: { city: 2, open: 1, plaza: 1 }, minDepth: 1 },
   gunline: { name: '砲車隊', units: ['gun*', 'trooper', 'trooper'], themes: { open: 2, plaza: 2 }, minDepth: 1 },
-  kamikaze: { name: '自爆小隊', units: ['bomber', 'bomber', 'bomber', 'scout'], themes: { city: 2, ruins: 2, open: 1, chasm: 1 }, minDepth: 1 },
+  kamikaze: { name: '自爆小隊', units: ['bomber', 'scout', 'trooper'], themes: { city: 1, ruins: 1, chasm: 1 }, minDepth: 1 },
   breakers: { name: '衝鋒隊', units: ['charger', 'trooper', 'trooper'], themes: { open: 2, plaza: 2, chasm: 3, ruins: 1 }, minDepth: 1 },
   gunships: { name: '旋停機隊', units: ['gunship', 'gunship', 'marksman'], themes: { chasm: 4, open: 1, plaza: 1 }, minDepth: 1 },
   swarm: { name: '蟲群', units: ['swarm', 'swarm', 'scout'], themes: { ruins: 2, city: 1, chasm: 2 }, minDepth: 2 },
-  shieldwall: { name: '盾陣', units: ['shielder', 'shielder', 'launcher'], themes: { city: 2, plaza: 2, chasm: 1 }, minDepth: 1 },
   elite: { name: '精英小隊', units: ['rocket*', 'blade*', 'rifle*'], themes: { city: 1, open: 1, ruins: 1, plaza: 1 }, minDepth: 3 },
 };
 export function pickSquad(theme, depth, rand = Math.random) {
