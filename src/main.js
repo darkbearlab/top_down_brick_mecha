@@ -420,7 +420,7 @@ function startStage(seed) {
   const map = genStage(seed, EN.stage, window.__dbg?.terrain);
   // 每個區域：兩種駐軍輪流排、三成五是增援據點（出發區、第一圈除外）；用地圖的種子決定 → 同一張圖一樣
   const R = rng(map.seed * 7 + 13);
-  const zones = map.zones.map((Z, k) => ({ ...Z, squads: [pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R), pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R)], reinforce: k !== map.startZ && Z.depth >= 2 && R() < 0.35, n: 0 }));
+  const zones = map.zones.map((Z, k) => ({ ...Z, squads: [pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R, map.terrain), pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R, map.terrain)], reinforce: k !== map.startZ && Z.depth >= 2 && R() < 0.35, n: 0 }));
   const squads = map.sites.map(S => {
     const Z = zones[S.zone], key = Z.squads[Z.n++ % 2], D = SQUADS[key];
     const units = D.units.slice(0, 3);   // 每隊最多 3 台（深處也不加人）

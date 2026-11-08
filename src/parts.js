@@ -112,43 +112,52 @@ low('flamer', '小火焰噴射器', { dmg: 2, range: 4.6, burn: 0.22, ammo: 200 
 low('napalm', '燒夷砲', { dmg: 16, zone: 2, zoneT: 4, burn: 1.1, interval: 3.4, range: 13, ammo: 6 });
 export const HP_MUL = 1.35;
 
+// ---------- 敵人的主題（派系） ----------
+// 每個敵人定義（GRUNTS / GRUNTS_LOW / SQUADS / ENEMY_PRESETS）都有 faction：屬於哪個主題
+// 之後池子變多時，地圖（stagegen.js 的 terrain）和敵人用主題組合：FACTIONS[f].terrains = 會出現在哪些地形（null = 全部）
+// 目前全部都是 base（正規軍），任何地形都會出現 → 行為跟以前一樣
+export const FACTIONS = {
+  base: { name: '正規軍', terrains: null },
+};
+export const factionFits = (f, terrain) => { const t = FACTIONS[f ?? 'base']?.terrains; return !t || !terrain || t.includes(terrain); };
+
 // ---------- 雜魚機 ----------
 // 一到兩把武器、整台只有一條血（打哪裡都算軀幹）、不能推進、體型小一號、壞了直接炸散（沒有特寫和殘骸）
 // hp = 整台的耐久（不乘 HP_MUL）；armor 每台出場時隨機
 export const GRUNTS = {
-  rifle: { name: '步兵', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'mg', backL: null, backR: null, hp: 110 },
-  rocket: { name: '飛彈兵', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: 'mg', backL: 'missile', backR: null, hp: 110 },
-  heavy: { name: '重步兵', head: 'dome', core: 'std', legs: 'tread', armL: 'shotgun', armR: 'autocannon', backL: null, backR: null, hp: 170 },
-  gun: { name: '砲車', head: 'dome', core: 'std', legs: 'tread', armL: null, armR: null, backL: null, backR: 'cannon', hp: 150 },
-  sniper: { name: '狙擊兵', head: 'hunter', core: 'light', legs: 'reverse', armL: null, armR: 'sniper', backL: null, backR: null, hp: 80 },
-  blade: { name: '劍兵', head: 'std', core: 'light', legs: 'hover', armL: null, armR: 'saber', backL: null, backR: null, hp: 90 },
+  rifle: { name: '步兵', faction: 'base', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'mg', backL: null, backR: null, hp: 110 },
+  rocket: { name: '飛彈兵', faction: 'base', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: 'mg', backL: 'missile', backR: null, hp: 110 },
+  heavy: { name: '重步兵', faction: 'base', head: 'dome', core: 'std', legs: 'tread', armL: 'shotgun', armR: 'autocannon', backL: null, backR: null, hp: 170 },
+  gun: { name: '砲車', faction: 'base', head: 'dome', core: 'std', legs: 'tread', armL: null, armR: null, backL: null, backR: 'cannon', hp: 150 },
+  sniper: { name: '狙擊兵', faction: 'base', head: 'hunter', core: 'light', legs: 'reverse', armL: null, armR: 'sniper', backL: null, backR: null, hp: 80 },
+  blade: { name: '劍兵', faction: 'base', head: 'std', core: 'light', legs: 'hover', armL: null, armR: 'saber', backL: null, backR: null, hp: 90 },
 };
 // 低階雜魚（無盡模式前期的主力）：武器都是低階版，血也少一點
 export const GRUNTS_LOW = {
-  scout: { name: '巡邏兵', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'mg_l', backL: null, backR: null, hp: 70 },
-  trooper: { name: '機砲兵', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'autocannon_l', backL: null, backR: null, hp: 80 },
-  launcher: { name: '小飛彈兵', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: 'mg_l', backL: 'missile_l', backR: null, hp: 75 },
-  brawler: { name: '突擊兵', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: 'shotgun_l', backL: null, backR: null, hp: 80 },
-  stick: { name: '電擊兵', head: 'std', core: 'light', legs: 'hover', armL: null, armR: 'saber_l', backL: null, backR: null, hp: 65 },
-  marksman: { name: '射手', head: 'hunter', core: 'light', legs: 'reverse', armL: null, armR: 'sniper_l', backL: null, backR: null, hp: 60 },
-  mortar: { name: '迫擊砲車', head: 'dome', core: 'std', legs: 'tread', armL: null, armR: null, backL: null, backR: 'cannon_l', hp: 110 },
-  bazooka: { name: '火箭兵', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'mg_l', backL: null, backR: 'rocket_l', hp: 85 },
+  scout: { name: '巡邏兵', faction: 'base', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'mg_l', backL: null, backR: null, hp: 70 },
+  trooper: { name: '機砲兵', faction: 'base', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'autocannon_l', backL: null, backR: null, hp: 80 },
+  launcher: { name: '小飛彈兵', faction: 'base', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: 'mg_l', backL: 'missile_l', backR: null, hp: 75 },
+  brawler: { name: '突擊兵', faction: 'base', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: 'shotgun_l', backL: null, backR: null, hp: 80 },
+  stick: { name: '電擊兵', faction: 'base', head: 'std', core: 'light', legs: 'hover', armL: null, armR: 'saber_l', backL: null, backR: null, hp: 65 },
+  marksman: { name: '射手', faction: 'base', head: 'hunter', core: 'light', legs: 'reverse', armL: null, armR: 'sniper_l', backL: null, backR: null, hp: 60 },
+  mortar: { name: '迫擊砲車', faction: 'base', head: 'dome', core: 'std', legs: 'tread', armL: null, armR: null, backL: null, backR: 'cannon_l', hp: 110 },
+  bazooka: { name: '火箭兵', faction: 'base', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'mg_l', backL: null, backR: 'rocket_l', hp: 85 },
   // 砲塔：固定不動（只轉上半身），耐久高；只出現在陣地型小隊
-  turret: { name: '砲塔', head: 'dome', core: 'std', legs: 'tread', armL: null, armR: 'autocannon_l', backL: null, backR: null, hp: 150, fixed: true },
+  turret: { name: '砲塔', faction: 'base', head: 'dome', core: 'std', legs: 'tread', armL: null, armR: 'autocannon_l', backL: null, backR: null, hp: 150, fixed: true },
   // 特殊行為（ai.js）：
   //   bomber 自爆機：輕、快，一路衝過來，4 格內閃紅光嗶嗶叫、0.7 秒後自爆（敵我都炸）；被打爆也會炸
   //   charger 衝鋒機：停下來、地上亮出紅色的衝刺線（0.85 秒），然後沿直線高速衝 ~16 格；撞到玩家重傷 + 擊退 + 失衡；撞牆暈 1.6 秒；衝進空洞直接摔死
   //   fly 旋停機：四旋翼無人機（機體模型換掉，武器掛在下面），浮在空中，飛得過空洞（喜歡停在空洞上：地面機體撞不到它）；用飛行流場
   //   swarm 蟲群：一台，但畫成一群在地上爬的小機械蟲；單發攻擊一次最多打掉一隻的血（per），爆風傷害 ×1.8 → 怕範圍武器；貼近持續啃咬；飛彈鎖不到
   //   shield 盾兵：左手盾牌（見 WEAPONS.shield），上半身轉得非常慢 → 要繞背
-  bomber: { name: '自爆機', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: null, backL: null, backR: null, hp: 28, bomber: true, speedMul: 1.35 },
-  charger: { name: '衝鋒機', head: 'dome', core: 'std', legs: 'biped', armL: null, armR: null, backL: null, backR: null, hp: 170, charger: true },
-  gunship: { name: '旋停機', head: 'hunter', core: 'light', legs: 'hover', armL: null, armR: 'mg_l', backL: 'missile_l', backR: null, hp: 60, fly: true, quad: true },
-  swarm: { name: '蟲群', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: null, backL: null, backR: null, hp: 60, swarm: 16, speedMul: 1.05, entries: ['stand'] },
+  bomber: { name: '自爆機', faction: 'base', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: null, backL: null, backR: null, hp: 28, bomber: true, speedMul: 1.35 },
+  charger: { name: '衝鋒機', faction: 'base', head: 'dome', core: 'std', legs: 'biped', armL: null, armR: null, backL: null, backR: null, hp: 170, charger: true },
+  gunship: { name: '旋停機', faction: 'base', head: 'hunter', core: 'light', legs: 'hover', armL: null, armR: 'mg_l', backL: 'missile_l', backR: null, hp: 60, fly: true, quad: true },
+  swarm: { name: '蟲群', faction: 'base', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: null, backL: null, backR: null, hp: 60, swarm: 16, speedMul: 1.05, entries: ['stand'] },
   // 噴火兵：貼近用火焰噴射器燒；燒夷兵：遠遠丟燒夷彈封路（縱火隊）
-  pyro: { name: '噴火兵', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'flamer_l', backL: null, backR: null, hp: 90 },
-  igniter: { name: '燒夷兵', head: 'dome', core: 'std', legs: 'reverse', armL: null, armR: 'mg_l', backL: 'napalm_l', backR: null, hp: 85 },
-  shielder: { name: '盾兵', head: 'dome', core: 'std', legs: 'biped', armL: 'shield', armR: 'autocannon_l', backL: null, backR: null, hp: 120 },
+  pyro: { name: '噴火兵', faction: 'base', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'flamer_l', backL: null, backR: null, hp: 90 },
+  igniter: { name: '燒夷兵', faction: 'base', head: 'dome', core: 'std', legs: 'reverse', armL: null, armR: 'mg_l', backL: 'napalm_l', backR: null, hp: 85 },
+  shielder: { name: '盾兵', faction: 'base', head: 'dome', core: 'std', legs: 'biped', armL: 'shield', armR: 'autocannon_l', backL: null, backR: null, hp: 120 },
 };
 // ---------- 登場方式 ----------
 // stand = 一開始就站在地上（遠征小隊散開站著）；drop = 從天上空投（空投小隊、增援、追到別層、無盡 / 觀戰模式）
@@ -190,26 +199,27 @@ export function gruntOf(key) {
 //   patrol：巡邏型，待命時沿著一條路線走來走去 → 會自己撞上來，或要等它走開再過
 // themes：在哪種地形比較常出現（街區轉角多 → 近戰；荒野視線長 → 遠程）；minDepth：離出發區至少幾個隘口才會出現
 export const SQUADS = {
-  patrol: { name: '巡邏隊', units: ['scout', 'scout', 'trooper'], themes: { city: 2, open: 2, ruins: 2, plaza: 2, chasm: 1 }, patrol: true },
-  hunters: { name: '遊獵隊', units: ['brawler', 'stick', 'scout'], themes: { ruins: 2, open: 1, city: 1 }, patrol: true },
-  outpost: { name: '前哨陣地', units: ['turret', 'turret', 'trooper', 'marksman'], themes: { open: 2, plaza: 2, ruins: 1 }, hold: 5, minDepth: 1 },
-  bunker: { name: '守備據點', units: ['turret', 'mortar', 'trooper', 'trooper'], themes: { city: 2, plaza: 2 }, hold: 6, minDepth: 2 },
-  rush: { name: '突擊隊', units: ['brawler', 'brawler', 'stick', 'stick'], themes: { city: 3, ruins: 2, plaza: 1 } },
-  ambush: { name: '火箭伏擊', units: ['bazooka', 'bazooka', 'brawler'], themes: { city: 2, ruins: 2 } },
-  mortar: { name: '砲擊陣地', units: ['mortar', 'mortar', 'scout'], themes: { open: 3, plaza: 2, ruins: 1 } },
-  snipers: { name: '狙擊組', units: ['marksman', 'marksman', 'trooper'], themes: { open: 3, plaza: 1, ruins: 1, chasm: 2 } },
-  missile: { name: '飛彈小隊', units: ['launcher', 'launcher', 'marksman'], themes: { open: 2, plaza: 2, city: 1 } },
-  heavy: { name: '重裝隊', units: ['heavy*', 'scout', 'scout'], themes: { city: 2, open: 1, plaza: 1 }, minDepth: 1 },
-  gunline: { name: '砲車隊', units: ['gun*', 'trooper', 'trooper'], themes: { open: 2, plaza: 2 }, minDepth: 1 },
-  kamikaze: { name: '自爆小隊', units: ['bomber', 'scout', 'trooper'], themes: { city: 1, ruins: 1, chasm: 1 }, minDepth: 1 },
-  breakers: { name: '衝鋒隊', units: ['charger', 'trooper', 'trooper'], themes: { open: 2, plaza: 2, chasm: 3, ruins: 1 }, minDepth: 1 },
-  gunships: { name: '旋停機隊', units: ['gunship', 'gunship', 'marksman'], themes: { chasm: 4, open: 1, plaza: 1 }, minDepth: 1 },
-  arson: { name: '縱火隊', units: ['pyro', 'pyro', 'igniter'], themes: { ruins: 2, city: 2, plaza: 1 }, minDepth: 1 },
-  swarm: { name: '蟲群', units: ['swarm', 'swarm', 'scout'], themes: { ruins: 2, city: 1, chasm: 2 }, minDepth: 2 },
-  elite: { name: '精英小隊', units: ['rocket*', 'blade*', 'rifle*'], themes: { city: 1, open: 1, ruins: 1, plaza: 1 }, minDepth: 3 },
+  patrol: { name: '巡邏隊', faction: 'base', units: ['scout', 'scout', 'trooper'], themes: { city: 2, open: 2, ruins: 2, plaza: 2, chasm: 1 }, patrol: true },
+  hunters: { name: '遊獵隊', faction: 'base', units: ['brawler', 'stick', 'scout'], themes: { ruins: 2, open: 1, city: 1 }, patrol: true },
+  outpost: { name: '前哨陣地', faction: 'base', units: ['turret', 'turret', 'trooper', 'marksman'], themes: { open: 2, plaza: 2, ruins: 1 }, hold: 5, minDepth: 1 },
+  bunker: { name: '守備據點', faction: 'base', units: ['turret', 'mortar', 'trooper', 'trooper'], themes: { city: 2, plaza: 2 }, hold: 6, minDepth: 2 },
+  rush: { name: '突擊隊', faction: 'base', units: ['brawler', 'brawler', 'stick', 'stick'], themes: { city: 3, ruins: 2, plaza: 1 } },
+  ambush: { name: '火箭伏擊', faction: 'base', units: ['bazooka', 'bazooka', 'brawler'], themes: { city: 2, ruins: 2 } },
+  mortar: { name: '砲擊陣地', faction: 'base', units: ['mortar', 'mortar', 'scout'], themes: { open: 3, plaza: 2, ruins: 1 } },
+  snipers: { name: '狙擊組', faction: 'base', units: ['marksman', 'marksman', 'trooper'], themes: { open: 3, plaza: 1, ruins: 1, chasm: 2 } },
+  missile: { name: '飛彈小隊', faction: 'base', units: ['launcher', 'launcher', 'marksman'], themes: { open: 2, plaza: 2, city: 1 } },
+  heavy: { name: '重裝隊', faction: 'base', units: ['heavy*', 'scout', 'scout'], themes: { city: 2, open: 1, plaza: 1 }, minDepth: 1 },
+  gunline: { name: '砲車隊', faction: 'base', units: ['gun*', 'trooper', 'trooper'], themes: { open: 2, plaza: 2 }, minDepth: 1 },
+  kamikaze: { name: '自爆小隊', faction: 'base', units: ['bomber', 'scout', 'trooper'], themes: { city: 1, ruins: 1, chasm: 1 }, minDepth: 1 },
+  breakers: { name: '衝鋒隊', faction: 'base', units: ['charger', 'trooper', 'trooper'], themes: { open: 2, plaza: 2, chasm: 3, ruins: 1 }, minDepth: 1 },
+  gunships: { name: '旋停機隊', faction: 'base', units: ['gunship', 'gunship', 'marksman'], themes: { chasm: 4, open: 1, plaza: 1 }, minDepth: 1 },
+  arson: { name: '縱火隊', faction: 'base', units: ['pyro', 'pyro', 'igniter'], themes: { ruins: 2, city: 2, plaza: 1 }, minDepth: 1 },
+  swarm: { name: '蟲群', faction: 'base', units: ['swarm', 'swarm', 'scout'], themes: { ruins: 2, city: 1, chasm: 2 }, minDepth: 2 },
+  elite: { name: '精英小隊', faction: 'base', units: ['rocket*', 'blade*', 'rifle*'], themes: { city: 1, open: 1, ruins: 1, plaza: 1 }, minDepth: 3 },
 };
-export function pickSquad(theme, depth, rand = Math.random) {
-  const ok = Object.entries(SQUADS).filter(([, S]) => (S.minDepth ?? 0) <= depth && S.themes[theme]);
+// terrain：這張地圖的地形（stagegen.js），只挑主題合得來的小隊（factionFits）
+export function pickSquad(theme, depth, rand = Math.random, terrain = null) {
+  const ok = Object.entries(SQUADS).filter(([, S]) => (S.minDepth ?? 0) <= depth && S.themes[theme] && factionFits(S.faction, terrain));
   let r = rand() * ok.reduce((a, [, S]) => a + S.themes[theme], 0);
   return (ok.find(([, S]) => (r -= S.themes[theme]) < 0) ?? ok[0])[0];
 }
@@ -228,15 +238,15 @@ export const DEFAULT_LOADOUT = {
 
 // 敵機的配裝（試玩場隨機挑）
 export const ENEMY_PRESETS = [
-  { name: '突擊型', head: 'std', core: 'std', legs: 'biped', armL: 'autocannon', armR: 'shotgun', backL: 'missile', backR: 'rocket',
+  { name: '突擊型', faction: 'base', head: 'std', core: 'std', legs: 'biped', armL: 'autocannon', armR: 'shotgun', backL: 'missile', backR: 'rocket',
     armor: { head: 'composite', torso: 'composite', arms: 'composite', legs: 'composite' } },
-  { name: '狙擊型', head: 'hunter', core: 'light', legs: 'reverse', armL: null, armR: 'sniper', backL: 'vmissile', backR: null,
+  { name: '狙擊型', faction: 'base', head: 'hunter', core: 'light', legs: 'reverse', armL: null, armR: 'sniper', backL: 'vmissile', backR: null,
     armor: { head: 'mirror', torso: 'mirror', arms: 'mirror', legs: 'mirror' } },
-  { name: '光束型', head: 'std', core: 'std', legs: 'hover', armL: 'beam', armR: 'saber', backL: 'missile', backR: 'split',
+  { name: '光束型', faction: 'base', head: 'std', core: 'std', legs: 'hover', armL: 'beam', armR: 'saber', backL: 'missile', backR: 'split',
     armor: { head: 'ceramic', torso: 'ceramic', arms: 'ceramic', legs: 'ceramic' } },
-  { name: '支援型', head: 'radar', core: 'std', legs: 'biped', armL: 'mg', armR: 'autocannon', backL: 'vmissile', backR: 'missile',
+  { name: '支援型', faction: 'base', head: 'radar', core: 'std', legs: 'biped', armL: 'mg', armR: 'autocannon', backL: 'vmissile', backR: 'missile',
     armor: { head: 'composite', torso: 'composite', arms: 'ceramic', legs: 'composite' } },
-  { name: '重砲型', head: 'dome', core: 'heavy', legs: 'tread', armL: 'mg', armR: 'mg', backL: 'cannon', backR: 'split',
+  { name: '重砲型', faction: 'base', head: 'dome', core: 'heavy', legs: 'tread', armL: 'mg', armR: 'mg', backL: 'cannon', backR: 'split',
     armor: { head: 'ceramic', torso: 'composite', arms: 'composite', legs: 'ceramic' } },
 ];
 
