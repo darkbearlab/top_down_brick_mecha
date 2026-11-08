@@ -20,7 +20,7 @@ import { CHIPS, DEVICES, hasChip, techName } from './tech.js';
 import { clearDevices, deviceReady, updateDeviceCd, updateDevices, useDevice } from './devices.js';
 import { updateStatus } from './status.js';
 import { closeReasm, openReasm, reasmActive, renderReasm, updateReasm } from './reasm.js';
-import { ARMORS, DMG_TYPES, ENEMY_PRESETS, GRUNTS, GRUNTS_LOW, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, SQUADS, WEAPONS, gruntOf, loadLoadout, pickSquad, randomGrunt, randomLoadout } from './parts.js';
+import { ARMORS, DMG_TYPES, ENEMY_PRESETS, GRUNTS, GRUNTS_LOW, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, SQUADS, WEAPONS, gruntOf, loadLoadout, pickSquad, randomGrunt, randomLoadout, canEnter, pickEntry, REINFORCE_ENTRIES } from './parts.js';
 import { clearPickups, pickups, restorePickups, spawnPickup, stashPickups, updatePickups } from './pickups.js';
 import { sensors, setSensorsVisible, updateSensors } from './sensors.js';
 import { closeGarage, garage, openGarage } from './garage.js';
@@ -425,7 +425,7 @@ function startStage(seed) {
     const Z = zones[S.zone], key = Z.squads[Z.n++ % 2], D = SQUADS[key];
     const units = D.units.slice(0, 3);   // 每隊最多 3 台（深處也不加人）
     return { ...S, layer: S.layer ?? 0, key, name: D.name, units: units.map(k => ({ key: k, hp: null, dead: false })), members: [], awake: false, found: false, cleared: false, hold: D.hold ?? 0, patrol: !!D.patrol, wp: 0, legT: 0,
-      entry: !D.hold && !D.patrol && R() < DROP_CHANCE ? 'drop' : 'spread' };   // 登場方式：散開站著 / 玩家靠近才整隊空投
+      entry: !D.hold && !D.patrol && R() < DROP_CHANCE && units.every(k => canEnter(k, 'drop')) ? 'drop' : 'spread' };   // 登場方式：散開站著 / 玩家靠近才整隊空投
   });
   for (const S of squads) if (S.hold) fortify(map.layers[S.layer], map.W, map.H, S, R);
   resetWorld(map);
@@ -634,7 +634,7 @@ function updateExplore(dt) {
         S.awake = S.found = true; for (const e of live) e.dormant = false;
         const Z = EX.zones[S.zone], call = Z.reinforce && !S.called && EN.t - (Z.lastCall ?? -99) > 45 && (EX.portal.state === 'idle' || EX.portal.state === 'ready');   // 傳送門啟動後不再叫增援
         // 增援據點：小隊第一次被驚動，5 秒後從兩三個方向來增援（用這個區域的駐軍兵種）；同一個區域 45 秒內只叫一次
-        if (call) { S.called = true; Z.lastCall = EN.t; EX.pending.push({ t: 5, groups: 1 + (S.depth >= 3 ? 1 : 0), n: 2, depth: S.depth, pool: Z.squads.flatMap(k => SQUADS[k].units) }); }
+        if (call) { S.called = true; Z.lastCall = EN.t; EX.pending.push({ t: 5, groups: 1 + (S.depth >= 3 ? 1 : 0), n: 2, depth: S.depth, pool: Z.squads.flatMap(k => SQUADS[k].units).filter(k => pickEntry(k, REINFORCE_ENTRIES)) }); }
       }
     } else if (live.length && live.every(e => (e.fly ? flyDist(e.x, e.z) : flowDist(e.x, e.z)) > LOSE_R)) {   // 用實際要走的路程算（繞岩壁追過來的不算跟丟）
       S.awake = false; for (const e of live) { e.dormant = true; e.seenHp = e.parts.torso.hp; }
@@ -853,7 +853,7 @@ function switchLayer(to) {
   for (const e of enemies.slice()) {
     if (!e.alive) { removeEnemy(e); continue; }
     const d = e.fly ? flyDist(e.x, e.z) : flowDist(e.x, e.z), q = e.boss ? 99 : e.chase ?? 0;
-    if (!e.dormant && !e.drop && q > 0 && d < 70) {
+    if (!e.dormant && !e.drop && q > 0 && d < 70 && canEnter(e.preset, 'drop')) {   // 追到別層是空投下來的 → 不能空投的（蟲群）不追
       e.chase = q - 1;
       if (e.unit && e.squad && !e.squad.wave) { e.unit.away = true; e.unit.hp = e.parts.torso.hp; const i = e.squad.members.indexOf(e); if (i >= 0) e.squad.members.splice(i, 1); }
       parkEnemy(e);

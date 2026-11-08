@@ -144,12 +144,25 @@ export const GRUNTS_LOW = {
   bomber: { name: '自爆機', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: null, backL: null, backR: null, hp: 28, bomber: true, speedMul: 1.35 },
   charger: { name: '衝鋒機', head: 'dome', core: 'std', legs: 'biped', armL: null, armR: null, backL: null, backR: null, hp: 170, charger: true },
   gunship: { name: '旋停機', head: 'hunter', core: 'light', legs: 'hover', armL: null, armR: 'mg_l', backL: 'missile_l', backR: null, hp: 60, fly: true, quad: true },
-  swarm: { name: '蟲群', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: null, backL: null, backR: null, hp: 60, swarm: 16, speedMul: 1.05 },
+  swarm: { name: '蟲群', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: null, backL: null, backR: null, hp: 60, swarm: 16, speedMul: 1.05, entries: ['stand'] },
   // 噴火兵：貼近用火焰噴射器燒；燒夷兵：遠遠丟燒夷彈封路（縱火隊）
   pyro: { name: '噴火兵', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'flamer_l', backL: null, backR: null, hp: 90 },
   igniter: { name: '燒夷兵', head: 'dome', core: 'std', legs: 'reverse', armL: null, armR: 'mg_l', backL: 'napalm_l', backR: null, hp: 85 },
   shielder: { name: '盾兵', head: 'dome', core: 'std', legs: 'biped', armL: 'shield', armR: 'autocannon_l', backL: null, backR: null, hp: 120 },
 };
+// ---------- 登場方式 ----------
+// stand = 一開始就站在地上（遠征小隊散開站著）；drop = 從天上空投（空投小隊、增援、追到別層、無盡 / 觀戰模式）
+// 雜魚定義裡 entries 列出牠能用哪幾種，沒寫 = ['stand', 'drop']（蟲群只能 stand → 不會出現在空投小隊和增援裡）
+// 之後加新的登場方式（例如鑽地而出 burrow）：在 ENTRIES 加一筆、在雜魚的 entries 加上去，
+//   增援 / 空投小隊用 pickEntry(key, 允許的方式) 挑；挑不到（null）的就不會進那個池子 → 自然分池
+export const ENTRIES = { stand: { name: '站著' }, drop: { name: '空投' } };
+export const REINFORCE_ENTRIES = ['drop'];   // 增援能用的登場方式（之後加 burrow 就放這裡）
+const DEFAULT_ENTRIES = ['stand', 'drop'];
+const gruntDef = k => typeof k === 'string' ? (k.endsWith('*') ? GRUNTS[k.slice(0, -1)] : GRUNTS_LOW[k]) : k;
+export const entriesOf = k => gruntDef(k)?.entries ?? DEFAULT_ENTRIES;
+export const canEnter = (k, how) => entriesOf(k).includes(how);
+// 從 allowed 裡挑一個這台能用的登場方式（照 allowed 的順序；之後有好幾種可以改成隨機）；都不行 = null
+export const pickEntry = (k, allowed) => allowed.find(h => canEnter(k, h)) ?? null;
 // 出場比例：步兵最多，砲車 / 狙擊兵少
 const GRUNT_WEIGHT = { rifle: 5, rocket: 3, heavy: 2, gun: 1.2, sniper: 1.2, blade: 2,
   turret: 0, scout: 5, trooper: 3, launcher: 2.5, brawler: 2, stick: 1.8, marksman: 1.2, mortar: 1, bazooka: 1.5,

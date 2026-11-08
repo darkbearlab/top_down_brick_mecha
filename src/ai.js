@@ -120,14 +120,15 @@ export function unparkEnemy(e, x, z) {
 function updateDrop(e, dt, player) {
   const D = e.drop;
   D.t += dt;
-  const k = Math.min(1, D.t / DROP_TIME);
-  e.model.root.position.set(e.x, DROP_H * (1 - k * k), e.z);
+  const k = Math.min(1, D.t / DROP_TIME), y0 = e.fly ? e.flyH ?? 0 : 0;   // 會飛的降到自己的飛行高度
+  e.model.root.position.set(e.x, y0 + (DROP_H - y0) * (1 - k * k), e.z);
   D.ring.material.opacity = 0.4 + 0.5 * Math.abs(Math.sin(D.t * 14));
   D.ring.scale.setScalar(1.6 - 0.6 * k);
   if (k < 1) return true;
   scene.remove(D.ring); D.ring.material.dispose();
   e.drop = null;
-  e.model.root.position.y = 0;
+  e.model.root.position.y = y0;
+  if (e.fly) return false;   // 旋停機：飄下來就停在空中，沒有落地衝擊（不揚塵、不震、不砸人）
   burst(e.x, 0.3, e.z, [0x6a6e78, 0x4a4e58], 10, 5);
   smoke(e.x, 0.3, e.z, 8, 1.5, 0x55585f);
   for (const a of [0, 1.6, 3.2, 4.8]) hitSparks(e.x, 0.2, e.z, Math.sin(a), Math.cos(a), 0.8);
