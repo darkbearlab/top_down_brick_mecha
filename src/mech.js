@@ -17,7 +17,7 @@ import { buildMechModel } from './model.js';
 import { CHIPS, DEVICES, hasChip } from './tech.js';
 import { collideWrecks, isWreck, startDying, startWreck } from './wreck.js';
 import { damageBuilding } from './buildings.js';
-import { burnLegK, clearStatus, hasStatus, reduceStatus, setStatusHooks } from './status.js';
+import { burnLegK, clearStatus, corrodeK, hasStatus, reduceStatus, setStatusHooks } from './status.js';
 
 export const PART_NAMES = { head: '頭部', torso: '軀幹', armL: '左臂', armR: '右臂', backL: '左背', backR: '右背', legs: '腳部' };
 const ARMOR_OF = { head: 'head', torso: 'torso', armL: 'arms', armR: 'arms', backL: 'torso', backR: 'torso', legs: 'legs' };
@@ -297,7 +297,7 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null,
   // 盾牌：從盾那一側前方來的攻擊先打在盾上
   const Sh = m.shield;
   if (Sh && Sh.hp > 0 && !m.parts[Sh.slot]?.broken) {
-    const f = facing(m), sd = Sh.slot === 'armL' ? 1 : -1;
+    const f = facing(m), sd = Sh.front ? 0 : Sh.slot === 'armL' ? 1 : -1;   // front：正面的甲殼（衝鋒蟲），不偏哪一邊
     let cx = f.x + f.z * 0.7 * sd, cz = f.z - f.x * 0.7 * sd;
     const cl = Math.hypot(cx, cz); cx /= cl; cz /= cl;
     if (-dx * cx - dz * cz > 0.2) {
@@ -327,7 +327,7 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null,
   // 反應裝甲：每個部位每 8 秒，第一次被打中傷害減半
   let rk = 1;
   if (hasChip(m, 'reactive') && (m.parts[part].reactT ?? 0) <= G.now) { rk = 0.5; m.parts[part].reactT = G.now + 8; }
-  damagePart(m, part, dmg * mul * eff * rk, dx, dz);
+  damagePart(m, part, dmg * mul * eff * rk * corrodeK(m, part), dx, dz);   // 被腐蝕的部位吃更多傷害（status.js）
   if (m.alive && power >= (m.spec.legs.stagger ?? Infinity)) stagger(m, power, dx, dz);
   return { part, eff };
 }
@@ -386,6 +386,7 @@ const tmpV = new THREE.Vector3();
 function breakShield(m, dx, dz) {
   const p = m.parts[m.shield.slot];
   m.shield.hp = 0;
+  if (m.shield.front) { m.shield.onBreak?.(dx, dz); sfx.partBreak(); return; }   // 衝鋒蟲的正面甲殼：碎掉就好，本體不受影響
   if (m.grunt) {
     voxelBurst(p.g, 40, 5, m.x, m.z, dx * 3, dz * 3);
     p.g.visible = false; p.broken = true;
@@ -438,13 +439,15 @@ function destroyMech(m, dx, dz) {
   // 主力機體：慢動作特寫 + 留下燒著的殘骸（src/wreck.js）
   if (m.ace) { startWreck(m, dx, dz); m.onDeath?.(m); return; }
   // 雜魚（自爆機、蟲群以外）：部位一個個被誘爆，或原地燒成焦炭（src/wreck.js 的 startDying）
-  if (m.grunt && !m.bomber && !m.swarm) {
+  if (m.grunt && !m.bomber && !m.swarm && !m.bug) {
     startDying(m, dx, dz, { chain: !!m.fly, burn: burning && !m.fly, boom: () => gruntBoom(m, dx, dz) });   // 燒死的一定是原地燒成焦炭
     G.hitStop = Math.max(G.hitStop, 0.02);
     addTrauma(0.2);
     m.onDeath?.(m);
     return;
   }
+  // 蟲子（src/bugs.js）：不爆炸，碎幾塊、留下屍體
+  if (m.bug) { m.dying = true; m.bug.die(dx, dz); addTrauma(0.15); m.onDeath?.(m); return; }
   // 蟲群：不爆炸，剩下的蟲各自碎掉（ai.js 的 onDeath）
   if (m.swarm) { m.onDeath?.(m); return; }
   // 雜魚：碎片燒得焦黑、三成還著火（被火焰籠罩的感覺）

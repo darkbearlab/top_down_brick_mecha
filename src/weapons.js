@@ -11,6 +11,7 @@
 //   rocket  火箭莢艙：不追蹤的直射火箭，一次好幾發
 //   flame   火焰噴射器：按著一直噴，短距離扇形、穿透、被牆擋；打中的部位疊燃燒（status.js）
 //   napalm  燒夷彈：拋到瞄準點，落地小爆炸 + 一片燒好幾秒的火海（站在裡面腳會一直被點燃）
+//           d.status = 'corrode' 就是酸液彈（投擲蟲）：落地不爆炸、濺開一灘酸，站在裡面腳被腐蝕
 // 敵人的子彈和光束比較慢，看得到、閃得掉
 import * as THREE from 'three';
 import { UNIT_BOX, addMat, addTrauma, scene } from './core.js';
@@ -173,26 +174,47 @@ function lobNapalm(m, d, mz, aim, f) {
   const dx = tx - m.x, dz = tz - m.z, dl = Math.hypot(dx, dz);
   if (dl > d.range) { tx = m.x + dx / dl * d.range; tz = m.z + dz / dl * d.range; }
   const g = new THREE.Group();
-  const body = new THREE.Mesh(UNIT_BOX, new THREE.MeshLambertMaterial({ color: 0x5a3a24 })); body.scale.setScalar(d.size);
-  const glow = new THREE.Mesh(UNIT_BOX, glowMat(0xff7a30)); glow.scale.setScalar(d.size * 1.5);
+  const acid = d.status === 'corrode';
+  const body = new THREE.Mesh(UNIT_BOX, new THREE.MeshLambertMaterial({ color: acid ? 0x3a5a18 : 0x5a3a24 })); body.scale.setScalar(d.size);
+  const glow = new THREE.Mesh(UNIT_BOX, glowMat(acid ? 0x8ae040 : 0xff7a30)); glow.scale.setScalar(d.size * 1.5);
   g.add(body, glow); g.position.set(mz.x, mz.y, mz.z); scene.add(g);
   shots.push({ kind: 'napalm', g, owner: m, team: m.team, x: mz.x, y: mz.y, z: mz.z, vx: (tx - mz.x) / NAPALM_T, vz: (tz - mz.z) / NAPALM_T,
     vy: (0.2 - mz.y + 0.5 * LOB_G * NAPALM_T * NAPALM_T) / NAPALM_T, d, dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: 0.6, type: 'chemical', splash: d.splash });
   smoke(mz.x, mz.y, mz.z, 2, 0.7, 0x8a8c92);
-  sfx.missile();
+  acid ? sfx.stow() : sfx.missile();
 }
 function stepNapalm(s, i, dt) {
   s.vy -= LOB_G * dt;
   s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
-  if (Math.random() < 0.7) spawnGlow({ x: s.x, y: s.y, z: s.z, vx: 0, vy: 0.3, vz: 0, life: 0.3, s0: 0.16, s1: 0, ramp: RAMP.fire });
+  const D = s.d, acid = D.status === 'corrode';
+  if (Math.random() < 0.7) spawnGlow({ x: s.x, y: s.y, z: s.z, vx: 0, vy: 0.3, vz: 0, life: 0.3, s0: 0.16, s1: 0, ramp: acid ? RAMP.acid : RAMP.fire });
   if (s.y > 0.2) { s.g.position.set(s.x, s.y, s.z); s.g.rotation.x += dt * 9; return; }
-  blast(s, s.x, 0.3, s.z, null);
-  const D = s.d, ring = new THREE.Mesh(ZONE_GEO, addMat(0xff5a18, 0.3));
-  ring.rotation.x = -Math.PI / 2; ring.position.set(s.x, 0.06, s.z); ring.scale.setScalar(D.zone); scene.add(ring);
-  // 火海的火：幾個點分散在圓裡
-  for (let k = 0; k < 6; k++) { const a = Math.random() * 6.28, r = Math.sqrt(Math.random()) * D.zone * 0.85; burnAt(s.x + Math.cos(a) * r, 0.15, s.z + Math.sin(a) * r, D.zoneT * R(0.8, 1), 0.8); }
-  fireZones.push({ x: s.x, z: s.z, r: D.zone, t: D.zoneT, burn: D.burn, team: s.team, ring, acc: 0 });
+  if (acid) acidSplash(s); else blast(s, s.x, 0.3, s.z, null);
+  spawnZone(s.x, s.z, D.zone, D.zoneT, D.status ?? 'burn', D.burn, s.team);
   kill(i);
+}
+// 酸液彈落地：不爆炸，濺開一圈酸（範圍內的敵機吃一點化學傷害、軀幹被腐蝕）
+function acidSplash(s) {
+  for (let k = 0; k < 22; k++) { const a = Math.random() * 6.28, v = R(2, 5); spawnGlow({ x: s.x, y: 0.3, z: s.z, vx: Math.cos(a) * v, vy: R(1.5, 4), vz: Math.sin(a) * v, life: R(0.35, 0.7), s0: R(0.12, 0.2), s1: 0.03, ramp: RAMP.acid, g: 14, drag: 0.4 }); }
+  smoke(s.x, 0.3, s.z, 3, 1, 0x5a6a3a);
+  sfx.hit();
+  for (const o of mechs) {
+    if (!o.alive || o.drop || o.team === s.team) continue;
+    const dx = o.x - s.x, dz = o.z - s.z, dist = Math.hypot(dx, dz);
+    if (dist > s.splash + o.r) continue;
+    hitMech(o, s.dmg * 0.5, dx / (dist || 1), dz / (dist || 1), 0.3, 'chemical', 'torso', s.dmg * 0.3, true);
+    if (o.alive) applyStatus(o, 'corrode', { part: 'torso', stacks: 1 });
+  }
+}
+// 地上一片會持續上狀態的區域：status = 'burn'（火海）/ 'corrode'（酸液）；每秒對裡面的敵機（team 以外）的腳疊 stacks 層
+const ZONE_LOOK = { burn: { color: 0xff5a18, ramp: 'fire' }, corrode: { color: 0x6ac828, ramp: 'acid' } };
+export function spawnZone(x, z, r, t, status, stacks, team) {
+  const L = ZONE_LOOK[status] ?? ZONE_LOOK.burn;
+  const ring = new THREE.Mesh(ZONE_GEO, addMat(L.color, 0.3));
+  ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.06, z); ring.scale.setScalar(r); scene.add(ring);
+  // 火海的火：幾個點分散在圓裡（酸液沒有火，靠下面冒泡）
+  if (status === 'burn') for (let k = 0; k < 6; k++) { const a = Math.random() * 6.28, rr = Math.sqrt(Math.random()) * r * 0.85; burnAt(x + Math.cos(a) * rr, 0.15, z + Math.sin(a) * rr, t * R(0.8, 1), 0.8); }
+  fireZones.push({ x, z, r, t, burn: stacks, status, ramp: RAMP[L.ramp], team, ring, acc: 0 });
 }
 // 火海：每 0.2 秒點燃裡面的敵機的腳（雜魚整台算一個部位；會飛的燒不到）
 function updateFireZones(dt) {
@@ -200,13 +222,13 @@ function updateFireZones(dt) {
     const z = fireZones[i];
     z.t -= dt; z.acc += dt;
     z.ring.material.opacity = 0.3 * Math.min(1, z.t) * (0.85 + 0.15 * Math.sin(z.t * 17));
-    if (Math.random() < dt * 10) { const a = Math.random() * 6.28, r = Math.sqrt(Math.random()) * z.r; spawnGlow({ x: z.x + Math.cos(a) * r, y: 0.15, z: z.z + Math.sin(a) * r, vx: 0, vy: R(1.2, 2.4), vz: 0, life: R(0.3, 0.6), s0: R(0.18, 0.3), s1: 0, ramp: RAMP.fire, drag: 1 }); }
+    if (Math.random() < dt * (z.status === 'corrode' ? 16 : 10)) { const a = Math.random() * 6.28, r = Math.sqrt(Math.random()) * z.r, acid = z.status === 'corrode'; spawnGlow({ x: z.x + Math.cos(a) * r, y: 0.12, z: z.z + Math.sin(a) * r, vx: 0, vy: acid ? R(0.3, 0.8) : R(1.2, 2.4), vz: 0, life: R(0.3, 0.6), s0: acid ? R(0.1, 0.18) : R(0.18, 0.3), s1: 0, ramp: z.ramp, drag: 1 }); }
     while (z.acc >= 0.2) {
       z.acc -= 0.2;
       for (const o of mechs) {
         if (!o.alive || o.drop || o.fly || o.team === z.team) continue;
         if (Math.hypot(o.x - z.x, o.z - z.z) > z.r + o.r * 0.5) continue;
-        applyStatus(o, 'burn', { part: o.parts.legs && !o.parts.legs.broken ? 'legs' : 'torso', stacks: z.burn * 0.2 });
+        applyStatus(o, z.status ?? 'burn', { part: o.parts.legs && !o.parts.legs.broken ? 'legs' : 'torso', stacks: z.burn * 0.2 });
       }
     }
     if (z.t <= 0) { scene.remove(z.ring); z.ring.material.dispose(); fireZones.splice(i, 1); }

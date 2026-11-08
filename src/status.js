@@ -26,7 +26,31 @@ const partPos = (m, part) => {
 export const BURN_DPS = 3.2, BURN_MAX = 5, BURN_DUR = 3;
 const BURN_TICK = 0.25;
 
+// ---------- 腐蝕 ----------
+// 酸液（蟲子）：那個部位的裝甲被溶掉，之後打在那裡的傷害 ×(1 + CORRODE_K × 層數)；不會自己扣血。最多 4 層、5 秒
+export const CORRODE_K = 0.12, CORRODE_MAX = 4;
+
 export const STATUS = {
+  corrode: {
+    dur: 5, max: CORRODE_MAX,
+    fx(m, s, dt) {
+      const p = m.parts[s.part ?? 'torso'];
+      if (!p) return;
+      s.fxAcc = (s.fxAcc ?? 0) + dt * (3 + 3 * s.stacks);
+      if (s.fxAcc >= 1) {
+        const w = partPos(m, s.part ?? 'torso');
+        while (s.fxAcc >= 1) {
+          s.fxAcc--;
+          // 往下滴的酸 + 一點點冒煙
+          spawnGlow({ x: w.x + R(-0.25, 0.25), y: w.y + R(-0.15, 0.15), z: w.z + R(-0.25, 0.25), vx: R(-0.2, 0.2), vy: R(-1.6, -0.6), vz: R(-0.2, 0.2),
+            life: R(0.3, 0.55), s0: R(0.08, 0.14), s1: 0.02, ramp: RAMP.acid, drag: 0.5 });
+        }
+        if (Math.random() < 0.3) smoke(w.x, w.y + 0.2, w.z, 1, 0.4, 0x5a6a3a);
+      }
+      if (p.flash <= 0 && p.mat && !hasStatus(m, 'burn', s.part)) p.mat.emissive.setRGB(0.05, 0.16 + 0.08 * Math.sin(G.now * 9 + s.stacks), 0.02);
+    },
+    onEnd(m, s) { const p = m.parts[s.part ?? 'torso']; if (p?.mat && p.flash <= 0) p.mat.emissive.setHex(p.base); },
+  },
   mark: { dur: 8, max: 1 },     // 弱點標定（devices.js）：打中時大多打到軀幹以外的部位（mech.js hitMech）
   emp: { dur: 2, max: 1 },      // 電磁脈衝（devices.js）：武器停擺（tech.js empOff）
   burn: {
@@ -113,4 +137,6 @@ export const burnSpreadK = (m, slot) => 1 + 0.15 * statusStacks(m, 'burn', slot)
 // 頭燒起來 → 鎖定變慢
 export const burnLockK = m => 1 + 0.15 * statusStacks(m, 'burn', 'head');
 // 腳燒起來 → 變慢
+// 那個部位被腐蝕 → 打在那裡的傷害變大
+export const corrodeK = (m, part) => 1 + CORRODE_K * statusStacks(m, 'corrode', part);
 export const burnLegK = m => 1 - Math.min(0.35, 0.07 * statusStacks(m, 'burn', 'legs'));

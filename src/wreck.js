@@ -276,6 +276,11 @@ function toHusk(d) {
   husks.push({ root: d.root, layer: huskLayer });
   while (husks.length > HUSK_MAX) scene.remove(husks.shift().root);
 }
+// 別的地方做好的殘骸（蟲子的屍體）：直接收進殘骸清單（照層顯示、超過上限拿掉最舊的）
+export function addHusk(root) {
+  husks.push({ root, layer: huskLayer });
+  while (husks.length > HUSK_MAX) scene.remove(husks.shift().root);
+}
 export function setHuskLayer(k) {
   huskLayer = k;
   for (const h of husks) h.root.visible = h.layer === k;

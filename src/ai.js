@@ -21,7 +21,8 @@ import { sfx } from './audio.js';
 import { flowDir, flyDir } from './pathing.js';
 import { smokeBlocks } from './tech.js';
 import { UNIT_BOX } from './core.js';
-import { burnLockK } from './status.js';
+import { applyStatus, burnLockK } from './status.js';
+import { bugStrike, setupBug, updateBug } from './bugs.js';
 
 export const enemies = [];
 // 難度：dmg 敵機傷害倍率、hp 耐久倍率、rest 射擊間隔倍率、err 瞄準晃動（弧度）、dodge 會不會噴開閃避、lock 鎖定時間倍率
@@ -60,7 +61,8 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   if (P.bomber) e.bomber = { fuse: -1, beep: 0 };
   if (P.charger) e.charger = { state: 'idle', t: 0, cd: 1.5 + Math.random() * 2 };
   if (P.swarm) setupSwarm(e, P.swarm);
-  if (P.bomber || P.charger || P.swarm) e.ai.want = 0;
+  if (P.bug) setupBug(e, P.bug, P);
+  if (P.bomber || P.charger || P.swarm || P.melee) e.ai.want = 0;
   if (P.fly && !P.swarm) e.ai.want = 9;
   // noDrop：直接站在地上（遠征模式的遭遇小隊），不然從天上降落
   if (opts.noDrop) { e.drive = { mx: 0, mz: 0 }; e.aimYaw = e.torsoYaw; }
@@ -150,6 +152,7 @@ export function updateEnemy(e, dt, player) {
   if (e.fall) { updateFall(e, dt); return; }
   if (!e.alive) return;
   if (e.swarm) updateSwarmFx(e, dt);
+  if (e.bug) updateBug(e, dt);
   if (e.quad) for (const [i, r] of e.quad.rotors.entries()) r.rotation.y += dt * (i % 2 ? 38 : -38);
   if (e.drop) { if (updateDrop(e, dt, player)) return; }
   // 待命（遠征模式還沒發現玩家的小隊）：站著不動、偶爾轉頭看看
@@ -173,6 +176,16 @@ export function updateEnemy(e, dt, player) {
   // 自爆機：貼近後點火，時間到就炸
   if (e.bomber && updateBomber(e, dt, player, dist, los)) return;
   // 蟲群：貼著玩家就一直啃
+  // 近戰（戰士蟲）：貼到身邊就劈，咬中有機率腐蝕被咬的那個部位
+  const ML = e.preset.melee;
+  if (ML && (A.bite = (A.bite ?? 0) - dt) <= 0 && player.alive && e.staggerT <= 0 && dist < e.r + player.r + ML.reach) {
+    A.bite = ML.cd * (0.85 + Math.random() * 0.3);
+    bugStrike(e);
+    const r = hitMech(player, ML.dmg * (e.dmgMul ?? 1), nx, nz, ML.kb, 'kinetic', null, ML.dmg);
+    sparks(player.x - nx * player.r, 1, player.z - nz * player.r, 0xffc070, 6, -nx, -nz);
+    sfx.hit();
+    if (r && player.alive && Math.random() < ML.corrode) applyStatus(player, 'corrode', { part: r.part });
+  }
   if (e.swarm && player.alive && dist < 2.3 && (A.bite = (A.bite ?? 0) - dt) <= 0) {
     A.bite = 0.3;
     hitMech(player, 6 * (e.dmgMul ?? 1), nx, nz, 0.15, 'kinetic', null, 6);
