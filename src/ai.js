@@ -204,6 +204,7 @@ export function updateEnemy(e, dt, player) {
     if (f) { mx = f.x; mz = f.z; } else { mx = nx; mz = nz; }
     A.spot = null;
   }
+  else if (e.swarm || e.preset.melee) { mx = nx; mz = nz; }   // 純近戰（蟲群、戰士蟲）：看得到就一路貼上去，不繞圈
   else if (A.lineBlockedT > 0.4) {
     // 看得到但槍口被轉角擋住（槍口在身體側邊）：往被擋的反方向橫移、同時靠近一點，讓出射線
     // 左邊掛點在機體本地 +x = 世界 (nz, -nx)；往被擋那一邊的反方向移
