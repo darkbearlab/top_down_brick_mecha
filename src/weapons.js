@@ -292,7 +292,7 @@ function stepMissile(s, i, dt) {
     s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
     trail(s);
     let direct = null;
-    for (const m of mechs) if (m.alive && !m.drop && m.team !== s.team && s.y < 2.2 && Math.hypot(m.x - s.x, m.z - s.z) < m.r + 0.2) direct = m;
+    for (const m of mechs) if (m.alive && !m.drop && !m.swarm && m.team !== s.team && s.y < 2.2 && Math.hypot(m.x - s.x, m.z - s.z) < m.r + 0.2) direct = m;
     if (direct || s.y <= 0.15 || s.life <= 0) {
       if (direct) {
         // 從上面砸下來：容易打到頭和背部武器
@@ -326,6 +326,7 @@ function stepMissile(s, i, dt) {
     let hit = null;
     for (const m of mechs) {
       if (!m.alive || m.drop || m.team === s.team) continue;
+      if (m.swarm && s.kind !== 'rocket') continue;   // 飛彈從蟲群頭上掠過（鎖不到、也撞不到；火箭照樣撞）
       if (Math.hypot(m.x - (s.x + dx * step), m.z - (s.z + dz * step)) < m.r + 0.1) { hit = m; break; }
     }
     s.x += dx * step; s.z += dz * step;
