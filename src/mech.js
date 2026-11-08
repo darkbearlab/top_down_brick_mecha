@@ -47,7 +47,7 @@ export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, h
     const ring = new THREE.Mesh(TEAM_RING, addMat(colors.glow, 0.55));
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.04;
-    M.root.add(ring);
+    M.root.add(ring); M.teamRing = ring;
   }
   M.root.position.set(x, 0, z);
   scene.add(M.root);
@@ -410,6 +410,7 @@ function gruntBoom(m, dx, dz) {
 }
 function destroyMech(m, dx, dz) {
   m.alive = false;
+  if (m.model.teamRing) m.model.teamRing.visible = false;   // 被擊毀就把腳下的派系光環收掉
   // 主力機體：慢動作特寫 + 留下燒著的殘骸（src/wreck.js）
   if (m.ace) { startWreck(m, dx, dz); m.onDeath?.(m); return; }
   // 雜魚（自爆機、蟲群以外）：部位一個個被誘爆，或原地燒成焦炭（src/wreck.js 的 startDying）
