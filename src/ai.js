@@ -51,7 +51,7 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   const has = k => ws.includes(k) || ws.includes(k + '_l');   // 低階版也算
   e.ai = {
     strafe: Math.random() < 0.5 ? -1 : 1, t: 1, burst: 0, rest: 1 + Math.random(), reposition: 3 + Math.random() * 3, lockT: 0, snipeT: 0, hold: { L: Math.random(), R: Math.random() },
-    want: has('saber') || has('shotgun') || has('flamer') ? 3 : has('sniper') ? 13 : 8,
+    want: has('saber') || has('shotgun') || has('flamer') ? 3 : has('sniper') ? 13 : has('acid') ? 11 : 8,   // 只會拋酸的投擲蟲站遠一點丟
   };
   e.laser = makeLaser(0xff3020);
   // 特殊雜魚

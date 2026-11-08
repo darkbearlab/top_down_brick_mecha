@@ -27,12 +27,14 @@ export const BURN_DPS = 3.2, BURN_MAX = 5, BURN_DUR = 3;
 const BURN_TICK = 0.25;
 
 // ---------- 腐蝕 ----------
-// 酸液（蟲子）：那個部位的裝甲被溶掉，之後打在那裡的傷害 ×(1 + CORRODE_K × 層數)；不會自己扣血。最多 4 層、5 秒
-export const CORRODE_K = 0.12, CORRODE_MAX = 4;
+// 酸液（蟲子）：那個部位的裝甲被溶掉，之後打在那裡的傷害 ×(1 + CORRODE_K × 層數)；另外每層每秒扣 CORRODE_DPS（化學）。最多 4 層、5 秒
+export const CORRODE_K = 0.12, CORRODE_MAX = 4, CORRODE_DPS = 2.4;
+const CORRODE_TICK = 0.25;
 
 export const STATUS = {
   corrode: {
-    dur: 5, max: CORRODE_MAX,
+    dur: 5, max: CORRODE_MAX, tick: CORRODE_TICK,
+    onTick(m, s) { hooks.damage?.(m, s.part ?? 'torso', CORRODE_DPS * s.stacks * CORRODE_TICK, 'chemical'); },
     fx(m, s, dt) {
       const p = m.parts[s.part ?? 'torso'];
       if (!p) return;

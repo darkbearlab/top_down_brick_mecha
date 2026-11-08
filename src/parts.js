@@ -108,10 +108,10 @@ low('saber', '電擊棒', { dmg: 32, interval: 0.85, reach: 1.9, lunge: 4, blade
 low('cannon', '迫擊砲', { dmg: 48, interval: 3.4, speed: 30, splash: 1.6, kb: 4, ammo: 10 });
 low('missile', '小型飛彈', { dmg: 22, salvo: 1, interval: 1.9, turn: 1.4, maxSpeed: 26, ammo: 20 });
 low('rocket', '火箭筒', { dmg: 38, salvo: 1, interval: 2.0, ammo: 10, spread: 0.07 });
-low('flamer', '小火焰噴射器', { dmg: 2, range: 4.6, burn: 0.22, ammo: 200 });
-low('napalm', '燒夷砲', { dmg: 16, zone: 2, zoneT: 4, burn: 1.1, interval: 3.4, range: 13, ammo: 6 });
+low('flamer', '小火焰噴射器', { dmg: 2, range: 5.6, burn: 0.26, ammo: 260 });
+low('napalm', '燒夷砲', { dmg: 16, zone: 2.2, zoneT: 4.5, burn: 1.2, interval: 2.3, range: 17, ammo: 14 });
 // 酸液囊（投擲蟲）：燒夷彈的邏輯，落地濺酸 + 一灘腐蝕的酸（status: 'corrode'）；彈藥很多（蟲子自己會產酸）
-WEAPONS.acid_l = { ...WEAPONS.napalm, name: '酸液囊', low: true, dmg: 14, splash: 1.5, zone: 1.9, zoneT: 4, burn: 1.0, interval: 3.0, range: 12, ammo: 40, status: 'corrode', model: [], size: 0.24 };
+WEAPONS.acid_l = { ...WEAPONS.napalm, name: '酸液囊', low: true, dmg: 14, splash: 1.5, zone: 2.1, zoneT: 4.5, burn: 1.1, interval: 1.9, range: 17, ammo: 60, status: 'corrode', model: [], size: 0.24 };
 export const HP_MUL = 1.35;
 
 // ---------- 敵人的主題（派系） ----------
