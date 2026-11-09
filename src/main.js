@@ -13,6 +13,7 @@ import { renderFrame } from './post.js';
 import { setHaze, updateHaze } from './haze.js';
 import { closeSettings, openSettings, settingsOpen } from './settings.js';
 import { perfBegin, perfEnd } from './perf.js';
+import { hideMech, showMech, showScene, updateShowroom } from './showroom.js';
 import { ENEMY_COLORS, PLAYER_COLORS, activeSlot, collideMechs, driveMech, facing, makeMech, mechs, poseMech, muzzleOf, removeMech, syncWear, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { ARENA_LAYOUT, buildLayerBuildings, resetBuildings, setBuildingLayer, setLayout, updateBuildings } from './buildings.js';
 import { SLOW_K, clearHusks, clearWrecks, killCam, setHuskLayer, updateWrecks } from './wreck.js';
@@ -1484,7 +1485,10 @@ function step(t) {
     $('wNext').textContent = MODE.result && MODE.endT > 0 ? `${Math.ceil(MODE.endT)} 秒後下一場` : '';
   }
   updateHaze(raw, camTarget.x, camTarget.z);
-  renderFrame(scene, camera);   // 模型桌後製（src/post.js），O 鍵開關
+  // 主選單、整備：畫展示空間（src/showroom.js），機體搬過去
+  const showOn = (MODE.name === 'menu' || garage.open) && !!player;
+  if (showOn) { showMech(player.model.root, scene); updateShowroom(raw, player.x, player.z); } else hideMech(scene, player?.model.root);
+  renderFrame(showOn ? showScene : scene, camera);   // 模型桌後製（src/post.js），O 鍵開關
 }
 addEventListener('pointerdown', unlockAudio);
 // 面板上的按鈕可以用數字鍵選（1 = 第一個）
