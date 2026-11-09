@@ -38,10 +38,18 @@ const TEAM_RING = new THREE.RingGeometry(0.95, 1.2, 28);
 export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, hpMul = 1, ace = true, grunt = null }) {
   const spec = computeSpec(loadout);
   if (grunt) spec.hp.torso = grunt.hp;
+  // 菁英：數值蓋掉零件算出來的
+  const E = loadout.elite;
+  if (E) {
+    for (const p in spec.hp) spec.hp[p] *= E.hpMul ?? 1;
+    if (E.vmax) spec.vmax = E.vmax; if (E.acc) spec.acc = E.acc; if (E.boost) spec.boost = E.boost;
+    if (E.stagger) spec.legs = { ...spec.legs, stagger: E.stagger };
+    spec.regen = 1; spec.backOver = false;   // 肩炮很重但不拖慢能量回復（推進要常用）
+  }
   const shieldSlot = ['armL', 'armR'].find(s => loadout[s] && WEAPONS[loadout[s]].kind === 'shield');
   if (grunt && shieldSlot) { spec.turn *= 0.35; spec.legTurn *= 0.5; }   // 盾兵：轉得非常慢 → 繞背打得到
   const M = buildMechModel(loadout, colors);
-  const k = grunt ? GRUNT_SCALE : 1;
+  const k = grunt ? GRUNT_SCALE : E?.scale ?? 1;
   M.root.scale.setScalar(k);
   // 雜魚腳下一圈派系色的光環：一群混在一起時一眼分得出誰是哪邊
   if (grunt) {
@@ -61,7 +69,7 @@ export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, h
     team, colors, loadout, spec, model: M, parts, x, z, vx: 0, vz: 0, r: (loadout.legs === 'tread' ? 0.95 : 0.85) * k, k, grunt: !!grunt,
     legYaw: yaw, torsoYaw: yaw, walk: 0, lean: { x: 0, z: 0 }, lastV: { x: 0, z: 0 }, bob: 0,
     energy: 100, energyT: 0, boostT: 0, boostCd: 0, boostDir: { x: 0, z: 0 }, stuckT: 0, stuckMax: 0, stuckN: { x: 0, z: 0 },
-    alive: true, ace: ace && !grunt, surf: null, guns: null, onDeath: null, swing: null,
+    alive: true, ace: ace && !grunt, elite: !!E, surf: null, guns: null, onDeath: null, swing: null,
     // 背部武器準備：ready = 那一邊現在用背部武器、deployT = 展開 / 收回中還剩幾秒（不能開火）、readyK = 動畫 0..1
     ready: { L: false, R: false }, deployT: { L: 0, R: 0 }, readyK: { L: 0, R: 0 },
     staggerT: 0, staggerMax: 0, staggerImm: 0, stagDir: { x: 0, z: 0 },
@@ -321,6 +329,12 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null,
     const opts = Object.keys(m.parts).filter(k => k !== 'torso' && !m.parts[k].broken);
     if (opts.length) part = opts[Math.floor(Math.random() * opts.length)];
   }
+  // 核心：殼在攻擊者那一面被剝開了 → 子彈大多打進去（瞄準中間），打到就一擊打爆那個部位（關鍵部位 = 整台）
+  if (!m.grunt) {
+    if (!forced && part !== 'torso' && m.parts.torso.core && !m.parts.torso.broken && coreOpen(m, 'torso', fromX, fromZ) && Math.random() < 0.6) part = 'torso';
+    const P = m.parts[part];
+    if (P.core && !P.broken && coreOpen(m, part, fromX, fromZ)) { m.vx += dx * kb; m.vz += dz * kb; coreBreak(m, part, dx, dz); return { part, eff: 2, core: true }; }
+  }
   const mul = part === 'torso' && !forced && !m.grunt ? TORSO_MUL[dir] : 1;
   const eff = EFFECT[type][m.parts[part].armor] ?? 1;
   m.vx += dx * kb; m.vz += dz * kb;
@@ -371,13 +385,28 @@ setStatusHooks({
 // 打掉的方塊往外彈、落地留在地上（fx.js chipDebris → 碎片堆）；旁邊再挑一顆壓暗當焦痕。修回來就照比例補回去（最後打掉的先補）
 // 雜魚只有一條血（軀幹）：整台的方塊一起算；蟲子是另外做的模型，不磨損
 const WEAR_MAX = 0.32, WEAR_FX_MAX = 6, SCAR_K = 0.55;
+// 有核心的部位：殼可以剝掉更多（CORE_WEAR）；殼的某一面被打掉 CORE_OPEN 以上 = 那一面的核心露出來
+const CORE_WEAR = 0.72, CORE_OPEN = 0.45, CORE_HP = 0.6;   // 而且耐久要掉到 CORE_HP 以下才算露出（殼本身也有厚度）
+const FACES = ['x+', 'x-', 'z+', 'z-', 'y+', 'y-'];
 const wM = new THREE.Matrix4(), wV = new THREE.Vector3(), wC = new THREE.Color(), ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
 function wearPool(m, p) {
   if (p.wear) return p.wear;
   const groups = m.grunt ? Object.values(m.parts).map(q => q.g) : [p.g];
   const vox = [];
-  for (const g of groups) g.traverse(o => { if (o.isInstancedMesh && o.userData.voxels) o.userData.voxels.forEach((v, i) => vox.push({ o, i, v })); });
-  p.wear = { vox, gone: [], scar: [] };
+  for (const g of groups) g.traverse(o => { if (o.isInstancedMesh && o.userData.voxels && !o.userData.core) o.userData.voxels.forEach((v, i) => vox.push({ o, i, v })); });
+  p.wear = { vox, gone: [], scar: [], tot: {}, open: {}, anyOpen: false };
+  // 核心的殼：每顆方塊算是哪一面（離核心中心最遠的那一軸）
+  const C = p.core;
+  if (C) {
+    for (const f of FACES) { p.wear.tot[f] = 0; p.wear.open[f] = 0; }
+    for (const e of vox) {
+      const rx = (e.v.x - C.c[0]) / C.half[0], ry = (e.v.y - C.c[1]) / C.half[1], rz = (e.v.z - C.c[2]) / C.half[2];
+      if (Math.max(Math.abs(rx), Math.abs(ry), Math.abs(rz)) > 1.01) continue;
+      const ax = Math.abs(rx), ay = Math.abs(ry), az = Math.abs(rz);
+      e.face = ax >= ay && ax >= az ? (rx > 0 ? 'x+' : 'x-') : az >= ay ? (rz > 0 ? 'z+' : 'z-') : (ry > 0 ? 'y+' : 'y-');
+      p.wear.tot[e.face]++;
+    }
+  }
   return p.wear;
 }
 // quiet：不噴碎片（剛生出來 / 重組時照耐久直接套上去）
@@ -387,7 +416,7 @@ export function syncWear(m, name, dx = 0, dz = 0, quiet = false) {
   if (!p?.g || p.broken && name !== 'legs') return;
   const W = wearPool(m, p);
   if (!W.vox.length) return;
-  const want = Math.floor(W.vox.length * WEAR_MAX * Math.max(0, 1 - p.hp / p.max));
+  const want = Math.floor(W.vox.length * (p.core ? CORE_WEAR : WEAR_MAX) * Math.max(0, 1 - p.hp / p.max));
   const dirty = new Set();
   let fx = 0;
   // 被打：挑幾顆候選，選最朝向攻擊者的那顆打掉
@@ -404,6 +433,7 @@ export function syncWear(m, name, dx = 0, dz = 0, quiet = false) {
     const { c } = best;
     c.v.gone = true; c.o.setMatrixAt(c.i, ZERO); dirty.add(c.o);
     W.gone.push(c);
+    if (c.face) W.open[c.face]++;
     if (!quiet && fx++ < WEAR_FX_MAX) chipDebris(best.x, best.y, best.z, c.v.c, -dx * 0.7, -dz * 0.7);   // 往打過來的那一側彈
     // 旁邊的一顆壓暗（焦痕）
     const s = W.vox[Math.floor(Math.random() * W.vox.length)];
@@ -412,11 +442,45 @@ export function syncWear(m, name, dx = 0, dz = 0, quiet = false) {
   // 修好：照比例補回去，焦痕也一起淡掉
   while (W.gone.length > want) {
     const c = W.gone.pop();
+    if (c.face) W.open[c.face]--;
     c.v.gone = false; c.o.setMatrixAt(c.i, wM.makeTranslation(c.v.x, c.v.y, c.v.z)); dirty.add(c.o);
     const s = W.scar.pop();
     if (s) { s.scar = false; s.o.setColorAt(s.i, wC.setHex(s.v.c)); dirty.add(s.o); }
   }
   for (const o of dirty) { o.instanceMatrix.needsUpdate = true; if (o.instanceColor) o.instanceColor.needsUpdate = true; }
+  // 核心剛露出來：噴一下火花提示
+  if (p.core) {
+    const any = p.hp <= p.max * CORE_HP && FACES.some(f => W.tot[f] && W.open[f] / W.tot[f] >= CORE_OPEN);
+    if (any && !W.anyOpen && !quiet) { const w = coreWorld(m, p); sparks(w.x, w.y, w.z, 0xffa040, 18, -dx, -dz, 1); sfx.partBreak(); }
+    W.anyOpen = any;
+  }
+}
+// ---------- 核心 ----------
+// 攻擊從哪一面來（部位本地座標：+z 前、+x 左邊…照模型的 x）；軀幹 / 頭跟著上半身轉，腳跟著腳轉
+const cV = new THREE.Vector3();
+function coreWorld(m, p) { p.core.mesh.updateWorldMatrix(true, false); cV.set(...p.core.c).applyMatrix4(p.core.mesh.matrixWorld); return { x: cV.x, y: cV.y, z: cV.z }; }
+export function coreOpen(m, name, fromX, fromZ) {
+  const p = m.parts[name], W = p?.core && wearPool(m, p);
+  if (!W) return false;
+  const yaw = name === 'legs' ? m.legYaw : m.torsoYaw, s = Math.sin(yaw), c = Math.cos(yaw);
+  const lx = fromX * c - fromZ * s, lz = fromX * s + fromZ * c;
+  const f = Math.abs(lx) > Math.abs(lz) ? (lx > 0 ? 'x+' : 'x-') : (lz > 0 ? 'z+' : 'z-');
+  return p.hp <= p.max * CORE_HP && W.tot[f] > 0 && W.open[f] / W.tot[f] >= CORE_OPEN;
+}
+// 核心被打中：一團光炸開、定格，部位直接打爆；關鍵部位（crit）= 整台擊毀
+function coreBreak(m, name, dx, dz) {
+  const p = m.parts[name], w = coreWorld(m, p);
+  p.core.mesh.visible = false;
+  sparks(w.x, w.y, w.z, 0xffc060, 50, dx, dz, 1.6);
+  for (let i = 0; i < 30; i++) {
+    const a = Math.random() * Math.PI * 2, sp = 3 + Math.random() * 7;
+    spawnGlow({ x: w.x, y: w.y, z: w.z, vx: Math.cos(a) * sp + dx * 4, vy: 2 + Math.random() * 6, vz: Math.sin(a) * sp + dz * 4, life: 0.4 + Math.random() * 0.6, s0: 0.12, s1: 0.02, ramp: RAMP.spark, g: 14, drag: 0.7, bounce: true });
+  }
+  explosion(w.x, w.y, w.z, 0.9);
+  G.hitStop = Math.max(G.hitStop, 0.14);
+  addTrauma(0.5);
+  damagePart(m, name, 1e9, dx, dz);
+  if (p.core.crit && name !== 'torso' && m.alive) damagePart(m, 'torso', 1e9, dx, dz);
 }
 export function damagePart(m, name, dmg, dx = 0, dz = 0) {
   if (m.grunt) name = 'torso';
@@ -485,6 +549,7 @@ function gruntBoom(m, dx, dz) {
 }
 function destroyMech(m, dx, dz) {
   const burning = hasStatus(m, 'burn');
+  for (const k in m.parts) { const C = m.parts[k].core; if (C) C.mat.color.setHex(0x2a0c04); }   // 核心熄掉
   clearStatus(m);
   m.alive = false;
   if (m.model.teamRing) m.model.teamRing.visible = false;   // 被擊毀就把腳下的派系光環收掉
@@ -586,6 +651,13 @@ export function poseMech(m, dt) {
     M.root.position.y -= 0.05 * m.stuckHit * k;
   }
   M.legsG.rotation.y = m.legYaw;
+  // 核心一直脈動；露出來之後更亮、跳得更快
+  for (const k in m.parts) {
+    const C = m.parts[k].core;
+    if (!C || m.parts[k].broken) continue;
+    const open = m.parts[k].wear?.anyOpen, b = open ? 1.25 + 0.45 * Math.sin(G.now * 11) : 0.85 + 0.2 * Math.sin(G.now * 4);
+    C.mat.color.copy(C.base).multiplyScalar(b);
+  }
   const sw = Math.sin(m.walk) * 0.45;
   if (M.legs.length === 2) { M.legs[0].rotation.x = sw; M.legs[1].rotation.x = -sw; }
   const limp = m.parts.legs.broken ? 0.06 : 0;

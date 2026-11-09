@@ -178,8 +178,12 @@ function lobNapalm(m, d, mz, aim, f) {
   const body = new THREE.Mesh(UNIT_BOX, new THREE.MeshLambertMaterial({ color: acid ? 0x3a5a18 : 0x5a3a24 })); body.scale.setScalar(d.size);
   const glow = new THREE.Mesh(UNIT_BOX, glowMat(acid ? 0x8ae040 : 0xff7a30)); glow.scale.setScalar(d.size * 1.5);
   g.add(body, glow); g.position.set(mz.x, mz.y, mz.z); scene.add(g);
-  shots.push({ kind: 'napalm', g, owner: m, team: m.team, x: mz.x, y: mz.y, z: mz.z, vx: (tx - mz.x) / NAPALM_T, vz: (tz - mz.z) / NAPALM_T,
-    vy: (0.2 - mz.y + 0.5 * LOB_G * NAPALM_T * NAPALM_T) / NAPALM_T, d, dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: 0.6, type: 'chemical', splash: d.splash });
+  const T = d.lobT ?? NAPALM_T;
+  // 落點警示圈（榴彈砲）：地上一圈紅色，越接近落地越亮
+  let mark = null;
+  if (d.mark) { mark = new THREE.Mesh(ZONE_GEO, addMat(0xff3020, 0.12)); mark.rotation.x = -Math.PI / 2; mark.position.set(tx, 0.07, tz); mark.scale.setScalar(d.splash); scene.add(mark); }
+  shots.push({ kind: 'napalm', g, mark, t: 0, T, owner: m, team: m.team, x: mz.x, y: mz.y, z: mz.z, vx: (tx - mz.x) / T, vz: (tz - mz.z) / T,
+    vy: (0.2 - mz.y + 0.5 * LOB_G * T * T) / T, d, dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: 0.6, type: 'chemical', splash: d.splash });
   smoke(mz.x, mz.y, mz.z, 2, 0.7, 0x8a8c92);
   acid ? sfx.stow() : sfx.missile();
 }
@@ -188,9 +192,10 @@ function stepNapalm(s, i, dt) {
   s.x += s.vx * dt; s.y += s.vy * dt; s.z += s.vz * dt;
   const D = s.d, acid = D.status === 'corrode';
   if (Math.random() < 0.7) spawnGlow({ x: s.x, y: s.y, z: s.z, vx: 0, vy: 0.3, vz: 0, life: 0.3, s0: 0.16, s1: 0, ramp: acid ? RAMP.acid : RAMP.fire });
+  if (s.mark) { s.t += dt; s.mark.material.opacity = 0.12 + 0.4 * Math.min(1, s.t / s.T) ** 2; }
   if (s.y > 0.2) { s.g.position.set(s.x, s.y, s.z); s.g.rotation.x += dt * 9; return; }
   if (acid) acidSplash(s); else blast(s, s.x, 0.3, s.z, null);
-  spawnZone(s.x, s.z, D.zone, D.zoneT, D.status ?? 'burn', D.burn, s.team);
+  if (D.zone) spawnZone(s.x, s.z, D.zone, D.zoneT, D.status ?? 'burn', D.burn, s.team);
   kill(i);
 }
 // 酸液彈落地：不爆炸，濺開一圈酸（範圍內的敵機吃一點化學傷害、軀幹被腐蝕）
@@ -456,7 +461,7 @@ function trail(s) {
   if (Math.random() < 0.6) spawnPuff({ x: s.x, y: s.y, z: s.z, vx: 0, vy: 0.3, vz: 0, life: R(0.6, 1), s: R(0.12, 0.2), c0: 0xb8bac0, c1: 0x6a6c72, drag: 1 });
 }
 
-function kill(i) { scene.remove(shots[i].g); shots.splice(i, 1); }
+function kill(i) { const s = shots[i]; scene.remove(s.g); if (s.mark) { scene.remove(s.mark); s.mark.material.dispose(); } shots.splice(i, 1); }
 export function clearShots() {
   while (shots.length) kill(shots.length - 1);
   for (const z of fireZones) { scene.remove(z.ring); z.ring.material.dispose(); }

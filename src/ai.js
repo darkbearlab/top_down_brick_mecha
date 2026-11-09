@@ -259,7 +259,7 @@ export function updateEnemy(e, dt, player) {
       bx = -sdz * side; bz = sdx * side;
     }
   }
-  if (A.reposition <= 0 && player.alive) { A.reposition = 4 + Math.random() * 4; boost = true; if (A.want <= 3 && dist > 4) { bx = nx; bz = nz; } }
+  if (A.reposition <= 0 && player.alive) { A.reposition = e.preset?.elite?.jumpy ? 1.8 + Math.random() * 2 : 4 + Math.random() * 4; boost = true; if (A.want <= 3 && dist > 4) { bx = nx; bz = nz; } }
   if (boost && !DF.dodge && !(A.reposition > 3.9)) boost = false;
   if (e.fixed || Hd) boost = false;
   if (boost && e.energy > 55) {

@@ -27,11 +27,36 @@ function partGroup(boxes, pal, parent, armor) {
 const mix = (a, b, k) => k ? new THREE.Color(a).lerp(new THREE.Color(b), k).getHex() : a;
 const pal = (armor, team, wtype) => ({ a: mix(ARMORS[armor].hex, team.accent, team.tint ?? 0), f: mix(FRAME, team.accent, (team.tint ?? 0) * 0.35), t: team.accent, g: team.glow, w: wtype ? DMG_TYPES[wtype].hex : team.accent });
 
+// 核心（菁英）：部位裡面一團發光的方塊，外面包一層 1 格厚的殼（殼在部位的方塊裡，表面被打掉就露出核心）
+// 用 MeshBasic + 超過 1 的顏色 → 泛光會讓它發亮；userData.core = 不算磨損、不算殼
+const CORE_C = new THREE.Color(2.6, 0.75, 0.28);
+export const shellBox = ([x, y, z, w, h, d]) => [x - 1, y - 1, z - 1, w + 2, h + 2, d + 2, 'a'];
+function addCore(part, [x, y, z, w, h, d], crit) {
+  const mat = new THREE.MeshBasicMaterial({ color: CORE_C.clone() });
+  const s = new VoxelSet(); s.box(x, y, z, w, h, d, 0xffffff);
+  const mesh = buildVoxelMesh(s, mat);
+  mesh.castShadow = false; mesh.userData.core = true;
+  part.g.add(mesh);
+  // 殼的範圍（群組本地座標）：拿來判斷被打掉的方塊在哪一面
+  part.core = { mesh, mat, base: CORE_C, crit, c: [(x + w / 2) * V, (y + h / 2) * V, (z + d / 2) * V], half: [(w / 2 + 1) * V, (h / 2 + 1) * V, (d / 2 + 1) * V] };
+}
+
 // 腳的模型
 function buildLegs(lo, team, legsG) {
   const L = LEGS[lo.legs], P = pal(lo.armor.legs, team), hy = Math.round(L.hipY * 16);
   const part = partGroup([], P, legsG, lo.armor.legs);
   const swing = [];
+  const B = lo.body;
+  if (B?.leg) {
+    part.g.add(buildVoxelMesh(voxSet(B.hip ?? [], P), part.mat));
+    for (const s of [-1, 1]) {
+      const g = new THREE.Group();
+      g.add(buildVoxelMesh(voxSet(B.leg, P), part.mat));
+      g.position.set(s * 0.22, L.hipY, 0);
+      part.g.add(g); swing.push(g);
+    }
+    return { part, swing };
+  }
   const addLeg = (s, boxes) => {
     const g = new THREE.Group();
     g.add(buildVoxelMesh(voxSet(boxes, P), part.mat));
@@ -79,8 +104,11 @@ export function buildMechModel(lo, team) {
   torsoG.rotation.order = 'YXZ';
   root.add(torsoG);
   const parts = { legs: legs.part };
-  parts.torso = partGroup(C.model, pal(lo.armor.torso, team), torsoG, lo.armor.torso);
-  parts.head = partGroup(H.model, pal(lo.armor.head, team), torsoG, lo.armor.head);
+  const B = lo.body, CO = lo.cores ?? {};
+  const shell = k => CO[k] ? [shellBox(CO[k].box)] : [];
+  parts.torso = partGroup([...shell('torso'), ...(B?.torso ?? C.model)], pal(lo.armor.torso, team), torsoG, lo.armor.torso);
+  parts.head = partGroup([...shell('head'), ...(B?.head ?? H.model)], pal(lo.armor.head, team), torsoG, lo.armor.head);
+  for (const k of ['torso', 'head']) if (CO[k]) addCore(parts[k], CO[k].box, !!CO[k].crit);
   parts.head.g.position.y = C.top * V;
   const weapons = {}, muzzles = {};
   for (const slot of ['armL', 'armR', 'backL', 'backR']) {
@@ -90,7 +118,7 @@ export function buildMechModel(lo, team) {
     if (!arm && !W) continue;
     const armorKey = arm ? lo.armor.arms : lo.armor.torso;
     const P = pal(armorKey, team, W?.type);
-    const boxes = arm ? [...ARM] : [];
+    const boxes = arm ? [...(lo.body?.arm ?? ARM)] : [];
     // 武器接在手上 / 背上
     const off = arm ? HAND : [0, 0, 0];
     if (W) for (const [x, y, z, w, h, d, k] of W.model) boxes.push([x + off[0], y + off[1], z + off[2], w, h, d, k]);

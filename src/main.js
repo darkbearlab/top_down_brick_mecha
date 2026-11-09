@@ -24,7 +24,7 @@ import { CHIPS, DEVICES, hasChip, techName } from './tech.js';
 import { clearDevices, deviceReady, updateDeviceCd, updateDevices, useDevice } from './devices.js';
 import { updateStatus } from './status.js';
 import { closeReasm, openReasm, reasmActive, renderReasm, updateReasm } from './reasm.js';
-import { ARMORS, DMG_TYPES, ENEMY_PRESETS, GRUNTS, GRUNTS_LOW, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, SQUADS, WEAPONS, gruntOf, loadLoadout, pickSquad, randomGrunt, randomLoadout, canEnter, pickEntry, REINFORCE_ENTRIES } from './parts.js';
+import { ARMORS, DMG_TYPES, ELITES, ENEMY_PRESETS, GRUNTS, GRUNTS_LOW, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, SQUADS, WEAPONS, gruntOf, loadLoadout, pickSquad, randomGrunt, randomLoadout, canEnter, pickEntry, REINFORCE_ENTRIES } from './parts.js';
 import { clearPickups, pickups, restorePickups, spawnPickup, stashPickups, updatePickups } from './pickups.js';
 import { sensors, setSensorsVisible, updateSensors } from './sensors.js';
 import { closeGarage, garage, openGarage } from './garage.js';
@@ -1119,15 +1119,16 @@ $('mSettings').onclick = () => { unlockAudio(); sfx.click(); openSettings(); };
 $('mHelp').onclick = () => { unlockAudio(); sfx.click(); showPanel('操作說明', HELP, [{ label: '返回', primary: true, run: hidePanel }]); };
 
 let duelPick = 0, duelDiff = 'normal';
+const DUEL_LIST = [...ENEMY_PRESETS, ...ELITES];   // 對戰可以選的：一般機體 + 菁英（實驗）
 const wTag = id => id ? `<span class="wt" style="--c:${DMG_TYPES[WEAPONS[id].type].css}">${WEAPONS[id].name}</span>` : '';
 function presetCard(P, i) {
   const armors = [...new Set(Object.values(P.armor))].map(a => `<span class="wt" style="--c:${ARMORS[a].css}">${ARMORS[a].name}</span>`).join('');
   return `<button class="card ${i === duelPick ? 'on' : ''}" data-i="${i}"><b>${P.name}</b>
-    <small>${LEGS[P.legs].name}・${SLOTS.map(s => P[s]).filter(Boolean).length} 把武器</small>
+    <small>${P.elite ? '<span class="wt" style="--c:#ffb040">菁英</span> ' : ''}${LEGS[P.legs].name}・${SLOTS.map(s => P[s]).filter(Boolean).length} 把武器</small>${P.note ? `<small>${P.note}</small>` : ''}
     <div>${SLOTS.map(s => wTag(P[s])).join('')}</div><div>裝甲 ${armors}</div></button>`;
 }
 function renderDuel() {
-  $('dCards').innerHTML = ENEMY_PRESETS.map(presetCard).join('') +
+  $('dCards').innerHTML = DUEL_LIST.map(presetCard).join('') +
     `<button class="card ${duelPick === -1 ? 'on' : ''}" data-i="-1"><b>隨機</b><small>四種裡隨便挑一台</small></button>`;
   $('dDiff').innerHTML = Object.entries(DIFFS).map(([k, D]) => `<button class="${k === duelDiff ? 'on' : ''}" data-k="${k}">${D.name}</button>`).join('');
   $('dCards').querySelectorAll('.card').forEach(b => b.onclick = () => { duelPick = +b.dataset.i; sfx.click(); renderDuel(); });
@@ -1140,7 +1141,7 @@ function openDuelSetup() {
   $('duel').classList.remove('hidden');
   renderDuel();
 }
-$('dStart').onclick = () => { unlockAudio(); sfx.click(); startDuel(duelPick < 0 ? null : ENEMY_PRESETS[duelPick], duelDiff); };
+$('dStart').onclick = () => { unlockAudio(); sfx.click(); startDuel(duelPick < 0 ? null : DUEL_LIST[duelPick], duelDiff); };
 $('dBack').onclick = () => { sfx.click(); $('duel').classList.add('hidden'); $('menu').classList.remove('hidden'); };
 
 // ---------- 整備 ----------

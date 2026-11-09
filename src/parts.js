@@ -112,6 +112,9 @@ low('flamer', '小火焰噴射器', { dmg: 2, range: 5.6, burn: 0.26, ammo: 260 
 low('napalm', '燒夷砲', { dmg: 16, zone: 2.2, zoneT: 4.5, burn: 1.2, interval: 2.3, range: 17, ammo: 14 });
 // 酸液囊（投擲蟲）：燒夷彈的邏輯，落地濺酸 + 一灘腐蝕的酸（status: 'corrode'）；彈藥很多（蟲子自己會產酸）
 WEAPONS.acid_l = { ...WEAPONS.napalm, name: '酸液囊', low: true, dmg: 14, splash: 1.5, zone: 2.1, zoneT: 4.5, burn: 1.1, interval: 1.9, range: 17, ammo: 60, status: 'corrode', model: [], size: 0.24 };
+// 榴彈砲（菁英專用，整備裡沒有）：燒夷彈的拋射，但飛得慢（lobT 秒）、地上先出現落點警示圈、落地只爆炸不留火海
+WEAPONS.howitzer = { name: '榴彈砲', type: 'chemical', mount: 'back', weight: 7, kind: 'napalm', low: true, interval: 2.4, ammo: 40, dmg: 40, splash: 2.0, range: 20, zone: 0, lobT: 1.05, mark: true, size: 0.2,
+  model: [[-2, -2, -3, 5, 5, 6, 'f'], [-1, -1, 3, 3, 3, 8, 'f'], [-2, -2, 9, 1, 5, 2, 'w'], [2, -2, 9, 1, 5, 2, 'w'], [-1, -2, 9, 3, 1, 2, 'w'], [-1, 2, 9, 3, 1, 2, 'w'], [-2, 3, -2, 5, 1, 3, 'w']], muzzle: [0.5, 0.5, 11] };
 export const HP_MUL = 1.35;
 
 // ---------- 敵人的主題（派系） ----------
@@ -261,6 +264,27 @@ export const ENEMY_PRESETS = [
     armor: { head: 'composite', torso: 'composite', arms: 'ceramic', legs: 'composite' } },
   { name: '重砲型', faction: 'base', head: 'dome', core: 'heavy', legs: 'tread', armL: 'mg', armR: 'mg', backL: 'cannon', backR: 'split',
     armor: { head: 'ceramic', torso: 'composite', arms: 'composite', legs: 'ceramic' } },
+];
+
+// ---------- 菁英機 ----------
+// 介於雜魚和王牌之間：完整的部位破壞、體型比較大、武器少而專一；elite 欄位蓋掉零件算出來的數值
+//   scale 體型、hpMul 耐久倍率、vmax / acc 走路、boost 推進倍率（越大噴越遠）、stagger 失衡門檻、jumpy = 電腦比較常推進換位置
+//   body：自訂外型（torso / head / arm / leg / hip 的方塊，取代零件原本的模型；掛點位置還是照 core 的零件）
+//   cores：有核心的部位 { box: [x, y, z, w, h, d] 核心本體（外面自動包一層 1 格厚的殼）, crit: 打爆 = 整台擊毀 }
+export const ELITES = [
+  { name: '骷髏砲手', faction: 'base', elite: { scale: 1.4, hpMul: 1.5, vmax: 3.0, acc: 7, boost: 2.5, stagger: 95, jumpy: true },
+    note: '走得很慢、推進噴很遠；兩門肩上榴彈砲（看地上的紅圈躲）。胸腔有核心：從同一面一直打，殼剝開後一擊斃命',
+    head: 'std', core: 'light', legs: 'biped', armL: null, armR: null, backL: 'howitzer', backR: 'howitzer',
+    armor: { head: 'composite', torso: 'composite', arms: 'composite', legs: 'composite' },
+    body: {
+      torso: [[-3, 0, -2, 6, 2, 4, 'f'], [-1, 0, -5, 2, 11, 2, 'f'], [-6, 9, -3, 12, 2, 4, 'f'], [-1, 9, -1, 2, 2, 2, 'f'], [-3, 10, 0, 6, 1, 1, 't'],
+        [-5, 3, 1, 1, 1, 2, 'f'], [4, 3, 1, 1, 1, 2, 'f'], [-5, 5, 1, 1, 1, 2, 'f'], [4, 5, 1, 1, 1, 2, 'f'], [-5, 7, 1, 1, 1, 2, 'f'], [4, 7, 1, 1, 1, 2, 'f']],
+      head: [[-2, 0, -2, 4, 3, 4, 'a'], [-1, -1, 0, 2, 1, 2, 'f'], [-2, 1, 2, 1, 1, 1, 'g'], [1, 1, 2, 1, 1, 1, 'g'], [-1, 3, -1, 2, 1, 2, 'f']],
+      arm: [[-1, 4, -1, 2, 6, 2, 'f'], [-2, 9, -2, 3, 3, 3, 'a'], [-1, 0, -1, 2, 4, 2, 'a'], [-1, 0, 1, 2, 1, 3, 'f']],
+      hip: [[-4, 14, -1, 8, 2, 3, 'f']],
+      leg: [[-1, -6, -1, 2, 6, 2, 'f'], [-1, -9, -1, 3, 3, 3, 'a'], [-1, -15, -1, 2, 6, 2, 'f'], [-2, -16, -2, 4, 1, 6, 'f'], [-2, -16, 3, 4, 1, 1, 't']],
+    },
+    cores: { torso: { box: [-3, 3, -2, 6, 5, 5], crit: true } } },
 ];
 
 // 隨機組一台（觀戰用）：至少兩把武器，總重盡量不超過腳的負重
