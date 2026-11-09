@@ -40,7 +40,10 @@ function layer(y, scale, speed, k) {
 }
 const planes = [layer(0.12, 0.22, 1.0, 1), layer(0.5, 0.16, 1.6, 0.6)];
 
-export function setHaze(hex, amount) { U.color.value.setHex(hex); U.amount.value = amount; for (const m of planes) m.visible = amount > 0; }
+let level = 2;   // 設定：幾層（0 = 關）
+const vis = () => planes.forEach((m, i) => { m.visible = U.amount.value > 0 && i < level; });
+export function setHaze(hex, amount) { U.color.value.setHex(hex); U.amount.value = amount; vis(); }
+export function setHazeLevel(n) { level = n; vis(); }
 export function updateHaze(dt, cx, cz) {
   U.t.value += dt;
   for (const m of planes) m.position.set(cx, m.position.y, cz);

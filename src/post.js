@@ -13,6 +13,7 @@ try { const v = localStorage.getItem(KEY); if (v != null) on = v === '1'; } catc
 const BLOOM_TH = 1.0, BLOOM_KNEE = 0.5, BLOOM_K = 0.75;   // 多亮開始發光、門檻的柔和範圍、光暈強度
 const size = new THREE.Vector2();
 const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
+let bloomOn = true;
 // 泛光用：1/4 解析度兩張來回糊
 const half = () => new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter, depthBuffer: false });
 const bA = half(), bB = half();
@@ -74,6 +75,9 @@ postScene.add(quad);
 function draw(m, target) { quad.material = m; renderer.setRenderTarget(target); renderer.render(postScene, postCam); }
 
 export const dioramaOn = () => on;
+// 設定（src/settings.js）：泛光開關、反鋸齒取樣數（0 / 2 / 4）
+export function setBloom(v) { bloomOn = v; }
+export function setMsaa(n) { if (rt.samples !== n) { rt.samples = n; rt.dispose(); } }
 export function setDiorama(v) {
   on = v;
   try { localStorage.setItem(KEY, on ? '1' : '0'); } catch { /* 存不了就算了 */ }
@@ -90,12 +94,15 @@ export function renderFrame(scene, camera) {
   renderer.render(scene, camera);
   // 泛光：取亮部 → 橫糊 → 直糊 → 再一輪寬一點的
   brightMat.uniforms.px.value.set(1.5 / size.x, 1.5 / size.y);   // 線性取樣 ×4 點 ≈ 涵蓋 4×4 像素
-  draw(brightMat, bA);
-  const bw = 1 / bA.width, bh = 1 / bA.height;
-  for (const r of [1, 2]) {
-    blurMat.uniforms.tex.value = bA.texture; blurMat.uniforms.dir.value.set(bw * r, 0); draw(blurMat, bB);
-    blurMat.uniforms.tex.value = bB.texture; blurMat.uniforms.dir.value.set(0, bh * r); draw(blurMat, bA);
+  if (bloomOn) {
+    draw(brightMat, bA);
+    const bw = 1 / bA.width, bh = 1 / bA.height;
+    for (const r of [1, 2]) {
+      blurMat.uniforms.tex.value = bA.texture; blurMat.uniforms.dir.value.set(bw * r, 0); draw(blurMat, bB);
+      blurMat.uniforms.tex.value = bB.texture; blurMat.uniforms.dir.value.set(0, bh * r); draw(blurMat, bA);
+    }
   }
+  mat.uniforms.bloomK.value = bloomOn ? BLOOM_K : 0;
   // 合成到螢幕（模糊半徑照螢幕高度縮放）
   mat.uniforms.px.value.set(1 / size.x, 1 / size.y).multiplyScalar(size.y / 360);
   mat.uniforms.dio.value = on ? 1 : 0;

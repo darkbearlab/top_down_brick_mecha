@@ -7,6 +7,7 @@ import { scene } from './core.js';
 
 const LIGHT_N = 6;
 const pool = [];
+let on = true;
 for (let i = 0; i < LIGHT_N; i++) {
   const L = new THREE.PointLight(0xffffff, 0, 8, 2);
   L.castShadow = false;
@@ -21,6 +22,7 @@ function shape(s) {
 }
 // I：最亮時的強度（物理單位；1 格外大約 I 倍的直射光）；dist：照多遠；dur：幾秒；flick：火的搖曳
 export function flashLight(x, y, z, color, I, dist, dur, flick = false) {
+  if (!on) return;
   let best = pool[0], bv = Infinity;
   for (const s of pool) { const v = cur(s); if (v < bv) { bv = v; best = s; } }
   if (bv > I) return;
@@ -38,4 +40,6 @@ export function updateLights(dt) {
     s.L.intensity = s.I * shape(s);
   }
 }
+// 設定：關掉 = 燈從場景拿掉（光源數量變了，所有材質會重新編譯一次，只在切換的那一下卡）
+export function setLightsOn(v) { on = v; for (const s of pool) { s.L.visible = v; if (!v) { s.dur = 0; s.L.intensity = 0; } } }
 export function clearLights() { for (const s of pool) { s.dur = 0; s.L.intensity = 0; } }

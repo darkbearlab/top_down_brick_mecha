@@ -11,6 +11,8 @@ import { RADIUS, exploredAt, fogActive, fogOff, initFogLayers, setFogLayer, setH
 import { hideMinimap, initMinimap, setMinimapLayer, updateMinimap } from './minimap.js';
 import { renderFrame } from './post.js';
 import { setHaze, updateHaze } from './haze.js';
+import { closeSettings, openSettings, settingsOpen } from './settings.js';
+import { perfBegin, perfEnd } from './perf.js';
 import { ENEMY_COLORS, PLAYER_COLORS, activeSlot, collideMechs, driveMech, facing, makeMech, mechs, poseMech, muzzleOf, removeMech, syncWear, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { ARENA_LAYOUT, buildLayerBuildings, resetBuildings, setBuildingLayer, setLayout, updateBuildings } from './buildings.js';
 import { SLOW_K, clearHusks, clearWrecks, killCam, setHuskLayer, updateWrecks } from './wreck.js';
@@ -1057,6 +1059,7 @@ function pause() {
     { label: '繼續', primary: true, run: () => { hidePanel(); G.paused = false; } },
     { label: MODE.name === 'watch' ? '下一場' : '重新開始', run: restart },
     ...(MODE.name === 'duel' ? [{ label: '換對手', run: openDuelSetup }] : []),
+    { label: '設定', run: () => openSettings() },
     { label: '回主選單', run: showMenu },
   ]);
 }
@@ -1112,6 +1115,7 @@ $('mWatchMenu').onclick = () => {
   ]);
 };
 $('mGarage').onclick = () => { unlockAudio(); sfx.click(); openGarageFrom('menu'); };
+$('mSettings').onclick = () => { unlockAudio(); sfx.click(); openSettings(); };
 $('mHelp').onclick = () => { unlockAudio(); sfx.click(); showPanel('操作說明', HELP, [{ label: '返回', primary: true, run: hidePanel }]); };
 
 let duelPick = 0, duelDiff = 'normal';
@@ -1292,6 +1296,10 @@ const nextFrame = TICK ? cb => setTimeout(() => cb(performance.now()), 16) : req
 let last = performance.now(), lastLocks = 0, garageK = 0, watchK = 1, killK = 0;
 function frame(t) {
   nextFrame(frame);
+  const ms = t - last;
+  perfBegin(); step(t); perfEnd(ms);
+}
+function step(t) {
   const raw = Math.min(0.05, (t - last) / 1000);
   last = t;
   G.now += raw;
@@ -1300,6 +1308,7 @@ function frame(t) {
   if (reasmActive()) { updateReasm(raw); renderReasm(renderer); updateReticle(false); clearPressed(); return; }
   const playing = MODE.name !== 'menu', watching = MODE.name === 'watch';
   if (input.garagePressed && !watching && MODE.name !== 'endless' && MODE.name !== 'explore') { if (garage.open) leaveGarage(); else if (playing && !panelOpen()) openGarageFrom('play'); }
+  if (input.pausePressed && settingsOpen()) { closeSettings(); input.pausePressed = false; }
   if (input.pausePressed) {
     if (garage.open) leaveGarage();
     else if (playing && (!MODE.result || watching)) { if (G.paused) { hidePanel(); G.paused = false; } else pause(); }
@@ -1478,7 +1487,7 @@ function frame(t) {
 }
 addEventListener('pointerdown', unlockAudio);
 // 面板上的按鈕可以用數字鍵選（1 = 第一個）
-addEventListener('keydown', e => { if (panelOpen() && /^Digit[1-9]$/.test(e.code)) $('pButtons').children[+e.code.slice(5) - 1]?.click(); });
+addEventListener('keydown', e => { if (panelOpen() && !settingsOpen() && /^Digit[1-9]$/.test(e.code)) $('pButtons').children[+e.code.slice(5) - 1]?.click(); });
 addEventListener('keydown', unlockAudio);
 window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, startHorde, startSkirmish, startEndless, startRun, startStage, callReinforcements, warpOut, startBoss, useLink, switchLayer, props, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
 showMenu();

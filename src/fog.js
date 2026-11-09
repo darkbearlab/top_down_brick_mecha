@@ -24,7 +24,9 @@ let on = false, L = null, layers = [], acc = 1, pc = 0, pr = 0;
 // 高度霧：比目前這層的地面低的東西（坑、下面那層、崖壁）越深越往霧色混 → 看下去有深度、深處模糊成一片
 // 1 − exp(−深度 × 密度)：沉 5 格（下一層）大約混一半、9 格深的崖壁底幾乎全是霧；所有吃迷霧的材質共用（其他模式也有）
 export const heightFog = { hfColor: { value: new THREE.Color(0x232831) }, hfDensity: { value: 0.16 } };
-export function setHeightFog(hex, density) { heightFog.hfColor.value.setHex(hex); heightFog.hfDensity.value = density; }
+let hfOn = true, hfWant = 0.16;
+export function setHeightFog(hex, density) { heightFog.hfColor.value.setHex(hex); hfWant = density; heightFog.hfDensity.value = hfOn ? density : 0; }
+export function setHeightFogOn(v) { hfOn = v; heightFog.hfDensity.value = v ? hfWant : 0; }   // 設定：關掉 = 密度 0
 
 // 迷霧取樣（著色器共用）：判定（上面那套一格一格的 vis / seen）和畫面分開
 //   畫面用遮罩：fogVis = 現在看得到（玩家周圍一塊、每格約 30 像素、反鋸齒；每幀從玩家位置算精確的視線多邊形畫進去）

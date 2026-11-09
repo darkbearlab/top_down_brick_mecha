@@ -230,3 +230,33 @@ body.killcam::before, body.killcam::after { height: 9vh; transition: height .12s
 #reasm .ropts button b { font-size: 13px; } #reasm .ropts button small { font-size: 11px; opacity: .72; line-height: 1.5; }
 #reasm .new { margin-left: 8px; font-size: 10px; padding: 1px 6px; border-radius: 8px; background: #60e0ff; color: #04121a; vertical-align: middle; }
 #reasm #rGo { margin-top: 12px; }
+
+/* 設定 */
+#settings { position: fixed; inset: 0; z-index: 12; display: flex; align-items: center; justify-content: center; background: rgba(0,0,0,.55); }
+#settings.hidden { display: none; }
+.sbox { width: min(640px, calc(100vw - 32px)); max-height: calc(100vh - 32px); display: flex; flex-direction: column; border-radius: 14px; background: rgba(12,14,20,.96); border: 1px solid rgba(255,255,255,.12); }
+.shead { display: flex; align-items: center; gap: 18px; padding: 16px 20px 0; border-bottom: 1px solid rgba(255,255,255,.1); }
+.shead > b { font-size: 20px; letter-spacing: 6px; padding-bottom: 12px; }
+.stabs { display: flex; gap: 4px; align-self: flex-end; }
+.stabs button { padding: 8px 16px; border: 0; border-bottom: 2px solid transparent; background: none; color: #e8ecf2; opacity: .6; font: 800 14px system-ui, sans-serif; cursor: pointer; }
+.stabs button.on { opacity: 1; border-bottom-color: #7ff0ff; color: #7ff0ff; }
+.sbody { overflow-y: auto; padding: 8px 20px; }
+.srow { display: flex; align-items: center; justify-content: space-between; gap: 14px; padding: 9px 0; }
+.sl { display: flex; flex-direction: column; gap: 2px; min-width: 0; }
+.sl b { font-size: 14px; }
+.sl small { font-size: 11px; opacity: .55; }
+.seg { display: flex; flex-shrink: 0; border: 1px solid rgba(255,255,255,.14); border-radius: 8px; overflow: hidden; }
+.seg button { padding: 7px 12px; min-width: 52px; border: 0; border-left: 1px solid rgba(255,255,255,.1); background: rgba(255,255,255,.04); color: #e8ecf2; font: 800 13px system-ui, sans-serif; cursor: pointer; }
+.seg button:first-child { border-left: 0; }
+.seg button:hover { background: rgba(255,255,255,.1); }
+.seg button.on { background: rgba(127,240,255,.2); color: #7ff0ff; }
+.ssep { height: 1px; margin: 6px 0; background: rgba(255,255,255,.08); }
+.sfoot { padding: 12px 20px 16px; display: flex; justify-content: flex-end; }
+@media (max-width: 560px) { .srow { flex-direction: column; align-items: stretch; } .seg button { flex: 1; min-width: 0; } }
+/* 效能面板 */
+#perf { position: fixed; left: 8px; top: 8px; z-index: 13; pointer-events: none; display: flex; flex-direction: column; gap: 1px; padding: 6px 9px; border-radius: 6px; background: rgba(0,0,0,.62); font: 600 11px/1.35 ui-monospace, Consolas, monospace; color: #cfd6e0; }
+#perf.hidden { display: none; }
+#perf b { font-size: 14px; }
+#perf i { font-style: normal; }
+#perf .ok { color: #7fe08a; } #perf .warn { color: #ffd060; } #perf .bad { color: #ff7060; }
+#perf .dim { opacity: .5; }
