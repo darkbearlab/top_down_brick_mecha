@@ -30,6 +30,7 @@ import { ARMORS, DMG_TYPES, ELITES, ENEMY_PRESETS, GRUNTS, GRUNTS_LOW, LEGS, SLO
 import { clearPickups, pickups, restorePickups, spawnPickup, stashPickups, updatePickups } from './pickups.js';
 import { sensors, setSensorsVisible, updateSensors } from './sensors.js';
 import { closeGarage, garage, openGarage } from './garage.js';
+import { forward, s2w, turning, view, w2s } from './camview.js';
 
 const $ = id => document.getElementById(id);
 
@@ -1170,9 +1171,25 @@ $('gClose').addEventListener('click', () => { sfx.click(); leaveGarage(); });
 const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2(), tmpV = new THREE.Vector3();
 const aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1.4);
 let aimYaw = Math.PI, aimPoint = { x: 0, z: 0 };
-function updateAim() {
+const LOOK_SENS = 0.0032;   // 滑鼠轉向：每像素轉幾弧度（× 設定的靈敏度）
+function updateAim(raw) {
+  // 滑鼠轉向：左右 = 轉鏡頭（上半身跟著轉到鏡頭正前方）、上下 = 瞄準點遠近；手把右搖桿左右轉
+  if (turning()) {
+    if (input.source === 'pad') { if (input.padAim.active) view.yaw -= input.padAim.x * 2.6 * raw; }
+    else if (input.locked) {
+      view.yaw -= input.look.dx * LOOK_SENS * view.sens;
+      view.aimDist = Math.max(3, Math.min(26, view.aimDist - input.look.dy * 0.035 * view.sens));
+    }
+    const [fx, fz] = forward();
+    aimYaw = Math.atan2(fx, fz);
+    aimPoint = { x: player.x + fx * view.aimDist, z: player.z + fz * view.aimDist };
+    // 準星（游標旁的彈藥）畫在瞄準點上
+    tmpV.set(aimPoint.x, 1.4, aimPoint.z).project(camera);
+    input.mouse.x = (tmpV.x + 1) / 2 * innerWidth; input.mouse.y = (1 - tmpV.y) / 2 * innerHeight;
+    return;
+  }
   if (input.source === 'pad') {
-    if (input.padAim.active) aimYaw = Math.atan2(input.padAim.x, input.padAim.y);
+    if (input.padAim.active) { const [ax, az] = s2w(input.padAim.x, input.padAim.y); aimYaw = Math.atan2(ax, az); }
     aimPoint = { x: player.x + Math.sin(aimYaw) * 8, z: player.z + Math.cos(aimYaw) * 8 };
     return;
   }
@@ -1282,7 +1299,24 @@ function updateHud() {
 
 // ---------- 鏡頭看得到的範圍 ----------
 // 從上一幀的鏡頭打四條射線到地面（畫面左右邊緣、上下邊緣往內一點），量出從畫面中心往四個方向看得到多遠；除以鏡頭距離 = 每單位距離的範圍
-let lockZoom = 1, lastCd = 30;
+let lockZoom = 1, lastCd = 30, minimapYaw = 0;
+// 滑鼠轉向模式：遊戲中游標鎖住（點一下畫面才鎖得住，瀏覽器規定要有使用者動作）；離開遊戲畫面就放開
+// 鎖住時按 Esc 瀏覽器會直接放開、不送按鍵給網頁 → 被放開又還在玩 = 當作按了暫停
+let wantLock = false;
+function updatePointerLock(want) {
+  wantLock = turning() && want;
+  if (!wantLock && input.locked) document.exitPointerLock?.();
+  lockHint.classList.toggle('hidden', !wantLock || input.locked);
+}
+const lockHint = document.createElement('div');
+lockHint.id = 'lockHint'; lockHint.className = 'hidden'; lockHint.textContent = '點一下畫面鎖定滑鼠（滑鼠轉向模式）';
+document.body.appendChild(lockHint);
+addEventListener('mousedown', e => {
+  if (!wantLock || input.locked || e.target !== renderer.domElement) return;
+  renderer.domElement.requestPointerLock?.();
+  e.stopImmediatePropagation();   // 這一下只是拿來鎖游標，不開火
+}, true);
+document.addEventListener('pointerlockchange', () => { if (!document.pointerLockElement && wantLock && !G.paused) pause(); });
 const camLook = new THREE.Vector3(), extRay = new THREE.Raycaster(), groundPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), 0), extV = new THREE.Vector3();
 function viewExtents() {
   const out = {};
@@ -1290,7 +1324,8 @@ function viewExtents() {
   for (const [k, x, y] of [['r', 0.9, 0], ['l', -0.9, 0], ['t', 0, 0.82], ['b', 0, -0.72]]) {
     extRay.setFromCamera({ x, y }, camera);
     if (!extRay.ray.intersectPlane(groundPlane, extV)) { out[k] = 0.3; continue; }
-    out[k] = (k === 'r' || k === 'l' ? Math.abs(extV.x - camLook.x) : Math.abs(extV.z - camLook.z)) / lastCd;
+    const [sx, sy] = w2s(extV.x - camLook.x, extV.z - camLook.z);   // 換成畫面方向量（鏡頭可能轉了）
+    out[k] = (k === 'r' || k === 'l' ? Math.abs(sx) : Math.abs(sy)) / lastCd;
   }
   return out;
 }
@@ -1335,12 +1370,15 @@ function step(t) {
   // 慢動作：被擊墜時很慢（SLOW_K），最後 0.4 秒慢慢回到正常速度
   if (dt > 0 && G.slowMo > 0) { G.slowMo -= raw; const k = killCam.t > 0 ? SLOW_K : 0.35; dt *= G.slowMo < 0.4 ? k + (1 - k) * (1 - G.slowMo / 0.4) : k; }
 
-  if (playing && !watching && !garage.open) updateAim();
+  if (!turning()) view.yaw = 0;
+  updatePointerLock(playing && !watching && !garage.open && !G.paused && !panelOpen() && !settingsOpen() && player.alive && !MODE.result && input.source === 'mouse');
+  if (playing && !watching && !garage.open) updateAim(raw);
   if (dt > 0) {
     if (watching) { /* 沒有玩家 */ }
     else if (player.alive) {
-      if (input.boostPressed) tryBoost(player, input.move.x, input.move.y);
-      driveMech(player, dt, input.move.x, input.move.y, aimYaw);
+      const [mx, mz] = s2w(input.move.x, input.move.y);   // WASD / 左搖桿是畫面方向
+      if (input.boostPressed) tryBoost(player, mx, mz);
+      driveMech(player, dt, mx, mz, aimYaw);
       if (input.readyL && !toggleReady(player, 'L')) sfx.click();
       if (input.readyR && !toggleReady(player, 'R')) sfx.click();
       if (input.techPressed && player.device) useDevice(player, aimPoint);
@@ -1410,7 +1448,8 @@ function step(t) {
     // 偏移方向看「游標在畫面上相對畫面中心」（手把看右搖桿），不看瞄準角度：
     // 瞄準角度又跟玩家在畫面上的位置有關，用它會跟鏡頭偏移互相拉扯、卡在錯的方向
     let dx, dz, gate = 1;
-    if (input.source === 'pad') { dx = input.padAim.x; dz = input.padAim.y; }
+    if (turning()) { dx = 0; dz = -1; }   // 滑鼠轉向：一直往正前方（畫面上方）偏
+    else if (input.source === 'pad') { dx = input.padAim.x; dz = input.padAim.y; }
     else {
       const nx = input.mouse.x / innerWidth * 2 - 1, ny = input.mouse.y / innerHeight * 2 - 1, nl = Math.hypot(nx, ny) || 1;
       dx = nx / nl; dz = ny / nl;
@@ -1435,7 +1474,7 @@ function step(t) {
     lx += garageK * visW * panel / 2;
   }
   // 觀戰：鏡頭看兩台的中間，離得越遠拉得越遠
-  let fx = player.x, fz = player.z + REST_Z, distK = 1;
+  let fx = player.x, fz = player.z, restZ = REST_Z, distK = 1;   // restZ：畫面方向（往上）的偏移，觀戰 / 特寫不用
   if (watching) {
     // 王牌 vs 雜魚：看王牌和它現在的目標
     const pool = MODE.kind === 'horde' && MODE.horde ? [MODE.horde.ace, MODE.horde.ace.foe].filter(Boolean) : enemies;
@@ -1446,21 +1485,24 @@ function step(t) {
       if (MODE.kind === 'skirmish') for (const e of all) sep = Math.max(sep, 2 * Math.hypot(e.x - fx, e.z - fz - 0.8) * 0.8);
       distK = Math.max(0.75, Math.min(1.6, 0.6 + sep / 22));
     }
-    lx = lz = 0;
+    lx = lz = 0; restZ = 0;
   }
   // 擊墜特寫：鏡頭飛到被打爆的那台、拉近
   const kc = (killCam.t > 0 || bossIntro.t > 0) && playing;
-  if (kc) { const K = bossIntro.t > 0 ? bossIntro : killCam; fx = K.x; fz = K.z - 0.4; lx = lz = 0; }
+  if (kc) { const K = bossIntro.t > 0 ? bossIntro : killCam; fx = K.x; fz = K.z - 0.4; lx = lz = 0; restZ = 0; }
   killK += ((kc ? 1 : 0) - killK) * (1 - Math.exp(-(kc ? 7 : 2.5) * raw));
   const ck = 1 - Math.exp(-(kc ? 8 : watching ? 2.5 : 5) * raw);
-  camTarget.x += (fx + lx - camTarget.x) * ck;
-  camTarget.z += (fz + lz - camTarget.z) * ck;
+  const [wlx, wlz] = s2w(lx, lz + restZ);   // 偏移都是畫面方向，換成世界方向
+  camTarget.x += (fx + wlx - camTarget.x) * ck;
+  camTarget.z += (fz + wlz - camTarget.z) * ck;
   watchK += (distK - watchK) * (1 - Math.exp(-1.5 * raw));
   G.trauma = Math.max(0, G.trauma - raw * 1.6);
   const sh = G.trauma * G.trauma * 0.7;
   const ox = (Math.random() - 0.5) * sh, oz = (Math.random() - 0.5) * sh;
   const cd = dist * (watching ? watchK : 1) * (1 - 0.42 * killK);
-  camera.position.set(camTarget.x + ox, Math.sin(CAM_PITCH) * cd, camTarget.z + Math.cos(CAM_PITCH) * cd + oz);
+  const back = Math.cos(CAM_PITCH) * cd;   // 鏡頭在正前方的反方向（固定模式 = 南邊）
+  camera.position.set(camTarget.x + ox + Math.sin(view.yaw) * back, Math.sin(CAM_PITCH) * cd, camTarget.z + Math.cos(view.yaw) * back + oz);
+  if (minimapYaw !== view.yaw) { minimapYaw = view.yaw; $('minimap').style.transform = view.yaw ? `rotate(${view.yaw}rad)` : ''; }   // 小地圖跟著轉（上方 = 鏡頭正前方）
   camera.lookAt(camTarget.x + ox, 0, camTarget.z + oz);
   lastCd = cd; camLook.set(camTarget.x + ox, 0, camTarget.z + oz);
   sun.position.set(camTarget.x - 8, 22, camTarget.z + 6);

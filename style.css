@@ -292,3 +292,6 @@ body.killcam::before, body.killcam::after { height: 9vh; transition: height .12s
 .wnote { font-size: 11px; color: #ffb070; }
 .whint { position: absolute; left: min(340px, 40vw); right: 0; bottom: 10px; text-align: center; font-size: 12px; opacity: .55; pointer-events: none; }
 #wsStatus { position: absolute; right: 12px; top: 10px; font: 600 12px ui-monospace, Consolas, monospace; opacity: .7; pointer-events: none; }
+/* 滑鼠轉向模式：游標還沒鎖住時的提示 */
+#lockHint { position: fixed; left: 50%; top: 58%; transform: translateX(-50%); padding: 6px 14px; background: rgba(8,10,14,.75); border: 1px solid rgba(160,180,210,.35); border-radius: 4px; color: #cfe0f0; font-size: 13px; pointer-events: none; z-index: 40; }
+#lockHint.hidden { display: none; }

@@ -9,6 +9,8 @@ export const input = {
   source: 'mouse',            // 'mouse' | 'pad'
   move: { x: 0, y: 0 },
   mouse: { x: innerWidth / 2, y: innerHeight / 2, seen: false },
+  look: { dx: 0, dy: 0 },     // 游標鎖住時（滑鼠轉向模式）：這一幀滑鼠移了多少（像素）
+  locked: false,
   padAim: { x: 0, y: -1, active: false },
   fireL: false, fireR: false, readyL: false, readyR: false,   // readyL / R：這一幀按下切換
   boostPressed: false, techPressed: false, pausePressed: false, resetPressed: false, passivePressed: false, garagePressed: false, interactPressed: false,
@@ -17,8 +19,11 @@ const keys = new Set();
 let mouseL = false, mouseR = false, padPrev = [];
 
 addEventListener('mousemove', e => {
-  input.mouse.x = e.clientX; input.mouse.y = e.clientY; input.mouse.seen = true; input.source = 'mouse';
+  input.source = 'mouse'; input.mouse.seen = true;
+  if (input.locked) { input.look.dx += e.movementX; input.look.dy += e.movementY; return; }
+  input.mouse.x = e.clientX; input.mouse.y = e.clientY;
 });
+document.addEventListener('pointerlockchange', () => { input.locked = !!document.pointerLockElement; input.look.dx = input.look.dy = 0; });
 addEventListener('mousedown', e => {
   input.source = 'mouse'; input.mouse.seen = true;
   if (e.button === 0) mouseL = true;
@@ -90,4 +95,5 @@ export function updateInput() {
 // 單次事件：每幀最後清掉
 export function clearPressed() {
   input.boostPressed = input.techPressed = input.pausePressed = input.resetPressed = input.passivePressed = input.garagePressed = input.interactPressed = input.readyL = input.readyR = false;
+  input.look.dx = input.look.dy = 0;
 }

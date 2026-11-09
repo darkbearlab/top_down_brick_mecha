@@ -8,6 +8,7 @@ import { setHazeLevel } from './haze.js';
 import { setLightsOn } from './lights.js';
 import { setHeightFogOn } from './fog.js';
 import { setPerfPanel } from './perf.js';
+import { setViewMode, setViewSens, view } from './camview.js';
 
 const KEY = 'brickmecha.gfx';
 // 每一項：選項（值、顯示文字）、說明（花在哪）
@@ -88,6 +89,9 @@ function render() {
   for (const it of ITEMS) row(it.name, it.note, it.opts, S[it.k], v => { S[it.k] = v; apply(it.k); save(); });
   const sep2 = document.createElement('div'); sep2.className = 'ssep'; body.appendChild(sep2);
   row('效能面板', '左上角顯示 FPS、每幀 CPU / GPU 毫秒（60 FPS 的預算是 16.7 ms）', [[true, '顯示'], [false, '隱藏']], S.perf, v => { S.perf = v; apply('perf'); save(); });
+  const sep3 = document.createElement('div'); sep3.className = 'ssep'; body.appendChild(sep3);
+  row('鏡頭', view.mode === 'turn' ? '滑鼠鎖住：左右轉鏡頭和上半身、上下調瞄準遠近；WASD 照畫面方向走。點一下畫面開始、Esc 暫停並放開滑鼠' : '鏡頭固定朝北，游標指哪打哪', [['fixed', '固定'], ['turn', '滑鼠轉向']], view.mode, v => setViewMode(v));
+  if (view.mode === 'turn') row('轉向靈敏度', '', [[0.6, '低'], [1, '中'], [1.5, '高'], [2.2, '很高']], view.sens, v => setViewSens(v));
 }
 export const settingsOpen = () => !root.classList.contains('hidden');
 export function openSettings(then = null) { onClose = then; render(); root.classList.remove('hidden'); }
