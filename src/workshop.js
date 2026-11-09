@@ -67,7 +67,9 @@ let open = false, onClose = null;
 let key = null, slot = null, lo = null;
 let vox = new Map(), points = {};          // vox：'x,y,z'（細格）→ 顏色 key
 let tool = 'place', color = 'a', brush = 1, mirror = true, curPoint = null;
-let show = { ghost: true, weapon: true, hit: true, bounds: true };
+let show = { ghost: true, weapon: true, hit: true, bounds: true, side: true };
+// 手臂 / 單腳 / 武器：右邊那一份是左邊的鏡像（遊戲裡就是這樣蓋的），編輯時也畫出來、點它一樣能編輯
+const hasSide = () => slot === 'arm' || slot === 'leg' || slot === 'weapon';
 let undo = [], redo = [];
 let drafts = {}, tryOn = false;
 try { const d = JSON.parse(localStorage.getItem(KEY)); if (d?.drafts) drafts = d.drafts; } catch { /* 沒有草稿 */ }
@@ -84,11 +86,17 @@ const world = new THREE.Group(); wsScene.add(world);
 const floor = new THREE.GridHelper(4, 32, 0x2a2e38, 0x15171c); world.add(floor);
 let ghost = null, editG = new THREE.Group(), editMesh = null, editMat = null, weaponPrev = null;
 world.add(editG);
+// 對側：editG 對機體中線（x = 0）的鏡像；裡面的東西用跟 editG 一樣的本地座標
+const sideG = new THREE.Group(); sideG.scale.x = -1; world.add(sideG);
+let sideMesh = null, sidePrev = null;
 const ghostMat = new THREE.MeshLambertMaterial({ color: 0x8090a8, transparent: true, opacity: 0.16, depthWrite: false });
 const hover = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.35, depthWrite: false }));
 const hoverM = new THREE.Mesh(new THREE.BoxGeometry(1, 1, 1), new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: 0.2, depthWrite: false }));
 hover.visible = hoverM.visible = false;
 editG.add(hover, hoverM);
+const hoverS = new THREE.Mesh(hover.geometry, hover.material), hoverSM = new THREE.Mesh(hoverM.geometry, hoverM.material);
+hoverS.visible = hoverSM.visible = false;
+sideG.add(hoverS, hoverSM);
 let boundsBox = null, plane = null, markers = new THREE.Group(), coreBox = null;
 editG.add(markers);
 // 命中判定：圓柱（碰撞半徑），高 2.2（飛彈 / 拋射物打得到的高度）
@@ -201,6 +209,8 @@ function rebuildEdit() {
   for (const [k, c] of vox) { const [x, y, z] = k.split(',').map(Number); boxes.push([x, y, z, 1, 1, 1, P[c] ?? c]); }
   editMesh = boxes.length ? voxelBody(boxes, S, editMat, [], 1, false) : null;
   if (editMesh) editG.add(editMesh);
+  if (sideMesh) { sideG.remove(sideMesh); sideMesh = null; }
+  if (editMesh && hasSide() && show.side) { sideMesh = new THREE.Mesh(editMesh.geometry, editMat); sideG.add(sideMesh); }
   // 標記點
   markers.clear();
   for (const n of POINTS[slot] ?? []) {
@@ -220,6 +230,7 @@ function rebuildEdit() {
 function rebuildGhost() {
   if (ghost) world.remove(ghost.root);
   if (weaponPrev) { editG.remove(weaponPrev); weaponPrev = null; }
+  if (sidePrev) { sideG.remove(sidePrev); sidePrev = null; }
   // 整台機體：這個零件用目前的編輯（標記點會影響別的零件擺哪）
   const saved = shapeOverrides[key];
   shapeOverrides[key] = { boxes: toBoxes(vox), points };
@@ -228,21 +239,28 @@ function rebuildGhost() {
   const P = ghost.parts;
   ghost.root.traverse(o => { if (o.isMesh) { o.material = ghostMat; o.castShadow = false; } });
   // 編輯中的那個零件不畫（用實心的那份）
-  const hide = { head: [P.head.g], torso: [P.torso.g], arm: [P.armL?.g], weapon: [(WEAPONS[key.split(':')[1]]?.mount === 'arm' ? P.armL : P.backL)?.g] }[slot] ?? [];
+  const armMount = WEAPONS[key.split(':')[1]]?.mount === 'arm';
+  const hide = { head: [P.head.g], torso: [P.torso.g], arm: [P.armL?.g], weapon: [(armMount ? P.armL : P.backL)?.g] }[slot] ?? [];
+  // 對側畫實心的鏡像時，半透明的那份也不畫
+  if (show.side) { if (slot === 'arm') hide.push(P.armR?.g); if (slot === 'weapon') hide.push((armMount ? P.armR : P.backR)?.g); }
   for (const g of hide) if (g) g.visible = false;
   if (slot === 'legs') for (const c of P.legs.g.children) if (!ghost.legs.includes(c)) c.visible = false;
   if (slot === 'leg' && ghost.legs[0]) ghost.legs[0].visible = false;
+  if (slot === 'leg' && show.side && ghost.legs[1]) ghost.legs[1].visible = false;
   // 武器預覽：軀幹 → 手臂、背部武器顯示 / 不顯示；手臂 → 手上接一把參考武器（實心）
   if (slot === 'torso') for (const s of ['armL', 'armR', 'backL', 'backR']) if (P[s]) P[s].g.visible = show.weapon;
   if (slot === 'arm' && show.weapon && lo.armL) {
     const W = getShape(`weapon:${lo.armL}`), h = pointOf({ points }, 'hand') ?? [0, 0, 0], Pal = pal(lo.armor.arms, PLAYER_COLORS, WEAPONS[lo.armL].type);
     weaponPrev = voxelBody(W.boxes.map(([x, y, z, w, hh, d, c]) => [x + h[0] * 2, y + h[1] * 2, z + h[2] * 2, w, hh, d, Pal[c] ?? c]), S, partMaterial(lo.armor.arms));
     editG.add(weaponPrev);
+    if (show.side) { sidePrev = new THREE.Mesh(weaponPrev.geometry, weaponPrev.material); sideG.add(sidePrev); }
   }
   ghost.root.visible = show.ghost;
   world.add(ghost.root);
   const p = placeOf();
   editG.position.set(p[0] * V, p[1] * V, p[2] * V);
+  sideG.position.set(-p[0] * V, p[1] * V, p[2] * V);
+  sideG.visible = hasSide() && show.side;
   // 命中判定：碰撞半徑（菁英的模型有放大，這裡畫的是放大前的模型，所以半徑 / 高度照比例換算）
   const k = lo.elite?.scale ?? 1;
   buildHit(lo.legs === 'tread' ? 0.95 : 0.85, 2.2 / k);
@@ -299,11 +317,12 @@ const ray = new THREE.Raycaster(), ndc = new THREE.Vector2(), lp = new THREE.Vec
 function pickAt(cx, cy) {
   ndc.set(cx / innerWidth * 2 - 1, -(cy / innerHeight) * 2 + 1);
   ray.setFromCamera(ndc, wsCam);
-  editG.updateMatrixWorld(true);
-  const hits = ray.intersectObjects([editMesh, plane].filter(Boolean), false);
+  editG.updateMatrixWorld(true); sideG.updateMatrixWorld(true);
+  const hits = ray.intersectObjects([editMesh, plane, sideG.visible && sideMesh].filter(Boolean), false);
   if (!hits.length) return null;
   const h = hits[0];
-  editG.worldToLocal(lp.copy(h.point));
+  // 點到對側：換回左邊的本地座標（sideG 本身就是鏡像，所以 worldToLocal 直接得到同一格）
+  (h.object === sideMesh ? sideG : editG).worldToLocal(lp.copy(h.point));
   if (h.object === plane) { const c = [Math.floor(lp.x / S), Math.round(lp.y / S), Math.floor(lp.z / S)]; return { cell: null, place: c }; }
   ln.copy(h.face.normal);
   const c = [Math.floor(lp.x / S - ln.x * 0.5), Math.floor(lp.y / S - ln.y * 0.5), Math.floor(lp.z / S - ln.z * 0.5)];
@@ -334,7 +353,7 @@ function apply(cx, cy) {
   else if (tool === 'paint') act(() => { for (const c of withMirror(brushCells(p.cell))) if (vox.has(fineKey(...c))) vox.set(fineKey(...c), color); });
 }
 function updateHover(cx, cy) {
-  hover.visible = hoverM.visible = false;
+  hover.visible = hoverM.visible = hoverS.visible = hoverSM.visible = false;
   if (tool === 'pick') return;
   const p = pickAt(cx, cy);
   if (!p) return;
@@ -345,6 +364,10 @@ function updateHover(cx, cy) {
   hover.material.color.setHex(!ok ? 0xff3030 : tool === 'erase' ? 0xff6060 : tool === 'point' ? POINT_C[curPoint] ?? 0xffffff : 0xffffff);
   hover.scale.setScalar(n * S * 1.04); hover.position.set((b[0] + n / 2) * S, (b[1] + n / 2) * S, (b[2] + n / 2) * S); hover.visible = true;
   if (mirror && tool !== 'point') { hoverM.scale.copy(hover.scale); hoverM.position.set((-b[0] - n / 2) * S, hover.position.y, hover.position.z); hoverM.material.color.copy(hover.material.color); hoverM.visible = true; }
+  // 對側也標出來（功能磚只在左邊放，不標）
+  if (sideG.visible && tool !== 'point') {
+    for (const [a, s] of [[hover, hoverS], [hoverM, hoverSM]]) { s.visible = a.visible; s.position.copy(a.position); s.scale.copy(a.scale); }
+  }
 }
 
 // ---------- 滑鼠 / 鍵盤 ----------
@@ -361,7 +384,7 @@ el.addEventListener('pointermove', e => {
   const dx = e.clientX - drag.x, dy = e.clientY - drag.y;
   if (!drag.moved && Math.hypot(dx, dy) > 4) drag.moved = true;
   if (!drag.moved) return;
-  hover.visible = hoverM.visible = false;
+  hover.visible = hoverM.visible = hoverS.visible = hoverSM.visible = false;
   if (drag.b === 0 && !e.shiftKey) { cam.yaw = drag.yaw - dx * 0.008; cam.pitch = Math.max(-1.45, Math.min(1.45, drag.pitch + dy * 0.008)); }
   else {
     // 平移：沿著畫面的左右、上下
@@ -410,7 +433,7 @@ function renderPanel() {
   h += `<div class="wrow"><span>顏色</span><div class="wsw">${COLOR_KEYS.map(([c, n]) => `<button data-c="${c}" class="${c === color ? 'on' : ''}" title="${n}" style="--c:#${new THREE.Color(P[c]).getHexString()}"><i></i>${n}</button>`).join('')}</div></div>`;
   h += seg('筆刷', [[1, '細格'], [2, '粗格 2×2×2']], brush, null, 'brush');
   h += seg('X 鏡像', [[1, '開'], [0, '關']], mirror ? 1 : 0, null, 'mirror');
-  h += `<div class="wrow col"><span>顯示</span><div class="wchk">${[['ghost', '整台機體（半透明）'], ...(hasW ? [['weapon', '武器預覽']] : []), ['hit', '命中判定'], ['bounds', '可編輯範圍']].map(([k, n]) => `<label><input type="checkbox" data-s="${k}" ${show[k] ? 'checked' : ''}>${n}</label>`).join('')}</div></div>`;
+  h += `<div class="wrow col"><span>顯示</span><div class="wchk">${[['ghost', '整台機體（半透明）'], ...(hasSide() ? [['side', '左右鏡像（右邊實心顯示，也能直接在右邊編輯）']] : []), ...(hasW ? [['weapon', '武器預覽']] : []), ['hit', '命中判定'], ['bounds', '可編輯範圍']].map(([k, n]) => `<label><input type="checkbox" data-s="${k}" ${show[k] ? 'checked' : ''}>${n}</label>`).join('')}</div></div>`;
   const pts = (POINTS[slot] ?? []).filter(n => points[n] || slot !== 'legs');
   if (pts.length) h += `<div class="wrow col"><span>功能磚（選一個，用功能磚工具點在方塊的某一面上；左邊的會自動鏡像到右邊）</span>${pts.map(n => `<div class="wpt ${n === curPoint ? 'on' : ''}" data-p="${n}"><i style="background:#${new THREE.Color(POINT_C[n]).getHexString()}"></i><b>${POINT_NAMES[n]}</b>${['x', 'y', 'z'].map((a, i) => `<input type="number" step="0.5" data-pi="${n},${i}" value="${points[n]?.[i] ?? 0}">`).join('')}</div>`).join('')}</div>`;
   if (lo.cores?.[slot]) h += `<div class="wnote">橘色框 = 核心的位置；外面會自動包 1 粗格（2 細格）的殼，不用自己堆</div>`;
@@ -425,7 +448,7 @@ function renderPanel() {
     renderPanel();
   });
   $('wsBody').querySelectorAll('.wsw button').forEach(b => b.onclick = () => { color = b.dataset.c; if (tool === 'erase' || tool === 'pick' || tool === 'point') tool = 'place'; renderPanel(); });
-  $('wsBody').querySelectorAll('[data-s]').forEach(c => c.onchange = () => { show[c.dataset.s] = c.checked; rebuildFrame(); rebuildGhost(); });
+  $('wsBody').querySelectorAll('[data-s]').forEach(c => c.onchange = () => { show[c.dataset.s] = c.checked; rebuildFrame(); rebuildEdit(); rebuildGhost(); });
   $('wsBody').querySelectorAll('.wpt').forEach(r => r.onclick = e => { if (e.target.tagName === 'INPUT') return; curPoint = r.dataset.p; tool = 'point'; renderPanel(); rebuildEdit(); });
   $('wsBody').querySelectorAll('[data-pi]').forEach(inp => inp.onchange = () => {
     const [n, i] = inp.dataset.pi.split(','), v = +inp.value;
