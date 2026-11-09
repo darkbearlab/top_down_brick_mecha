@@ -43,6 +43,7 @@ export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, h
   if (E) {
     for (const p in spec.hp) spec.hp[p] *= E.hpMul ?? 1;
     if (E.vmax) spec.vmax = E.vmax; if (E.acc) spec.acc = E.acc; if (E.boost != null) spec.boost = E.boost;   // boost 0 = 不能推進
+    if (E.turn) spec.turn = E.turn; if (E.legTurn) spec.legTurn = E.legTurn;
     if (E.stagger) spec.legs = { ...spec.legs, stagger: E.stagger };
     spec.regen = 1; spec.backOver = false;   // 肩炮很重但不拖慢能量回復（推進要常用）
   }
@@ -450,7 +451,7 @@ export function syncWear(m, name, dx = 0, dz = 0, quiet = false) {
   for (const o of dirty) { o.instanceMatrix.needsUpdate = true; if (o.instanceColor) o.instanceColor.needsUpdate = true; }
   // 核心剛露出來：噴一下火花提示
   if (p.core) {
-    const any = p.hp <= p.max * CORE_HP && FACES.some(f => W.tot[f] && W.open[f] / W.tot[f] >= CORE_OPEN);
+    const any = p.hp <= p.max * (p.core.gate ?? CORE_HP) && FACES.some(f => W.tot[f] && W.open[f] / W.tot[f] >= CORE_OPEN);
     if (any && !W.anyOpen && !quiet) { const w = coreWorld(m, p); sparks(w.x, w.y, w.z, 0xffa040, 18, -dx, -dz, 1); sfx.partBreak(); }
     W.anyOpen = any;
   }
@@ -465,7 +466,7 @@ export function coreOpen(m, name, fromX, fromZ) {
   const yaw = name === 'legs' ? m.legYaw : m.torsoYaw, s = Math.sin(yaw), c = Math.cos(yaw);
   const lx = fromX * c - fromZ * s, lz = fromX * s + fromZ * c;
   const f = Math.abs(lx) > Math.abs(lz) ? (lx > 0 ? 'x+' : 'x-') : (lz > 0 ? 'z+' : 'z-');
-  return p.hp <= p.max * CORE_HP && W.tot[f] > 0 && W.open[f] / W.tot[f] >= CORE_OPEN;
+  return p.hp <= p.max * (p.core.gate ?? CORE_HP) && W.tot[f] > 0 && W.open[f] / W.tot[f] >= CORE_OPEN;
 }
 // 核心被打中：一團光炸開、定格，部位直接打爆；關鍵部位（crit）= 整台擊毀
 function coreBreak(m, name, dx, dz) {

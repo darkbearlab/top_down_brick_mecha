@@ -31,14 +31,14 @@ const pal = (armor, team, wtype) => ({ a: mix(ARMORS[armor].hex, team.accent, te
 // 用 MeshBasic + 超過 1 的顏色 → 泛光會讓它發亮；userData.core = 不算磨損、不算殼
 const CORE_C = new THREE.Color(2.6, 0.75, 0.28);
 export const shellBox = ([x, y, z, w, h, d]) => [x - 1, y - 1, z - 1, w + 2, h + 2, d + 2, 'a'];
-function addCore(part, [x, y, z, w, h, d], crit) {
+function addCore(part, [x, y, z, w, h, d], crit, gate) {
   const mat = new THREE.MeshBasicMaterial({ color: CORE_C.clone() });
   const s = new VoxelSet(); s.box(x, y, z, w, h, d, 0xffffff);
   const mesh = buildVoxelMesh(s, mat);
   mesh.castShadow = false; mesh.userData.core = true;
   part.g.add(mesh);
   // 殼的範圍（群組本地座標）：拿來判斷被打掉的方塊在哪一面
-  part.core = { mesh, mat, base: CORE_C, crit, c: [(x + w / 2) * V, (y + h / 2) * V, (z + d / 2) * V], half: [(w / 2 + 1) * V, (h / 2 + 1) * V, (d / 2 + 1) * V] };
+  part.core = { mesh, mat, base: CORE_C, crit, gate, c: [(x + w / 2) * V, (y + h / 2) * V, (z + d / 2) * V], half: [(w / 2 + 1) * V, (h / 2 + 1) * V, (d / 2 + 1) * V] };
 }
 
 // 腳的模型
@@ -109,7 +109,7 @@ export function buildMechModel(lo, team) {
   const shell = k => CO[k] ? [shellBox(CO[k].box)] : [];
   parts.torso = partGroup([...shell('torso'), ...(B?.torso ?? C.model)], pal(lo.armor.torso, team), torsoG, lo.armor.torso);
   parts.head = partGroup([...shell('head'), ...(B?.head ?? H.model)], pal(lo.armor.head, team), torsoG, lo.armor.head);
-  for (const k of ['torso', 'head']) if (CO[k]) addCore(parts[k], CO[k].box, !!CO[k].crit);
+  for (const k of ['torso', 'head']) if (CO[k]) addCore(parts[k], CO[k].box, !!CO[k].crit, CO[k].gate);
   parts.head.g.position.y = C.top * V;
   const weapons = {}, muzzles = {};
   for (const slot of ['armL', 'armR', 'backL', 'backR']) {
