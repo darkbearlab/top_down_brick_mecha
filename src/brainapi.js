@@ -5,7 +5,7 @@
 // 看得到的東西（obs）跟能做的事（act）見 tools/sim/BRAINS.md
 import { G, angleDiff } from './core.js';
 import { rayBlock } from './arena.js';
-import { activeSlot, facing, muzzleOf, slotBroken, slotLive, toggleReady, tryBoost, wantsLock } from './mech.js';
+import { activeSlot, facing, mechs, muzzleOf, slotBroken, slotLive, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { shots, updateGuns, fireZones } from './weapons.js';
 import { headStats } from './sensors.js';
 import { burnLockK } from './status.js';
@@ -70,6 +70,8 @@ function observe(e, foe, dt) {
   return {
     t: r2(G.now), dt, me: view(e, true), foe: view(foe, false), dist: r2(dist), dir: { x: dx / dist, z: dz / dist }, los, lineClear: lineOf,
     lock: { locked: e.block >= 1, progress: r2(Math.min(1, e.block)), range: headStats(e).lockRange, wants: wantsLock(e) },
+    // 所有活著的敵人（一對多時用；foe = 其中一台，對戰模擬裡是最近的那台），照距離排、多一個 dist
+    enemies: mechs.filter(o => o.alive && !o.drop && o.team !== e.team && o.team !== 'none').map(o => ({ ...view(o, false), grunt: !!o.grunt, dist: r2(Math.hypot(o.x - e.x, o.z - e.z)) })).sort((a, b) => a.dist - b.dist),
     incoming: incoming(e), zones: fireZones.filter(z => Math.hypot(z.x - e.x, z.z - e.z) < z.r + 8).map(z => ({ x: r2(z.x), z: r2(z.z), r: z.r, t: r2(z.t), status: z.status, mine: z.team === e.team })),
   };
 }

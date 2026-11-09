@@ -42,7 +42,7 @@ const $ = id => document.getElementById(id);
 // endless：無盡模式，雜魚越來越多越來越強，打爆會掉彈藥 / 修理 / 強化模組，撐越久越好（被打爆就結束）
 // explore：遠征，一關一張大地圖：撿武器、開補給箱、清小隊、啟動傳送門打頭目、進下一關（見下面「遠征模式」）
 // watch：觀戰，兩台電腦機體互打（現成配裝或隨機組裝），打完自動換一組重開
-// watch 有三種（MODE.kind）：'duel' 一對一、'horde' 王牌 vs 雜魚、'skirmish' 雜魚 vs 雜魚
+// watch 有四種（MODE.kind）：'duel' 一對一、'horde' 王牌 vs 雜魚、'skirmish' 雜魚 vs 雜魚、'brains' AI 對打（代理作品）
 const MODE = { name: 'menu', kind: 'duel', duel: null, endT: 0, round: 0, score: { blue: 0, red: 0 }, horde: null, sk: null };
 const BLUE_COLORS = { accent: 0x3a8cff, glow: 0x90c0ff };
 // 試玩場從中間偏下出發；對戰 / 觀戰兩邊從競技場左右兩側出發、面對面
@@ -131,6 +131,36 @@ function startDuel(preset, diffKey) {
 }
 // 觀戰：一半機率用現成配裝、一半隨機組裝
 const watchLoadout = () => Math.random() < 0.5 ? ENEMY_PRESETS[Math.floor(Math.random() * ENEMY_PRESETS.length)] : randomLoadout();
+// AI 對打觀戰（第三階段的代理作品）：tools/sim/entries/<名字>/loadout.json 的機體 + src/brains/<名字>.js 的大腦
+// 每場交換左右（場地有一點點不對稱）；打完自動下一場
+const BRAIN_ENTRIES = ['alpha', 'beta'];
+async function startBrainWatch(fresh = false) {
+  const [BA] = await Promise.all([import('./brainapi.js')]);
+  const load = async n => ({ name: n, lo: await (await fetch(`../tools/sim/entries/${n}/loadout.json`, { cache: 'no-cache' })).json(), brain: (await import(`./brains/${n}.js`)).default });
+  const E = await Promise.all(BRAIN_ENTRIES.map(load));
+  resetWorld();
+  MODE.name = 'watch';
+  if (fresh || MODE.kind !== 'brains') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
+  MODE.kind = 'brains';
+  MODE.round++;
+  AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.hard;
+  if (player) { removeMech(player); player.alive = false; }
+  // 藍方固定是 alpha、紅方是 beta；單數場 alpha 在左、雙數場在右
+  const swap = MODE.round % 2 === 0, [LA, LB] = swap ? [SIDE_B, SIDE_A] : [SIDE_A, SIDE_B];
+  const mk = (e, at, foeAt, team, colors) => spawnEnemy(foeAt, { ...e.lo, name: `${e.name}`, chips: [], device: null }, at, { team, colors });
+  const blue = mk(E[0], LA, LB, 'blue', BLUE_COLORS), red = mk(E[1], LB, LA, 'red', ENEMY_COLORS);
+  blue.foe = red; red.foe = blue;
+  BA.attachBrain(blue, E[0].brain); BA.attachBrain(red, E[1].brain);
+  $('menu').classList.add('hidden'); $('duel').classList.add('hidden'); $('hud').classList.add('hidden');
+  $('watch').classList.remove('hidden');
+  setSensorsVisible(false);
+  for (const [side, m] of [['B', blue], ['R', red]]) {
+    $('w' + side + 'Name').textContent = `${m.preset.name}（${m.brain.name} 大腦）`;
+    $('w' + side + 'Guns').innerHTML = SLOTS.map(s => m.preset[s]).filter(Boolean).map(id => `<span class="wt" style="--c:${DMG_TYPES[WEAPONS[id].type].css}">${WEAPONS[id].name}</span>`).join('') +
+      `<span class="wt" style="--c:#8a96a6">${LEGS[m.preset.legs].name}</span>`;
+  }
+  toast(`AI 對打・第 ${MODE.round} 場（alpha 在${swap ? '右' : '左'}）`);
+}
 function startWatch(fresh = false) {
   resetWorld();
   MODE.name = 'watch';
@@ -1057,10 +1087,10 @@ function hidePanel() { $('panel').classList.add('hidden'); }
 const panelOpen = () => !$('panel').classList.contains('hidden');
 function restart() { MODE.name === 'explore' ? startRun() : MODE.name === 'endless' ? startEndless() : MODE.name === 'duel' ? startDuel(MODE.duel.preset, MODE.duel.diffKey) : MODE.name === 'watch' ? nextWatch() : startSandbox(); }
 const WATCH_LIMIT = 180;   // 觀戰一場最多幾秒（遊戲時間）
-const nextWatch = () => MODE.kind === 'horde' ? startHorde() : MODE.kind === 'skirmish' ? startSkirmish() : startWatch();
+const nextWatch = () => MODE.kind === 'horde' ? startHorde() : MODE.kind === 'skirmish' ? startSkirmish() : MODE.kind === 'brains' ? startBrainWatch() : startWatch();
 function pause() {
   G.paused = true;
-  showPanel('暫停', MODE.name === 'explore' ? `遠征・地圖 #${EX.map.seed}<br>${runSummary()}` : MODE.name === 'endless' ? `無盡模式・${mmss(EN.t)}・擊破 ${EN.kills}` : MODE.name === 'duel' ? `對戰・${DIFFS[MODE.duel.diffKey].name}` : MODE.name === 'watch' ? `觀戰${MODE.kind === 'horde' ? '（王牌 vs 雜魚）' : MODE.kind === 'skirmish' ? '（雜魚 vs 雜魚）' : ''}・第 ${MODE.round} 場` : '試玩場', [
+  showPanel('暫停', MODE.name === 'explore' ? `遠征・地圖 #${EX.map.seed}<br>${runSummary()}` : MODE.name === 'endless' ? `無盡模式・${mmss(EN.t)}・擊破 ${EN.kills}` : MODE.name === 'duel' ? `對戰・${DIFFS[MODE.duel.diffKey].name}` : MODE.name === 'watch' ? `觀戰${MODE.kind === 'horde' ? '（王牌 vs 雜魚）' : MODE.kind === 'skirmish' ? '（雜魚 vs 雜魚）' : MODE.kind === 'brains' ? '（AI 對打）' : ''}・第 ${MODE.round} 場` : '試玩場', [
     { label: '繼續', primary: true, run: () => { hidePanel(); G.paused = false; } },
     { label: MODE.name === 'watch' ? '下一場' : '重新開始', run: restart },
     ...(MODE.name === 'duel' ? [{ label: '換對手', run: openDuelSetup }] : []),
@@ -1117,6 +1147,7 @@ $('mWatchMenu').onclick = () => {
     { label: '電腦對電腦', desc: '隨機配裝・打完自動換下一場', primary: true, run: () => startWatch(true) },
     { label: '王牌 vs 雜魚', desc: '一台王牌機對上一批批空投的雜魚機（共 18 台）', run: () => startHorde(true) },
     { label: '雜魚 vs 雜魚', desc: '藍紅兩隊雜魚各 12 台，從兩側空投，先全滅的輸', run: () => startSkirmish(true) },
+    { label: 'AI 對打（alpha vs beta）', desc: '代理設計的兩台機體和大腦（tools/sim/entries）・每場交換左右・打完自動下一場', run: () => startBrainWatch(true) },
   ]);
 };
 $('mGarage').onclick = () => { unlockAudio(); sfx.click(); openGarageFrom('menu'); };
@@ -1543,7 +1574,7 @@ function step(t) {
   if (MODE.name === 'endless') updateEndlessHud();
   if (MODE.name === 'explore' && EX) { updateFog(raw, player.x, player.z); fogVisibility(dt); updateExploreHud(); updateMinimap(raw, player, enemies, EX.squads.filter(S => S.layer === EX.layer), EX); }
   if (watching) {
-    const one = MODE.kind === 'duel', blue = MODE.kind !== 'skirmish' ? enemies.find(e => e.team === 'blue') : null, red = one ? enemies.find(e => e.team === 'red') : null;
+    const one = MODE.kind === 'duel' || MODE.kind === 'brains', blue = MODE.kind !== 'skirmish' ? enemies.find(e => e.team === 'blue') : null, red = one ? enemies.find(e => e.team === 'red') : null;
     paintDoll($('dollB'), blue?.alive ? blue : null); paintDoll($('dollR'), red?.alive ? red : null);
     if (MODE.kind === 'skirmish' && MODE.sk) {
       for (const [side, team] of [['B', 'blue'], ['R', 'red']]) {
