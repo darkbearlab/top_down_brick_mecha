@@ -126,7 +126,8 @@ function buildLegs(lo, team, legsG, K) {
   const at = pelvis && pointOf(pelvis, 'legL');
   if (leg && at) for (const side of ['L', 'R']) {
     const [x, y, z] = pointOf(pelvis, 'leg' + side), g = new THREE.Group();
-    g.add(mk(leg.boxes, P, part.mat));
+    // 右腳 = 左腳左右鏡像（腳的方塊不一定置中，不鏡像的話兩隻腳會往同一邊偏）
+    g.add(mk(side === 'L' ? leg.boxes : leg.boxes.map(([bx, by, bz, w, h, d, k]) => [-bx - w, by, bz, w, h, d, k]), P, part.mat));
     g.position.set(x * V, y * V, z * V);
     part.g.add(g); swing.push(g);
   }
