@@ -21,7 +21,7 @@ const { ARENA_LAYOUT, resetBuildings, setLayout, updateBuildings } = await impor
 const { collideMechs, driveMech, mechs, removeMech } = await import('../../src/mech.js');
 const { clearShots, updateShots } = await import('../../src/weapons.js');
 const { AI, DIFFS, enemies, spawnEnemy, updateEnemy } = await import('../../src/ai.js');
-const { ELITES, ENEMY_PRESETS } = await import('../../src/parts.js');
+const { ARMORS, CORES, ELITES, ENEMY_PRESETS, HEADS, LEGS, WEAPONS } = await import('../../src/parts.js');
 const { updateStatus } = await import('../../src/status.js');
 const { clearWrecks, updateWrecks } = await import('../../src/wreck.js');
 const { updateParticles } = await import('../../src/fx.js');
@@ -37,7 +37,16 @@ const brainName = B => B?.name ?? 'default';
 
 const presetOf = s => {
   if (typeof s !== 'string') throw new Error('需要 --a 和 --b');
-  if (existsSync(s)) return JSON.parse(readFileSync(s, 'utf8'));
+  if (existsSync(s)) {
+    // 配裝檔：只能用整備裡選得到的零件（雜魚用的低階武器、菁英專用武器不行）；name 沒寫就用檔名
+    const L = JSON.parse(readFileSync(s, 'utf8'));
+    const bad = [];
+    if (!HEADS[L.head]) bad.push(`head ${L.head}`); if (!CORES[L.core]) bad.push(`core ${L.core}`); if (!LEGS[L.legs]) bad.push(`legs ${L.legs}`);
+    for (const k of ['armL', 'armR', 'backL', 'backR']) { const w = L[k]; if (w == null) continue; const W = WEAPONS[w]; if (!W || W.low || W.mount !== k.slice(0, -1)) bad.push(`${k} ${w}`); }
+    for (const k of ['head', 'torso', 'arms', 'legs']) if (!ARMORS[L.armor?.[k]]) bad.push(`armor.${k} ${L.armor?.[k]}`);
+    if (bad.length) throw new Error(`配裝檔 ${s} 不合法：${bad.join('、')}`);
+    return { ...L, name: L.name ?? s.split(/[\/]/).slice(-2).join('/'), chips: [], device: null };
+  }
   const P = [...ENEMY_PRESETS, ...ELITES].find(p => p.name === s);
   if (!P) throw new Error(`找不到機體「${s}」；可用：${[...ENEMY_PRESETS, ...ELITES].map(p => p.name).join('、')}`);
   return P;
