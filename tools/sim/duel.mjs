@@ -3,6 +3,7 @@
 // 用法（在專案根目錄）：
 //   node --import ./tools/sim/register.mjs tools/sim/duel.mjs --a 突擊型 --b 狙擊型 [--n 10] [--seed 1] [--diff hard] [--max 120] [--out tools/sim/out/xxx] [--quiet]
 //   --a / --b：機體名字（parts.js 的 ENEMY_PRESETS、ELITES），或配裝 JSON 檔的路徑
+//   --b squad:<小隊>[+<小隊>…]：B 方換成一群雜魚（parts.js 的 SQUADS，例如 squad:rush、squad:rush+ambush），用內建 AI；A 一對多，foe = 最近的那台
 //   --diff：雙方的電腦難度（easy / normal / hard；大腦也吃它的傷害 / 鎖定倍率）
 //   --brainA / --brainB：大腦（src/brains/ 裡的名字，或 .js 檔路徑）；沒給 = 遊戲內建的 AI（default）
 //   結果：每場一個 battle-N.jsonl（所有事件 + 每 0.25 秒的狀態）、summary.json（每場的整理 + 總結）
@@ -21,7 +22,7 @@ const { ARENA_LAYOUT, resetBuildings, setLayout, updateBuildings } = await impor
 const { collideMechs, driveMech, mechs, removeMech } = await import('../../src/mech.js');
 const { clearShots, updateShots } = await import('../../src/weapons.js');
 const { AI, DIFFS, enemies, spawnEnemy, updateEnemy } = await import('../../src/ai.js');
-const { ARMORS, CORES, ELITES, ENEMY_PRESETS, HEADS, LEGS, WEAPONS } = await import('../../src/parts.js');
+const { ARMORS, CORES, ELITES, ENEMY_PRESETS, GRUNTS, GRUNTS_LOW, HEADS, LEGS, SQUADS, WEAPONS, gruntOf } = await import('../../src/parts.js');
 const { updateStatus } = await import('../../src/status.js');
 const { clearWrecks, updateWrecks } = await import('../../src/wreck.js');
 const { updateParticles } = await import('../../src/fx.js');
@@ -51,7 +52,9 @@ const presetOf = s => {
   if (!P) throw new Error(`找不到機體「${s}」；可用：${[...ENEMY_PRESETS, ...ELITES].map(p => p.name).join('、')}`);
   return P;
 };
-const PA = presetOf(args.a), PB = presetOf(args.b);
+const PACK = typeof args.b === 'string' && args.b.startsWith('squad:') ? args.b.slice(6).split('+').flatMap(k => { if (!SQUADS[k]) throw new Error(`沒有小隊「${k}」；可用：${Object.keys(SQUADS).join('、')}`); return SQUADS[k].units; }) : null;
+const gruntDef = k => gruntOf(k);   // 跟遊戲一樣：裝甲每台隨機
+const PA = presetOf(args.a), PB = PACK ? { name: args.b } : presetOf(args.b);
 const diff = DIFFS[args.diff ?? 'hard'];
 // 可重現：每場用自己的種子取代 Math.random
 const mulberry = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
@@ -75,8 +78,14 @@ function battle(i) {
   AI.passive = false; AI.sandbox = false; AI.diff = diff;
   const dummy = { x: 26, z: 0, alive: true, team: 'none' };
   const a = spawnEnemy(dummy, PA, { x: -26, z: 0 }, { team: 'blue', diff, noDrop: true });
-  const b = spawnEnemy(dummy, PB, { x: 26, z: 0 }, { team: 'red', diff, noDrop: true });
-  a.foe = b; b.foe = a; a.side = 'A'; b.side = 'B';
+  let b, pack = [];
+  if (PACK) {
+    // 雜魚小隊：在右邊散開站，全部打 A
+    pack = PACK.map((k, j) => { const g = spawnEnemy(dummy, gruntDef(k), { x: 24 + (j % 2) * 3, z: (j - (PACK.length - 1) / 2) * 3 }, { team: 'red', diff, noDrop: true, grunt: true }); g.foe = a; g.side = 'B'; g.torsoYaw = g.legYaw = g.aimYaw = -Math.PI / 2; return g; });
+    b = pack[0];
+  } else b = spawnEnemy(dummy, PB, { x: 26, z: 0 }, { team: 'red', diff, noDrop: true });
+  a.foe = b; if (!PACK) b.foe = a; a.side = 'A'; b.side = 'B';
+  const reds = PACK ? pack : [b];
   if (BA) attachBrain(a, BA);
   if (BB) attachBrain(b, BB);
   a.torsoYaw = a.legYaw = a.aimYaw = Math.PI / 2; b.torsoYaw = b.legYaw = b.aimYaw = -Math.PI / 2;
@@ -84,7 +93,8 @@ function battle(i) {
   let t = 0, sampleT = 0, winner = null;
   while (t < MAX_T) {
     G.now += DT; t += DT; CL.t = t;
-    for (const e of [a, b]) {
+    if (PACK && a.alive) { let bd = Infinity; for (const g of reds) if (g.alive) { const d = Math.hypot(g.x - a.x, g.z - a.z); if (d < bd) { bd = d; a.foe = g; } } }
+    for (const e of [a, ...reds]) {
       if (!e.alive) continue;
       updateEnemy(e, DT, e.foe);
       if (e.alive && !e.drop) driveMech(e, DT, e.drive.mx, e.drive.mz, e.aimYaw);
@@ -97,23 +107,24 @@ function battle(i) {
     updateParticles(DT);
     if ((sampleT += DT) >= SAMPLE) {
       sampleT -= SAMPLE;
-      const dist = r2(Math.hypot(a.x - b.x, a.z - b.z));
-      log('state', { dt: SAMPLE, mechs: [a, b].map(m => ({ m: m.id, x: r2(m.x), z: r2(m.z), yaw: r2(m.torsoYaw), v: r2(Math.hypot(m.vx, m.vz)), e: Math.round(m.energy), hp: parts(m), ammo: ammo(m), dist, alive: m.alive })) });
+      const dist = r2(Math.hypot(a.x - a.foe.x, a.z - a.foe.z));
+      log('state', { dt: SAMPLE, mechs: [a, ...reds].filter(m => m.alive || m === a).map(m => ({ m: m.id, x: r2(m.x), z: r2(m.z), yaw: r2(m.torsoYaw), v: r2(Math.hypot(m.vx, m.vz)), e: Math.round(m.energy), hp: parts(m), ammo: ammo(m), dist, alive: m.alive })) });
     }
-    if (!a.alive || !b.alive) { winner = a.alive ? 'A' : b.alive ? 'B' : null; break; }
+    const redAlive = reds.some(m => m.alive);
+    if (!a.alive || !redAlive) { winner = a.alive ? 'A' : redAlive ? 'B' : null; break; }
   }
   // 時間到：比剩下的耐久比例
   let timeout = false;
-  if (a.alive && b.alive) {
+  if (a.alive && reds.some(m => m.alive)) {
     timeout = true;
     const k = m => Object.values(m.parts).reduce((s, p) => s + p.hp / p.max, 0) / Object.keys(m.parts).length;
-    const ka = k(a), kb = k(b);
+    const live = reds.filter(m => m.alive), ka = k(a), kb = live.reduce((s, m) => s + k(m), 0) / reds.length;
     winner = Math.abs(ka - kb) < 0.03 ? null : ka > kb ? 'A' : 'B';
   }
   const events = logStop();
   writeFileSync(join(out, `battle-${i}.jsonl`), events.map(e => JSON.stringify(e)).join('\n'));
   return summarize(events, { battle: i, seed: SEED * 7919 + i, time: r2(t), winner, timeout, diff: args.diff ?? 'hard',
-    mechs: [{ id: a.id, side: 'A', name: PA.name, brain: brainName(BA) }, { id: b.id, side: 'B', name: PB.name, brain: brainName(BB) }] });
+    mechs: [{ id: a.id, side: 'A', name: PA.name, brain: brainName(BA) }, ...reds.map(m => ({ id: m.id, side: 'B', name: PACK ? m.preset.name : PB.name, brain: PACK ? 'default' : brainName(BB) }))] });
 }
 
 const t0 = Date.now(), list = [];
