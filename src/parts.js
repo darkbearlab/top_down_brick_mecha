@@ -289,8 +289,8 @@ export const ELITES = [
       leg: [[-1, -6, -1, 2, 6, 2, 'f'], [-1, -9, -1, 3, 3, 3, 'a'], [-1, -15, -1, 2, 6, 2, 'f'], [-2, -16, -2, 4, 1, 6, 'f'], [-2, -16, 3, 4, 1, 1, 't']],
     },
     cores: { torso: { box: [-3, 3, -2, 6, 5, 5], crit: true } } },
-  { name: '肥甲砲車', faction: 'base', elite: { scale: 1.5, hpMul: 1.6, vmax: 2.6, acc: 5, boost: 0, turn: 0.9, legTurn: 1.0 },
-    note: '非常肥厚、履帶、不能推進、轉身很慢；兩手火箭莢艙彈藥很多但亂灑。背後油箱是核心：繞到後面剝開一擊打爆（正面硬打也打得死，只是久）',
+  { name: '要塞砲車', faction: 'base', elite: { scale: 1.5, hpMul: 1.6, vmax: 2.6, acc: 5, boost: 0, turn: 0.6, legTurn: 1.0, fortress: true },
+    note: '要塞防衛用（一張地圖頂多一台）。非常肥厚、履帶、不能推進、轉身非常慢；兩手火箭莢艙彈藥很多但亂灑。背後油箱是核心：繞到後面剝開一擊打爆（正面硬打也打得死，只是久）',
     head: 'dome', core: 'heavy', legs: 'tread', armL: 'rocket_arm', armR: 'rocket_arm', backL: null, backR: null,
     armor: { head: 'composite', torso: 'composite', arms: 'composite', legs: 'ceramic' },
     body: {
@@ -304,6 +304,14 @@ export const ELITES = [
     // 背後的油箱（殼 = 原本的油箱）；gate：耐久 85% 以下就可能露出（背面是它的弱點，不用先磨很久）
     cores: { torso: { box: [-4, 4, -10, 8, 5, 3], crit: true, gate: 0.85 } } },
 ];
+// 巡邏砲車：要塞砲車的輕量版（同一個外型縮小）：耐久接近一般機體、轉得快一點、彈藥少一點；核心一樣在背後
+WEAPONS.rocket_arm_l = { ...WEAPONS.rocket_arm, ammo: 120, interval: 1.35 };
+ELITES.push({ ...ELITES[1], name: '巡邏砲車',
+  elite: { scale: 1.25, hpMul: 0.95, vmax: 3.6, acc: 7, boost: 0, turn: 1.5, legTurn: 1.8 },
+  note: '要塞砲車的輕量版：耐久接近一般機體、轉得快一點、不能推進；兩手火箭莢艙亂灑。背後油箱核心，繞背一擊打爆',
+  armL: 'rocket_arm_l', armR: 'rocket_arm_l',
+  armor: { head: 'composite', torso: 'composite', arms: 'composite', legs: 'composite' } });
+
 
 // 隨機組一台（觀戰用）：至少兩把武器，總重盡量不超過腳的負重
 const pickOf = obj => { const k = Object.keys(obj); return k[Math.floor(Math.random() * k.length)]; };
