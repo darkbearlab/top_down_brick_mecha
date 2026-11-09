@@ -384,71 +384,80 @@ setStatusHooks({
 // ---------- 外觀磨損：耐久掉多少，表面的方塊就被打掉多少 ----------
 // 部位耐久每少 1%，就打掉那個部位表面 WEAR_MAX% 的方塊（打滿 = 剩一口氣時缺了 WEAR_MAX 那麼多）；優先打朝向攻擊方向那一面
 // 打掉的方塊往外彈、落地留在地上（fx.js chipDebris → 碎片堆）；旁邊再挑一顆壓暗當焦痕。修回來就照比例補回去（最後打掉的先補）
+// 方塊是實心的：打掉外層露出裡面那層（比較暗），所以是一層一層挖下去
 // 雜魚只有一條血（軀幹）：整台的方塊一起算；蟲子是另外做的模型，不磨損
 const WEAR_MAX = 0.32, WEAR_FX_MAX = 6, SCAR_K = 0.55;
 // 有核心的部位：殼可以剝掉更多（CORE_WEAR）；殼的某一面被打掉 CORE_OPEN 以上 = 那一面的核心露出來
-const CORE_WEAR = 0.72, CORE_OPEN = 0.45, CORE_HP = 0.6;   // 而且耐久要掉到 CORE_HP 以下才算露出（殼本身也有厚度）
+const CORE_WEAR = 0.72, CORE_OPEN = 0.7, CORE_HP = 0.3;   // 而且耐久要掉到 CORE_HP 以下才算露出（殼本身也有厚度）
 const FACES = ['x+', 'x-', 'z+', 'z-', 'y+', 'y-'];
-const wM = new THREE.Matrix4(), wV = new THREE.Vector3(), wC = new THREE.Color(), ZERO = new THREE.Matrix4().makeScale(0, 0, 0);
+const wV = new THREE.Vector3();
+// 候選：每個方塊身體（src/voxbody.js）裡深度 ≤ 2（有核心的部位 ≤ 3）的方塊；要「現在露在外面」才打得掉 → 一層一層往裡挖
+// 數量照一開始露在外面的方塊數算（surf），跟解析度無關
 function wearPool(m, p) {
   if (p.wear) return p.wear;
   const groups = m.grunt ? Object.values(m.parts).map(q => q.g) : [p.g];
-  const vox = [];
-  for (const g of groups) g.traverse(o => { if (o.isInstancedMesh && o.userData.voxels && !o.userData.core) o.userData.voxels.forEach((v, i) => vox.push({ o, i, v })); });
-  p.wear = { vox, gone: [], scar: [], tot: {}, open: {}, anyOpen: false };
+  const bodies = [], cb = [], ci = [];
+  let surf = 0;
+  const maxD = p.core ? 3 : 2;
+  for (const g of groups) g.traverse(o => {
+    const b = o.userData.vb;
+    if (!b || o.userData.core) return;
+    const k = bodies.push({ o, b }) - 1;
+    for (let i = 0; i < b.n; i++) { const d = b.depth[i]; if (d && d <= maxD) { cb.push(k); ci.push(i); if (d === 1) surf++; } }
+  });
+  const W = p.wear = { bodies, cb: Int32Array.from(cb), ci: Int32Array.from(ci), cf: new Int8Array(cb.length).fill(-1), surf, gone: [], scar: [], tot: {}, open: {}, anyOpen: false };
   // 核心的殼：每顆方塊算是哪一面（離核心中心最遠的那一軸）
   const C = p.core;
   if (C) {
-    for (const f of FACES) { p.wear.tot[f] = 0; p.wear.open[f] = 0; }
-    for (const e of vox) {
-      const rx = (e.v.x - C.c[0]) / C.half[0], ry = (e.v.y - C.c[1]) / C.half[1], rz = (e.v.z - C.c[2]) / C.half[2];
-      if (Math.max(Math.abs(rx), Math.abs(ry), Math.abs(rz)) > 1.01) continue;
+    for (const f of FACES) { W.tot[f] = 0; W.open[f] = 0; }
+    for (let k = 0; k < W.cb.length; k++) {
+      bodies[W.cb[k]].b.pos(W.ci[k], wV);
+      const rx = (wV.x - C.c[0]) / C.half[0], ry = (wV.y - C.c[1]) / C.half[1], rz = (wV.z - C.c[2]) / C.half[2];
       const ax = Math.abs(rx), ay = Math.abs(ry), az = Math.abs(rz);
-      e.face = ax >= ay && ax >= az ? (rx > 0 ? 'x+' : 'x-') : az >= ay ? (rz > 0 ? 'z+' : 'z-') : (ry > 0 ? 'y+' : 'y-');
-      p.wear.tot[e.face]++;
+      if (Math.max(ax, ay, az) > 1.01) continue;
+      const f = ax >= ay && ax >= az ? (rx > 0 ? 0 : 1) : az >= ay ? (rz > 0 ? 2 : 3) : (ry > 0 ? 4 : 5);
+      W.cf[k] = f; W.tot[FACES[f]]++;
     }
   }
-  return p.wear;
+  return W;
 }
 // quiet：不噴碎片（剛生出來 / 重組時照耐久直接套上去）
 export function syncWear(m, name, dx = 0, dz = 0, quiet = false) {
   if (m.bug || m.swarm) return;
   const p = m.parts[name];
   if (!p?.g || p.broken && name !== 'legs') return;
-  const W = wearPool(m, p);
-  if (!W.vox.length) return;
-  const want = Math.floor(W.vox.length * (p.core ? CORE_WEAR : WEAR_MAX) * Math.max(0, 1 - p.hp / p.max));
-  const dirty = new Set();
+  const W = wearPool(m, p), NC = W.cb.length;
+  if (!NC) return;
+  const want = Math.floor(W.surf * (p.core ? CORE_WEAR : WEAR_MAX) * Math.max(0, 1 - p.hp / p.max));
   let fx = 0;
-  // 被打：挑幾顆候選，選最朝向攻擊者的那顆打掉
-  for (let tries = 0; W.gone.length < want && tries < 400; tries++) {
-    let best = null, bs = Infinity;
-    for (let k = 0; k < 6; k++) {
-      const c = W.vox[Math.floor(Math.random() * W.vox.length)];
-      if (c.v.gone || c.o.parent && !c.o.parent.visible) continue;
-      wV.set(c.v.x, c.v.y, c.v.z).applyMatrix4(c.o.matrixWorld);
+  // 被打：挑幾顆露在外面的候選，選最朝向攻擊者的那顆打掉
+  for (let tries = 0; W.gone.length < want && tries < 600; tries++) {
+    let best = -1, bs = Infinity, bx = 0, by = 0, bz = 0;
+    for (let k = 0; k < 16; k++) {   // 細方塊很多：多抽幾顆才夠偏向打過來的那一面
+      const c = Math.floor(Math.random() * NC), B = W.bodies[W.cb[c]], i = W.ci[c];
+      if (B.b.gone[i] || B.o.parent && !B.o.parent.visible || !B.b.exposed(i)) continue;
+      B.b.pos(i, wV).applyMatrix4(B.o.matrixWorld);
       const sc = (dx || dz) ? (wV.x - m.x) * dx + (wV.z - m.z) * dz : Math.random();
-      if (sc < bs) { bs = sc; best = { c, x: wV.x, y: wV.y, z: wV.z }; }
+      if (sc < bs) { bs = sc; best = c; bx = wV.x; by = wV.y; bz = wV.z; }
     }
-    if (!best) continue;
-    const { c } = best;
-    c.v.gone = true; c.o.setMatrixAt(c.i, ZERO); dirty.add(c.o);
-    W.gone.push(c);
-    if (c.face) W.open[c.face]++;
-    if (!quiet && fx++ < WEAR_FX_MAX) chipDebris(best.x, best.y, best.z, c.v.c, -dx * 0.7, -dz * 0.7);   // 往打過來的那一側彈
+    if (best < 0) continue;
+    const B = W.bodies[W.cb[best]], i = W.ci[best];
+    B.b.hide(i);
+    W.gone.push(best);
+    if (W.cf[best] >= 0) W.open[FACES[W.cf[best]]]++;
+    if (!quiet && fx++ < WEAR_FX_MAX) chipDebris(bx, by, bz, B.b.hex[i], -dx * 0.7, -dz * 0.7);   // 往打過來的那一側彈
     // 旁邊的一顆壓暗（焦痕）
-    const s = W.vox[Math.floor(Math.random() * W.vox.length)];
-    if (!s.v.gone && !s.scar) { s.scar = true; s.o.setColorAt(s.i, wC.setHex(s.v.c).multiplyScalar(SCAR_K)); dirty.add(s.o); W.scar.push(s); }
+    const s = Math.floor(Math.random() * NC), S = W.bodies[W.cb[s]].b, si = W.ci[s];
+    if (!S.gone[si] && !S.scarred[si]) { S.scar(si); W.scar.push(s); }
   }
   // 修好：照比例補回去，焦痕也一起淡掉
   while (W.gone.length > want) {
     const c = W.gone.pop();
-    if (c.face) W.open[c.face]--;
-    c.v.gone = false; c.o.setMatrixAt(c.i, wM.makeTranslation(c.v.x, c.v.y, c.v.z)); dirty.add(c.o);
+    if (W.cf[c] >= 0) W.open[FACES[W.cf[c]]]--;
+    W.bodies[W.cb[c]].b.show(W.ci[c]);
     const s = W.scar.pop();
-    if (s) { s.scar = false; s.o.setColorAt(s.i, wC.setHex(s.v.c)); dirty.add(s.o); }
+    if (s != null) W.bodies[W.cb[s]].b.scar(W.ci[s], false);
   }
-  for (const o of dirty) { o.instanceMatrix.needsUpdate = true; if (o.instanceColor) o.instanceColor.needsUpdate = true; }
   // 核心剛露出來：噴一下火花提示
   if (p.core) {
     const any = p.hp <= p.max * (p.core.gate ?? CORE_HP) && FACES.some(f => W.tot[f] && W.open[f] / W.tot[f] >= CORE_OPEN);

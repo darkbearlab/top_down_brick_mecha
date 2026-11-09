@@ -25,15 +25,20 @@ export function startWarp(root) {
   root.updateMatrixWorld(true);
   const vox = [];
   root.traverse(o => {
-    if (o.isInstancedMesh && o.userData.voxels) {
+    if (o.userData.vb) {
+      // 機體的方塊身體（src/voxbody.js）：每一顆都要收（裡面的也要，不然掃過去會露出內層）
       if (!shown(o, root)) return;
-      o.userData.voxels.forEach((v, i) => { v3.set(v.x, v.y, v.z).applyMatrix4(o.matrixWorld); vox.push({ o, i, x: v3.x, y: v3.y, z: v3.z, c: v.c }); });
+      const b = o.userData.vb;
+      for (let i = 0; i < b.n; i++) if (!b.gone[i]) { b.pos(i, v3).applyMatrix4(o.matrixWorld); vox.push({ o, b, i, x: v3.x, y: v3.y, z: v3.z, c: b.hex[i], fx: b.depth[i] === 1 }); }
+    } else if (o.isInstancedMesh && o.userData.voxels) {
+      if (!shown(o, root)) return;
+      o.userData.voxels.forEach((v, i) => { v3.set(v.x, v.y, v.z).applyMatrix4(o.matrixWorld); vox.push({ o, i, x: v3.x, y: v3.y, z: v3.z, c: v.c, fx: true }); });
     } else if (o.isMesh) o.visible = false;   // 腳下的圈、推進器的火之類：直接收掉
   });
   vox.sort((a, b) => b.y - a.y);
   const top = vox.length ? vox[0].y : 2, bot = vox.length ? vox[vox.length - 1].y : 0;
   const pos = root.getWorldPosition(new THREE.Vector3());
-  W = { t: 0, vox, n: 0, top: top + 0.05, bot: bot - 0.05, p: Math.min(1, CUBES / Math.max(1, vox.length)), x: pos.x, z: pos.z };
+  W = { t: 0, vox, n: 0, top: top + 0.05, bot: bot - 0.05, p: Math.min(1, CUBES / Math.max(1, vox.filter(v => v.fx).length)), x: pos.x, z: pos.z };
   ring.position.set(W.x, W.top, W.z); ring.visible = true; ring.scale.setScalar(1);
 }
 export const warpActive = () => !!W;
@@ -45,8 +50,8 @@ export function updateWarp(dt) {
     const touched = new Set();
     while (W.n < W.vox.length && W.vox[W.n].y > line) {
       const v = W.vox[W.n++];
-      v.o.setMatrixAt(v.i, ZERO); touched.add(v.o);
-      if (Math.random() < W.p && cubes.length < MAX) {
+      if (v.b) v.b.hide(v.i); else { v.o.setMatrixAt(v.i, ZERO); touched.add(v.o); }
+      if (v.fx && Math.random() < W.p && cubes.length < MAX) {
         const a = Math.random() * Math.PI * 2, s = 0.5 + Math.random();
         cubes.push({ x: v.x, y: v.y, z: v.z, vx: Math.cos(a) * s, vy: 0.5 + Math.random() * 1.5, vz: Math.sin(a) * s,
           t: 0, life: 0.9 + Math.random() * 0.6, s: 0.1 + Math.random() * 0.09, c: new THREE.Color(v.c), r: Math.random() * 3, vr: (Math.random() - 0.5) * 10 });

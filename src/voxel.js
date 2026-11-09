@@ -71,11 +71,13 @@ export function buildVoxelMesh(set, material, palette = {}, anchor = { x: 'none'
 
 // 從一個物件底下所有方塊網格隨機取 n 顆的世界座標（爆開用）
 const tmp = new THREE.Vector3();
+// 支援兩種：舊的 InstancedMesh（userData.voxels）和機體的方塊身體（userData.vb，src/voxbody.js：優先挑露在外面的）
 export function sampleVoxels(root, n) {
   root.updateMatrixWorld(true);
-  const all = [];
+  const all = [], bodies = [];
   root.traverse(o => {
-    if (o.isInstancedMesh && o.userData.voxels) for (const v of o.userData.voxels) if (!v.gone) all.push([o, v]);   // gone：已經被打掉（mech.js syncChips）
+    if (o.isInstancedMesh && o.userData.voxels) for (const v of o.userData.voxels) if (!v.gone) all.push([o, v]);   // gone：已經被打掉
+    if (o.userData.vb && o.visible) bodies.push(o);
   });
   const out = [];
   for (let i = 0; i < n && all.length; i++) {
@@ -84,6 +86,17 @@ export function sampleVoxels(root, n) {
     all[j] = all[all.length - 1]; all.pop();
     tmp.set(v.x, v.y, v.z).applyMatrix4(o.matrixWorld);
     out.push({ x: tmp.x, y: tmp.y, z: tmp.z, c: v.c });
+  }
+  if (bodies.length) {
+    const tot = bodies.reduce((a, o) => a + o.userData.vb.n, 0);
+    for (let k = 0, tries = 0; k < n && tries < n * 6; tries++) {
+      let r = Math.floor(Math.random() * tot), o = bodies[0];
+      for (const b of bodies) { if (r < b.userData.vb.n) { o = b; break; } r -= b.userData.vb.n; }
+      const b = o.userData.vb;
+      if (b.gone[r] || (b.depth[r] !== 1 && tries < n * 4)) continue;
+      b.pos(r, tmp).applyMatrix4(o.matrixWorld);
+      out.push({ x: tmp.x, y: tmp.y, z: tmp.z, c: b.hex[r] }); k++;
+    }
   }
   return out;
 }

@@ -273,7 +273,7 @@ export const ENEMY_PRESETS = [
 // 介於雜魚和王牌之間：完整的部位破壞、體型比較大、武器少而專一；elite 欄位蓋掉零件算出來的數值
 //   scale 體型、hpMul 耐久倍率、vmax / acc 走路、boost 推進倍率（越大噴越遠）、stagger 失衡門檻、jumpy = 電腦比較常推進換位置
 //   body：自訂外型（torso / head / arm / leg / hip 的方塊，取代零件原本的模型；掛點位置還是照 core 的零件）
-//   cores：有核心的部位 { box: [x, y, z, w, h, d] 核心本體（外面自動包一層 1 格厚的殼）, crit: 打爆 = 整台擊毀, gate: 耐久掉到多少以下才可能露出（預設 0.6） }
+//   cores：有核心的部位 { box: [x, y, z, w, h, d] 核心本體（外面自動包一層 1 格厚的殼）, crit: 打爆 = 整台擊毀, gate: 耐久掉到多少以下才可能露出（預設 0.3） }
 //   turn / legTurn：上半身 / 腳的轉速
 export const ELITES = [
   { name: '骷髏砲手', faction: 'base', elite: { scale: 1.4, hpMul: 1.5, vmax: 3.0, acc: 7, boost: 2.5, stagger: 95, jumpy: true },
@@ -301,8 +301,8 @@ export const ELITES = [
       treads: [[-14, 0, -11, 6, 9, 22, 'a'], [8, 0, -11, 6, 9, 22, 'a'], [-14, 0, -12, 6, 7, 1, 'f'], [8, 0, -12, 6, 7, 1, 'f'], [-14, 0, 11, 6, 7, 1, 'f'], [8, 0, 11, 6, 7, 1, 'f'],
         [-8, 5, -7, 16, 7, 14, 'f'], [-15, 3, -8, 1, 3, 16, 't'], [14, 3, -8, 1, 3, 16, 't']],
     },
-    // 背後的油箱（殼 = 原本的油箱）；gate：耐久 85% 以下就可能露出（背面是它的弱點，不用先磨很久）
-    cores: { torso: { box: [-4, 4, -10, 8, 5, 3], crit: true, gate: 0.85 } } },
+    // 背後的油箱（殼 = 原本的油箱）；gate：耐久 38% 以下就可能露出（背面是它的弱點，比預設的 30% 早）
+    cores: { torso: { box: [-4, 4, -10, 8, 5, 3], crit: true, gate: 0.38 } } },
 ];
 // 巡邏砲車：要塞砲車的輕量版（同一個外型縮小）：耐久接近一般機體、轉得快一點、彈藥少一點；核心一樣在背後
 WEAPONS.rocket_arm_l = { ...WEAPONS.rocket_arm, ammo: 120, interval: 1.35 };

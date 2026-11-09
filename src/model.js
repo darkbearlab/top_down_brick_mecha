@@ -2,24 +2,21 @@
 // 顏色：a = 該部位的裝甲色（複合深灰、陶瓷白、鏡面淡藍反光）、f = 骨架、t = 隊伍色、g = 隊伍發光色、w = 武器屬性色
 // 每個部位一個群組、一個材質（受傷閃白、壞掉燒黑各自處理）
 import * as THREE from 'three';
-import { VoxelSet, buildVoxelMesh } from './voxel.js';
+import { voxelBody } from './voxbody.js';
 import { addMat } from './core.js';
 import { ARMORS, CORES, DMG_TYPES, HEADS, LEGS, WEAPONS } from './parts.js';
 
 export const V = 1 / 16;
 const FRAME = 0x2c323c;
 
-function voxSet(boxes, pal) {
-  const s = new VoxelSet();
-  for (const [x, y, z, w, h, d, k] of boxes) s.box(x, y, z, w, h, d, pal[k] ?? k);
-  return s;
-}
-function partGroup(boxes, pal, parent, armor) {
-  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff });
+// 方塊清單（設計單位 1/16、顏色用色盤 key）→ 只畫看得到的面的方塊身體（實際每格切成 2×2×2，src/voxbody.js）
+const mk = (boxes, pal, mat, carve = []) => voxelBody(boxes.map(([x, y, z, w, h, d, k]) => [x, y, z, w, h, d, pal[k] ?? k]), V, mat, carve);
+function partGroup(boxes, pal, parent, armor, carve = []) {
+  const mat = new THREE.MeshLambertMaterial({ color: 0xffffff, vertexColors: true });
   const base = ARMORS[armor]?.sheen ? 0x1a2838 : 0x000000;   // 鏡面裝甲微微發亮
   mat.emissive.setHex(base);
   const g = new THREE.Group();
-  if (boxes.length) g.add(buildVoxelMesh(voxSet(boxes, pal), mat));
+  if (boxes.length) g.add(mk(boxes, pal, mat, carve));
   parent.add(g);
   return { g, mat, base };
 }
@@ -27,14 +24,13 @@ function partGroup(boxes, pal, parent, armor) {
 const mix = (a, b, k) => k ? new THREE.Color(a).lerp(new THREE.Color(b), k).getHex() : a;
 const pal = (armor, team, wtype) => ({ a: mix(ARMORS[armor].hex, team.accent, team.tint ?? 0), f: mix(FRAME, team.accent, (team.tint ?? 0) * 0.35), t: team.accent, g: team.glow, w: wtype ? DMG_TYPES[wtype].hex : team.accent });
 
-// 核心（菁英）：部位裡面一團發光的方塊，外面包一層 1 格厚的殼（殼在部位的方塊裡，表面被打掉就露出核心）
+// 核心（菁英）：部位裡面一團發光的方塊，外面包一層殼（設計單位 1 格厚 = 細方塊 2 層；殼裡面核心的位置挖空，殼被打穿就露出核心）
 // 用 MeshBasic + 超過 1 的顏色 → 泛光會讓它發亮；userData.core = 不算磨損、不算殼
 const CORE_C = new THREE.Color(2.6, 0.75, 0.28);
 export const shellBox = ([x, y, z, w, h, d]) => [x - 1, y - 1, z - 1, w + 2, h + 2, d + 2, 'a'];
 function addCore(part, [x, y, z, w, h, d], crit, gate) {
-  const mat = new THREE.MeshBasicMaterial({ color: CORE_C.clone() });
-  const s = new VoxelSet(); s.box(x, y, z, w, h, d, 0xffffff);
-  const mesh = buildVoxelMesh(s, mat);
+  const mat = new THREE.MeshBasicMaterial({ color: CORE_C.clone(), vertexColors: true });
+  const mesh = voxelBody([[x, y, z, w, h, d, 0xffffff]], V, mat);
   mesh.castShadow = false; mesh.userData.core = true;
   part.g.add(mesh);
   // 殼的範圍（群組本地座標）：拿來判斷被打掉的方塊在哪一面
@@ -47,12 +43,12 @@ function buildLegs(lo, team, legsG) {
   const part = partGroup([], P, legsG, lo.armor.legs);
   const swing = [];
   const B = lo.body;
-  if (B?.treads) { part.g.add(buildVoxelMesh(voxSet(B.treads, P), part.mat)); return { part, swing }; }   // 自訂履帶（不擺動）
+  if (B?.treads) { part.g.add(mk(B.treads, P, part.mat)); return { part, swing }; }   // 自訂履帶（不擺動）
   if (B?.leg) {
-    part.g.add(buildVoxelMesh(voxSet(B.hip ?? [], P), part.mat));
+    part.g.add(mk(B.hip ?? [], P, part.mat));
     for (const s of [-1, 1]) {
       const g = new THREE.Group();
-      g.add(buildVoxelMesh(voxSet(B.leg, P), part.mat));
+      g.add(mk(B.leg, P, part.mat));
       g.position.set(s * 0.22, L.hipY, 0);
       part.g.add(g); swing.push(g);
     }
@@ -60,27 +56,27 @@ function buildLegs(lo, team, legsG) {
   }
   const addLeg = (s, boxes) => {
     const g = new THREE.Group();
-    g.add(buildVoxelMesh(voxSet(boxes, P), part.mat));
+    g.add(mk(boxes, P, part.mat));
     g.position.set(s, L.hipY, 0);
     part.g.add(g);
     swing.push(g);
   };
   if (L.type === 'biped') {
-    part.g.add(buildVoxelMesh(voxSet([[-5, hy - 2, -2, 10, 3, 5, 'f']], P), part.mat));
+    part.g.add(mk([[-5, hy - 2, -2, 10, 3, 5, 'f']], P, part.mat));
     for (const s of [-1, 1]) addLeg(s * 0.28, [[-1, -7, -2, 3, 7, 4, 'f'], [-2, -9, 0, 4, 3, 3, 'a'], [-2, -14, -2, 4, 6, 4, 'a'], [-1, -15, -1, 2, 1, 2, 'f'], [-2, -16, -3, 4, 2, 8, 'f'], [-2, -16, 4, 4, 1, 1, 't']]);
   } else if (L.type === 'reverse') {
-    part.g.add(buildVoxelMesh(voxSet([[-5, hy - 2, -2, 10, 3, 5, 'f']], P), part.mat));
+    part.g.add(mk([[-5, hy - 2, -2, 10, 3, 5, 'f']], P, part.mat));
     for (const s of [-1, 1]) addLeg(s * 0.3, [[-1, -6, 0, 3, 6, 4, 'a'], [-1, -8, 2, 3, 2, 3, 'f'], [-1, -13, -3, 3, 6, 3, 'a'], [-2, -17, -2, 4, 3, 8, 'f'], [-1, -14, -4, 2, 2, 1, 't']]);
   } else if (L.type === 'tread') {
-    part.g.add(buildVoxelMesh(voxSet([
+    part.g.add(mk([
       [-5, 7, -4, 10, 6, 8, 'f'], [-11, 0, -10, 5, 8, 20, 'a'], [6, 0, -10, 5, 8, 20, 'a'],
       [-11, 0, -11, 5, 6, 1, 'f'], [6, 0, -11, 5, 6, 1, 'f'], [-11, 0, 10, 5, 6, 1, 'f'], [6, 0, 10, 5, 6, 1, 'f'],
-      [-12, 2, -6, 1, 3, 12, 't'], [11, 2, -6, 1, 3, 12, 't']], P), part.mat));
+      [-12, 2, -6, 1, 3, 12, 't'], [11, 2, -6, 1, 3, 12, 't']], P, part.mat));
   } else {
     // 懸浮：一圈裙甲，底下發光
-    part.g.add(buildVoxelMesh(voxSet([
+    part.g.add(mk([
       [-4, 9, -3, 8, 5, 6, 'f'], [-9, 4, -9, 18, 4, 18, 'a'], [-7, 2, -7, 14, 2, 14, 'f'],
-      [-8, 1, -8, 16, 1, 1, 'g'], [-8, 1, 7, 16, 1, 1, 'g'], [-8, 1, -7, 1, 1, 14, 'g'], [7, 1, -7, 1, 1, 14, 'g'], [-2, 8, 9, 4, 2, 1, 't']], P), part.mat));
+      [-8, 1, -8, 16, 1, 1, 'g'], [-8, 1, 7, 16, 1, 1, 'g'], [-8, 1, -7, 1, 1, 14, 'g'], [7, 1, -7, 1, 1, 14, 'g'], [-2, 8, 9, 4, 2, 1, 't']], P, part.mat));
   }
   return { part, swing };
 }
@@ -107,8 +103,9 @@ export function buildMechModel(lo, team) {
   const parts = { legs: legs.part };
   const B = lo.body, CO = lo.cores ?? {};
   const shell = k => CO[k] ? [shellBox(CO[k].box)] : [];
-  parts.torso = partGroup([...shell('torso'), ...(B?.torso ?? C.model)], pal(lo.armor.torso, team), torsoG, lo.armor.torso);
-  parts.head = partGroup([...shell('head'), ...(B?.head ?? H.model)], pal(lo.armor.head, team), torsoG, lo.armor.head);
+  const carve = k => CO[k] ? [CO[k].box] : [];
+  parts.torso = partGroup([...shell('torso'), ...(B?.torso ?? C.model)], pal(lo.armor.torso, team), torsoG, lo.armor.torso, carve('torso'));
+  parts.head = partGroup([...shell('head'), ...(B?.head ?? H.model)], pal(lo.armor.head, team), torsoG, lo.armor.head, carve('head'));
   for (const k of ['torso', 'head']) if (CO[k]) addCore(parts[k], CO[k].box, !!CO[k].crit, CO[k].gate);
   parts.head.g.position.y = C.top * V;
   const weapons = {}, muzzles = {};

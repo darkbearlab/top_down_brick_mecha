@@ -5,6 +5,7 @@
 //     移軸：只有四個角落糊（畫面正上下左右都清楚，不干擾看敵人）　暗角：四個角落稍微壓暗　調色：飽和度稍微拉高、暗部帶一點冷色
 import * as THREE from 'three';
 import { renderer } from './core.js';
+import { flushVoxBodies } from './voxbody.js';
 
 const KEY = 'brickmecha.diorama';
 let on = !/[?&]flat\b/.test(location.search);
@@ -84,6 +85,7 @@ export function setDiorama(v) {
 }
 // 取代 renderer.render(scene, camera)
 export function renderFrame(scene, camera) {
+  flushVoxBodies();   // 這一幀被打掉 / 補回的機體方塊：重建網格
   renderer.getDrawingBufferSize(size);
   if (rt.width !== size.x || rt.height !== size.y) {
     rt.setSize(size.x, size.y);
