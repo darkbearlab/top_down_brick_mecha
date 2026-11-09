@@ -23,6 +23,7 @@ import { smokeBlocks } from './tech.js';
 import { UNIT_BOX } from './core.js';
 import { applyStatus, burnLockK } from './status.js';
 import { bugStrike, setupBug, updateBug } from './bugs.js';
+import { att } from './combatlog.js';
 
 export const enemies = [];
 // 難度：dmg 敵機傷害倍率、hp 耐久倍率、rest 射擊間隔倍率、err 瞄準晃動（弧度）、dodge 會不會噴開閃避、lock 鎖定時間倍率
@@ -140,7 +141,7 @@ function updateDrop(e, dt, player) {
   if (player.alive && d < e.r + player.r + 0.3) {
     const nx = (player.x - e.x) / (d || 1), nz = (player.z - e.z) / (d || 1);
     player.vx += nx * 10; player.vz += nz * 10;
-    damagePart(player, 'torso', 35, nx, nz);
+    att(e, 'landing', () => damagePart(player, 'torso', 35, nx, nz));
   }
   return false;
 }
@@ -181,14 +182,14 @@ export function updateEnemy(e, dt, player) {
   if (ML && (A.bite = (A.bite ?? 0) - dt) <= 0 && player.alive && e.staggerT <= 0 && dist < e.r + player.r + ML.reach) {
     A.bite = ML.cd * (0.85 + Math.random() * 0.3);
     bugStrike(e);
-    const r = hitMech(player, ML.dmg * (e.dmgMul ?? 1), nx, nz, ML.kb, 'kinetic', null, ML.dmg);
+    const r = att(e, 'bite', () => hitMech(player, ML.dmg * (e.dmgMul ?? 1), nx, nz, ML.kb, 'kinetic', null, ML.dmg));
     sparks(player.x - nx * player.r, 1, player.z - nz * player.r, 0xffc070, 6, -nx, -nz);
     sfx.hit();
     if (r && player.alive && Math.random() < ML.corrode) applyStatus(player, 'corrode', { part: r.part });
   }
   if (e.swarm && player.alive && dist < 2.3 && (A.bite = (A.bite ?? 0) - dt) <= 0) {
     A.bite = 0.3;
-    hitMech(player, 6 * (e.dmgMul ?? 1), nx, nz, 0.15, 'kinetic', null, 6);
+    att(e, 'swarm', () => hitMech(player, 6 * (e.dmgMul ?? 1), nx, nz, 0.15, 'kinetic', null, 6));
     sparks(player.x, 1, player.z, 0xff5030, 3, -nx, -nz);
   }
 
@@ -470,7 +471,7 @@ function bomberBlast(e, k) {
     const dx = m.x - x, dz = m.z - z, d = Math.hypot(dx, dz);
     if (d > R + m.r) continue;
     const dmg = 95 * k * (1 - 0.6 * Math.max(0, d - m.r) / R) * (m.team === e.team ? 1 : e.dmgMul ?? 1);
-    hitMech(m, dmg, dx / (d || 1), dz / (d || 1), 7, 'chemical', 'torso', dmg, true);
+    att(e, 'bomb', () => hitMech(m, dmg, dx / (d || 1), dz / (d || 1), 7, 'chemical', 'torso', dmg, true));
   }
 }
 
@@ -513,7 +514,7 @@ function updateCharger(e, dt, player, dist, nx, nz, los) {
   if (tileAt(tileC(ax), tileR(az)) === 'v') { startFall(e, C.dx, C.dz); return true; }
   if (player.alive && Math.hypot(player.x - e.x, player.z - e.z) < e.r + player.r + 0.4) {
     const dmg = 70 * (e.dmgMul ?? 1);
-    hitMech(player, dmg, C.dx, C.dz, 14, 'kinetic', 'torso', 70);
+    att(e, 'ram', () => hitMech(player, dmg, C.dx, C.dz, 14, 'kinetic', 'torso', 70));
     stagger(player, 999, C.dx, C.dz);
     sfx.crash(); addTrauma(0.6);
     e.vx *= 0.2; e.vz *= 0.2;

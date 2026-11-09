@@ -134,6 +134,7 @@ WEAPONS.howitzer = { name: '榴彈砲', type: 'chemical', mount: 'back', weight:
 // 手臂火箭莢艙（菁英專用）：火箭莢艙裝在手上，一次 3 發、彈藥很多，但散布很大（亂灑一片）
 WEAPONS.rocket_arm = { ...WEAPONS.rocket, name: '火箭莢艙', mount: 'arm', low: true, weight: 6, interval: 1.15, ammo: 210, dmg: 40, spread: 0.24,
   model: [[-3, -3, -2, 7, 7, 9, 'f'], [-2, -2, 7, 1, 1, 1, 'w'], [0, -2, 7, 1, 1, 1, 'w'], [2, -2, 7, 1, 1, 1, 'w'], [-2, 0, 7, 1, 1, 1, 'w'], [0, 0, 7, 1, 1, 1, 'w'], [2, 0, 7, 1, 1, 1, 'w'], [-2, 2, 7, 1, 1, 1, 'w'], [0, 2, 7, 1, 1, 1, 'w'], [2, 2, 7, 1, 1, 1, 'w'], [-3, 4, 0, 7, 1, 5, 'a']], muzzle: [0.5, 0.5, 8] };
+for (const k in WEAPONS) WEAPONS[k].id = k;   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
 export const HP_MUL = 1.35;
 
 // ---------- 敵人的主題（派系） ----------

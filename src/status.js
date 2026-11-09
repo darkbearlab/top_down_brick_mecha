@@ -6,6 +6,7 @@
 import * as THREE from 'three';
 import { G } from './core.js';
 import { RAMP, smoke, spawnGlow } from './fx.js';
+import { att } from './combatlog.js';
 
 const hooks = { damage: null, cookOff: null };
 export function setStatusHooks(h) { Object.assign(hooks, h); }
@@ -34,7 +35,7 @@ const CORRODE_TICK = 0.25;
 export const STATUS = {
   corrode: {
     dur: 5, max: CORRODE_MAX, tick: CORRODE_TICK,
-    onTick(m, s) { hooks.damage?.(m, s.part ?? 'torso', CORRODE_DPS * s.stacks * CORRODE_TICK, 'chemical'); },
+    onTick(m, s) { att(null, 'corrode', () => hooks.damage?.(m, s.part ?? 'torso', CORRODE_DPS * s.stacks * CORRODE_TICK, 'chemical')); },
     fx(m, s, dt) {
       const p = m.parts[s.part ?? 'torso'];
       if (!p) return;
@@ -58,7 +59,7 @@ export const STATUS = {
   burn: {
     dur: BURN_DUR, max: BURN_MAX, tick: BURN_TICK,
     onTick(m, s) {
-      hooks.damage?.(m, s.part ?? 'torso', BURN_DPS * s.stacks * BURN_TICK, 'chemical');
+      att(null, 'burn', () => hooks.damage?.(m, s.part ?? 'torso', BURN_DPS * s.stacks * BURN_TICK, 'chemical'));
       // 背部武器殉爆
       if ((s.part === 'backL' || s.part === 'backR') && Math.random() < 0.03 * s.stacks * BURN_TICK) hooks.cookOff?.(m, s.part);
     },

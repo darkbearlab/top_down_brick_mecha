@@ -26,6 +26,7 @@ import { DMG_TYPES, SLOTS, WEAPONS } from './parts.js';
 import { sfx } from './audio.js';
 import { chipDmgK, chipRateK, chipSpreadK, empOff } from './tech.js';
 import { applyStatus, burnSpreadK } from './status.js';
+import { att, log } from './combatlog.js';
 
 export const ENEMY_SPEED = 0.55;
 export function makeGuns(lo) {
@@ -62,6 +63,7 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
     // 飛彈 / 火箭一次好幾發，剩不夠就只射剩下的
     const n = Math.min(d.salvo ?? 1, gun.ammo);
     fire(m, slot, d, locks, aim, n);
+    log('fire', { m: m.id, slot, w: d.id, n });
     gun.ammo -= n;
     if (gun.ammo <= 0 && m.team === 'player') sfx.reload();
   }
@@ -128,7 +130,7 @@ function spawnShot(m, d, x, y, z, dx, dz, speed) {
   const len = beam ? 1.1 : d === WEAPONS.sniper ? 1.6 : (d.size ?? 0.1) * (enemy ? 2.5 : 6);
   const g = shotMesh(color, d.size ?? 0.1, len);
   g.position.set(x, y, z); g.rotation.y = Math.atan2(dx, dz);
-  shots.push({ kind: 'bullet', g, owner: m, team: m.team, x, y, z, dx, dz, speed, life: d.life * d.speed / speed, dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: d.kb, type: d.type, trail: d.trail, heavy: d.heavy, splash: d.splash });
+  shots.push({ kind: 'bullet', g, wid: d.id, owner: m, team: m.team, x, y, z, dx, dz, speed, life: d.life * d.speed / speed, dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: d.kb, type: d.type, trail: d.trail, heavy: d.heavy, splash: d.splash });
 }
 function spawnMissile(m, d, x, y, z, v, target, point) {
   const g = new THREE.Group();
@@ -139,7 +141,7 @@ function spawnMissile(m, d, x, y, z, v, target, point) {
   g.add(body, tip);
   g.position.set(x, y, z);
   scene.add(g);
-  shots.push({ kind: d.kind, g, owner: m, team: m.team, x, y, z, vx: v.vx, vy: v.vy, vz: v.vz, speed: Math.hypot(v.vx, v.vz) || 1, life: d.life, age: 0,
+  shots.push({ kind: d.kind, g, wid: d.id, owner: m, team: m.team, x, y, z, vx: v.vx, vy: v.vy, vz: v.vz, speed: Math.hypot(v.vx, v.vz) || 1, life: d.life, age: 0,
     dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: 1.2, type: d.type, target, point, d, splash: d.splash });
 }
 
@@ -167,7 +169,7 @@ function flameCone(m, d, mz, base, spreadK) {
     const ang = Math.atan2(ox, oz), da = Math.abs(Math.atan2(Math.sin(ang - base), Math.cos(ang - base)));
     if (da > arc + Math.atan2(o.r, dist)) continue;
     if (rayBlock(mz.x, mz.z, ox / dist, oz / dist, dist) < dist - o.r) continue;
-    const r = hitMech(o, dmg, ox / dist, oz / dist, d.kb, 'chemical', null, d.dmg, true);
+    const r = att(m, d.id, () => hitMech(o, dmg, ox / dist, oz / dist, d.kb, 'chemical', null, d.dmg, true));
     if (r && o.alive) applyStatus(o, 'burn', { part: r.part, stacks: d.burn });
   }
 }
@@ -190,7 +192,7 @@ function lobNapalm(m, d, mz, aim, f) {
   // 落點警示圈（榴彈砲）：地上一圈紅色，越接近落地越亮
   let mark = null;
   if (d.mark) { mark = new THREE.Mesh(ZONE_GEO, addMat(0xff3020, 0.12)); mark.rotation.x = -Math.PI / 2; mark.position.set(tx, 0.07, tz); mark.scale.setScalar(d.splash); scene.add(mark); }
-  shots.push({ kind: 'napalm', g, mark, t: 0, T, owner: m, team: m.team, x: mz.x, y: mz.y, z: mz.z, vx: (tx - mz.x) / T, vz: (tz - mz.z) / T,
+  shots.push({ kind: 'napalm', g, wid: d.id, mark, t: 0, T, owner: m, team: m.team, x: mz.x, y: mz.y, z: mz.z, vx: (tx - mz.x) / T, vz: (tz - mz.z) / T,
     vy: (0.2 - mz.y + 0.5 * LOB_G * T * T) / T, d, dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: 0.6, type: 'chemical', splash: d.splash });
   smoke(mz.x, mz.y, mz.z, 2, 0.7, 0x8a8c92);
   acid ? sfx.stow() : sfx.missile();
@@ -215,7 +217,7 @@ function acidSplash(s) {
     if (!o.alive || o.drop || o.team === s.team) continue;
     const dx = o.x - s.x, dz = o.z - s.z, dist = Math.hypot(dx, dz);
     if (dist > s.splash + o.r) continue;
-    hitMech(o, s.dmg * 0.5, dx / (dist || 1), dz / (dist || 1), 0.3, 'chemical', 'torso', s.dmg * 0.3, true);
+    att(s.owner, s.wid, () => hitMech(o, s.dmg * 0.5, dx / (dist || 1), dz / (dist || 1), 0.3, 'chemical', 'torso', s.dmg * 0.3, true));
     if (o.alive) applyStatus(o, 'corrode', { part: 'torso', stacks: 1 });
   }
 }
@@ -284,7 +286,7 @@ function updateSwing(m, dt) {
       if (dist > d.reach + o.r || Math.abs(da) > d.arc / 2 + 0.2) continue;
       s.done.add(o);
       const nx = ox / dist, nz = oz / dist;
-      const r = hitMech(o, d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), nx, nz, d.kb, 'energy', null, d.dmg);
+      const r = att(m, d.id, () => hitMech(o, d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), nx, nz, d.kb, 'energy', null, d.dmg));
       hitSparks(o.x - nx * o.r, 1.2, o.z - nz * o.r, -nx, -nz, 2.2, r && r.eff < 1);
       sparks(o.x - nx * o.r, 1.2, o.z - nz * o.r, 0x60e0ff, 14, nx, nz);
       sfx.saberHit();
@@ -346,7 +348,7 @@ function updatePulses(m, dt) {
     while (P.acc >= PULSE_TICK) {
       P.acc -= PULSE_TICK; P.n++;
       if (hit.o) {
-        const r = hitMech(hit.o, P.per, f.x, f.z, d.kb, 'energy', null, P.power);
+        const r = att(m, d.id, () => hitMech(hit.o, P.per, f.x, f.z, d.kb, 'energy', null, P.power));
         sparks(ex, mz.y, ez, 0x60e0ff, 3, -f.x, -f.z);
         if (P.n % 3 === 0) { hitSparks(ex, mz.y, ez, -f.x, -f.z, 0.7, r && r.eff < 1); r && r.eff < 1 ? sfx.armorHit() : sfx.hit(); }
       } else if (wall < d.range - 0.05) {
@@ -393,7 +395,7 @@ function updatePunch(m, dt) {
     if (o.grunt || !o.parts[part] || o.parts[part].broken) part = 'torso';
     let dmg = d.dmg * (m.dmgMul ?? 1) * chipDmgK(m);
     if (part === 'torso' && !o.grunt) { const a = Math.abs(angleDiff(o.torsoYaw, Math.atan2(-f.x, -f.z))); dmg *= a < 0.7 ? 0.6 : a < 2.27 ? 0.85 : 1.35; }
-    const r = hitMech(o, dmg, f.x, f.z, d.kb, 'kinetic', part, d.dmg);
+    const r = att(m, d.id, () => hitMech(o, dmg, f.x, f.z, d.kb, 'kinetic', part, d.dmg));
     const hx = mz.x + f.x * hit.t, hz = mz.z + f.z * hit.t;
     hitSparks(hx, mz.y, hz, -f.x, -f.z, 2.6, r && r.eff < 1);
     explosion(hx, mz.y, hz, 0.3);
@@ -413,7 +415,7 @@ function updatePunch(m, dt) {
 // ---------- 命中 ----------
 // 火花依剋制關係：被裝甲擋下 = 藍白、剋制 = 更多更大
 function impact(s, o, nx, nz, dmg, forced) {
-  const r = hitMech(o, dmg, nx, nz, s.kb, s.type, forced, s.power ?? dmg);
+  const r = att(s.owner, s.wid, () => hitMech(o, dmg, nx, nz, s.kb, s.type, forced, s.power ?? dmg));
   const p = (s.heavy ? 2 : 1) * (r && r.eff > 1 ? 1.4 : 1);
   hitSparks(s.x, s.y, s.z, -nx, -nz, p, r && r.eff < 1);
   if (s.type === 'energy') sparks(s.x, s.y, s.z, 0x60e0ff, 6, -nx, -nz);
@@ -434,7 +436,7 @@ function blast(s, x, y, z, direct) {
     const dx = o.x - x, dz = o.z - z, dist = Math.hypot(dx, dz);
     if (dist > s.splash + o.r) continue;
     const fall = shell ? 1 - 0.5 * Math.max(0, dist - o.r) / s.splash : 1;   // 砲彈爆風越外圈越弱；飛彈維持原樣
-    hitMech(o, s.dmg * 0.4 * fall, dx / (dist || 1), dz / (dist || 1), shell ? 3 : 0.6, s.type, 'torso', (s.power ?? s.dmg) * 0.4 * fall, true);
+    att(s.owner, s.wid, () => hitMech(o, s.dmg * 0.4 * fall, dx / (dist || 1), dz / (dist || 1), shell ? 3 : 0.6, s.type, 'torso', (s.power ?? s.dmg) * 0.4 * fall, true));
   }
 }
 

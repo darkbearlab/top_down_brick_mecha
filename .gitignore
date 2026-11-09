@@ -1,2 +1,4 @@
 .claude/settings.local.json
 __pycache__/
+tools/sim/node_modules/
+tools/sim/out/

@@ -18,6 +18,7 @@ import { CHIPS, DEVICES, hasChip } from './tech.js';
 import { collideWrecks, isWreck, startDying, startWreck } from './wreck.js';
 import { damageBuilding } from './buildings.js';
 import { burnLegK, clearStatus, corrodeK, hasStatus, reduceStatus, setStatusHooks } from './status.js';
+import { CL, att, log, srcOf } from './combatlog.js';
 
 export const PART_NAMES = { head: '頭部', torso: '軀幹', armL: '左臂', armR: '右臂', backL: '左背', backR: '右背', legs: '腳部' };
 const ARMOR_OF = { head: 'head', torso: 'torso', armL: 'arms', armR: 'arms', backL: 'torso', backR: 'torso', legs: 'legs' };
@@ -35,6 +36,7 @@ export const mechs = [];
 // grunt：雜魚機（{ hp }）：整台一條血、不能推進、體型 GRUNT_SCALE、不是主力機（壞了直接炸散）
 export const GRUNT_SCALE = 0.8;
 const TEAM_RING = new THREE.RingGeometry(0.95, 1.2, 28);
+let MECH_ID = 0;
 export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, hpMul = 1, ace = true, grunt = null }) {
   const spec = computeSpec(loadout);
   if (grunt) spec.hp.torso = grunt.hp;
@@ -78,6 +80,7 @@ export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, h
     shield: shieldSlot ? { slot: shieldSlot, hp: WEAPONS[loadout[shieldSlot]].guard * (grunt ? 0.7 : 1) * hpMul, max: WEAPONS[loadout[shieldSlot]].guard * (grunt ? 0.7 : 1) * hpMul, armor: loadout.armor.arms } : null,
   };
   if (m.chips.includes('lockPlus')) spec.head = { ...spec.head, lockCount: spec.head.lockCount + 1, lockArc: Math.round(spec.head.lockArc * 0.6) };   // 鎖定擴充
+  m.id = ++MECH_ID;
   mechs.push(m);
   return m;
 }
@@ -117,6 +120,7 @@ export function toggleReady(m, side) {
   if (on && !canReady(m, side)) return false;
   m.ready[side] = on;
   m.deployT[side] = deployT(m);
+  log('ready', { m: m.id, side, back: on });
   if (m.team === 'player') on ? sfx.deploy() : sfx.stow();
   return true;
 }
@@ -159,6 +163,7 @@ export function tryBoost(m, mx, mz) {
   m.stuckT = 0;
   m.boostDir = d; m.boostK = k; m.boostT = BOOST_TIME; m.boostCd = BOOST_TIME + (hasChip(m, 'doubleBoost') ? 0.02 : BOOST_CD);
   m.energy -= BOOST_COST; m.energyT = ENERGY_DELAY;
+  log('boost', { m: m.id, dx: Math.round(d.x * 100) / 100, dz: Math.round(d.z * 100) / 100 });
   reduceStatus(m, 'burn', 1.5);   // 推進甩掉一些火
   sfx.boost();
   if (m.team === 'player') addTrauma(0.12);
@@ -190,6 +195,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
       if (C.phase === 'ignite') {
         const f = facing(m);
         Object.assign(C, { phase: 'dash', t: C.d.dashT, dx: f.x, dz: f.z, v: C.d.speed });
+        log('charge', { m: m.id, phase: 'dash' });
         sfx.boost(); sfx.cannon();
         for (let i = 0; i < 10; i++) flame(m.x - f.x * 0.5, m.model.hipY + 0.5, m.z - f.z * 0.5, -f.x * 2 + (Math.random() - 0.5), -f.z * 2 + (Math.random() - 0.5));
         smoke(m.x - f.x * 0.6, 0.4, m.z - f.z * 0.6, 4, 1.2, 0x9a9ca2);
@@ -256,7 +262,8 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
     const C2 = m.charge, dmg = Math.min(C2.d.dmgMax, C2.v * C2.d.dmgK);
     m.charge = null;
     // 拿騎槍的那隻手扛下撞擊（那隻手已經沒了就算軀幹）
-    hitMech(m, dmg, hit.nx, hit.nz, 0, 'kinetic', m.parts[C2.slot] && !m.parts[C2.slot].broken ? C2.slot : 'torso', dmg);
+    log('charge', { m: m.id, phase: 'wall', dmg: Math.round(dmg) });
+    att(m, 'lance', () => hitMech(m, dmg, hit.nx, hit.nz, 0, 'kinetic', m.parts[C2.slot] && !m.parts[C2.slot].broken ? C2.slot : 'torso', dmg));
     damageBuilding(m.x - hit.nx * (m.r + 0.05), 1, m.z - hit.nz * (m.r + 0.05), dmg * 1.5, -hit.nx, -hit.nz);
     hitSparks(m.x - hit.nx * m.r, 1, m.z - hit.nz * m.r, hit.nx, hit.nz, 2.4);
     burst(m.x - hit.nx * m.r, 0.8, m.z - hit.nz * m.r, [0x7a8090, 0x4a505c], 6, 3.5);
@@ -299,7 +306,8 @@ function lanceHit(m) {
     if (dist > m.r + o.r + 0.45 || ox * C.dx + oz * C.dz < 0) continue;
     const closing = Math.max(0, C.v - (o.vx * C.dx + o.vz * C.dz));
     const dmg = Math.min(d.dmgMax, closing * d.dmgK) * (m.dmgMul ?? 1);
-    hitMech(o, dmg, C.dx, C.dz, d.kb, 'kinetic', null, closing * d.dmgK);
+    log('charge', { m: m.id, phase: 'hit', tgt: o.id, speed: Math.round(closing * 10) / 10 });
+    att(m, 'lance', () => hitMech(o, dmg, C.dx, C.dz, d.kb, 'kinetic', null, closing * d.dmgK));
     const hx = m.x + C.dx * (m.r + 0.3), hz = m.z + C.dz * (m.r + 0.3);
     hitSparks(hx, 1.1, hz, -C.dx, -C.dz, 3);
     explosion(hx, 1.1, hz, 0.35);
@@ -328,8 +336,7 @@ function skidDust(m) {
 
 function crash(m, over, nx, nz) {
   const dmg = over * 6;
-  damagePart(m, 'legs', dmg * 0.6, nx, nz);
-  if (m.alive) damagePart(m, 'torso', dmg * 0.4, nx, nz);
+  att(null, 'crash', () => { damagePart(m, 'legs', dmg * 0.6, nx, nz); if (m.alive) damagePart(m, 'torso', dmg * 0.4, nx, nz); });
   hitSparks(m.x - nx * m.r, 1, m.z - nz * m.r, nx, nz, 1.2 + over * 0.15);
   damageBuilding(m.x - nx * (m.r + 0.05), 1, m.z - nz * (m.r + 0.05), over * 30, -nx, -nz);   // 衝撞建築：撞得夠快會撞垮
   burst(m.x - nx * m.r, 0.8, m.z - nz * m.r, [0x7a8090, 0x4a505c], 4, 3);
@@ -366,7 +373,7 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null,
   // 護盾發生器：正面 ±70° 的子彈 / 光束整個擋下（爆風擋不住）
   if (m.eshield && G.now < m.eshield.until && !splash) {
     const f = facing(m);
-    if (-dx * f.x - dz * f.z > 0.34) { m.vx += dx * kb * 0.3; m.vz += dz * kb * 0.3; return { part: 'torso', eff: 0.3, shield: true }; }
+    if (-dx * f.x - dz * f.z > 0.34) { m.vx += dx * kb * 0.3; m.vz += dz * kb * 0.3; if (CL.on) log('hit', { tgt: m.id, ...srcOf(), part: 'eshield', raw: Math.round(dmg), eff: 0, eshield: true }); return { part: 'torso', eff: 0.3, shield: true }; }
   }
   // 盾牌：從盾那一側前方來的攻擊先打在盾上
   const Sh = m.shield;
@@ -377,6 +384,7 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null,
     if (-dx * cx - dz * cz > 0.2) {
       const eff = EFFECT[type][Sh.armor] ?? 1, take = dmg * eff * (splash ? 0.5 : 1);
       Sh.hp -= take;
+      if (CL.on) log('hit', { tgt: m.id, ...srcOf(), part: 'shield', raw: Math.round(dmg), eff, shield: true, amt: Math.round(take) });
       m.parts[Sh.slot].flash = 0.07;
       m.vx += dx * kb * 0.5; m.vz += dz * kb * 0.5;
       if (Sh.hp <= 0) breakShield(m, dx, dz);
@@ -399,7 +407,7 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null,
   if (!m.grunt) {
     if (!forced && part !== 'torso' && m.parts.torso.core && !m.parts.torso.broken && coreOpen(m, 'torso', fromX, fromZ) && Math.random() < 0.6) part = 'torso';
     const P = m.parts[part];
-    if (P.core && !P.broken && coreOpen(m, part, fromX, fromZ)) { m.vx += dx * kb; m.vz += dz * kb; coreBreak(m, part, dx, dz); return { part, eff: 2, core: true }; }
+    if (P.core && !P.broken && coreOpen(m, part, fromX, fromZ)) { m.vx += dx * kb; m.vz += dz * kb; if (CL.on) log('hit', { tgt: m.id, ...srcOf(), part, raw: Math.round(dmg), eff: 2, dir, core: true }); coreBreak(m, part, dx, dz); return { part, eff: 2, core: true }; }
   }
   const mul = part === 'torso' && !forced && !m.grunt ? TORSO_MUL[dir] : 1;
   const eff = EFFECT[type][m.parts[part].armor] ?? 1;
@@ -407,6 +415,7 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null,
   // 反應裝甲：每個部位每 8 秒，第一次被打中傷害減半
   let rk = 1;
   if (hasChip(m, 'reactive') && (m.parts[part].reactT ?? 0) <= G.now) { rk = 0.5; m.parts[part].reactT = G.now + 8; }
+  if (CL.on) log('hit', { tgt: m.id, ...srcOf(), part, raw: Math.round(dmg * 10) / 10, eff, dir });
   damagePart(m, part, dmg * mul * eff * rk * corrodeK(m, part), dx, dz);   // 被腐蝕的部位吃更多傷害（status.js）
   if (m.alive && power >= (m.spec.legs.stagger ?? Infinity)) stagger(m, power, dx, dz);
   return { part, eff };
@@ -421,6 +430,7 @@ export function stagger(m, dmg, dx, dz) {
   if (m.staggerT > 0 || m.staggerImm > 0 || hasChip(m, 'lowCG')) return;   // 低重心：不會失衡
   const th = m.spec.legs.stagger, over = Math.min(1, dmg / th - 1);
   m.staggerT = m.staggerMax = 0.35 + 0.25 * over;
+  log('stagger', { m: m.id, power: Math.round(dmg) });
   m.stagDir = { x: dx, z: dz };
   m.boostT = 0;
   m.lockBreak = true;   // 鎖定進度歸零（玩家：sensors；電腦：ai.lockT）
@@ -563,12 +573,14 @@ export function damagePart(m, name, dmg, dx = 0, dz = 0) {
   if (!m.alive || !p) return;
   p.flash = 0.07;
   if (p.broken && name !== 'torso') return;
+  if (CL.on) log('dmg', { tgt: m.id, part: name, amt: Math.round(Math.min(dmg, p.hp) * 10) / 10, ...srcOf() });
   p.hp -= dmg;
   if (p.hp > 0) { syncWear(m, name, dx, dz); return; }
   p.hp = 0;
-  if (name === 'torso') { destroyMech(m, dx, dz); return; }
+  if (name === 'torso') { if (CL.on) log('kill', { tgt: m.id, ...srcOf() }); destroyMech(m, dx, dz); return; }
   if (p.broken) return;
   p.broken = true;
+  if (CL.on) log('break', { tgt: m.id, part: name, ...srcOf() });
   breakPart(m, name, dx, dz);
 }
 
