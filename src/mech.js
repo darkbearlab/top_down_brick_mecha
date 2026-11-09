@@ -42,7 +42,7 @@ export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, h
   const E = loadout.elite;
   if (E) {
     for (const p in spec.hp) spec.hp[p] *= E.hpMul ?? 1;
-    if (E.vmax) spec.vmax = E.vmax; if (E.acc) spec.acc = E.acc; if (E.boost) spec.boost = E.boost;
+    if (E.vmax) spec.vmax = E.vmax; if (E.acc) spec.acc = E.acc; if (E.boost != null) spec.boost = E.boost;   // boost 0 = 不能推進
     if (E.stagger) spec.legs = { ...spec.legs, stagger: E.stagger };
     spec.regen = 1; spec.backOver = false;   // 肩炮很重但不拖慢能量回復（推進要常用）
   }
@@ -150,7 +150,7 @@ export function boostDirOf(m, mx, mz) {
 }
 export const boostKOf = m => m.spec.boost * (m.parts.legs.broken ? 0.75 : 1) * (hasChip(m, 'lowCG') ? 0.6 : 1);   // 低重心：推進短
 export function tryBoost(m, mx, mz) {
-  if (!m.alive || m.grunt || m.staggerT > 0 || m.boostCd > 0 || m.energy < BOOST_COST) return false;
+  if (!m.alive || m.grunt || !m.spec.boost || m.staggerT > 0 || m.boostCd > 0 || m.energy < BOOST_COST) return false;
   const d = boostDirOf(m, mx, mz), k = boostKOf(m);
   // 噴射只往一個方向：原本的速度只留沿著噴射方向的分量（往反方向跑的會被抵銷），橫向的全部吃掉
   const along = Math.max(0, m.vx * d.x + m.vz * d.z);

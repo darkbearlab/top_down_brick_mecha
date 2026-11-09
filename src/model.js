@@ -47,6 +47,7 @@ function buildLegs(lo, team, legsG) {
   const part = partGroup([], P, legsG, lo.armor.legs);
   const swing = [];
   const B = lo.body;
+  if (B?.treads) { part.g.add(buildVoxelMesh(voxSet(B.treads, P), part.mat)); return { part, swing }; }   // 自訂履帶（不擺動）
   if (B?.leg) {
     part.g.add(buildVoxelMesh(voxSet(B.hip ?? [], P), part.mat));
     for (const s of [-1, 1]) {
