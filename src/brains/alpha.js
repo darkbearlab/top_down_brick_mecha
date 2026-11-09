@@ -24,7 +24,7 @@ function flightT(w, d) {
   if (!w.speed) return 0;
   return d / (w.speed * (w.id === 'sniper' ? 0.5 : 0.55));
 }
-const P = { hold: 9.5, rush: 4.8, fireNear: 6.5, kite: 19.1, mTti: 0.22, kiteOn: false, pAlign: 0.07, pReserve: 20, shieldAware: false, flank: true };
+const P = { hold: 9.5, rush: 4.8, fireNear: 6.5, kite: 19.1, mTti: 0.22, kiteOn: false, pAlign: 0.07, pReserve: 20, shieldAware: false, flank: true, guard: 0.45, kiteR: 15 };
 // 自己的盾擋不擋得到從 (ux, uz) 方向飛來的東西（盾在那一側前方，偏 35°、左右約 78°）
 function shieldCovers(me, ux, uz) {
   const S = me.shield;
@@ -85,7 +85,7 @@ export default {
 
     // ---- 想站的距離 ----
     let want, mode;
-    const armRanges = ['armL', 'armR'].filter(ok).map(s => MELEE.has(W[s].kind) ? 2 : W[s].kind === 'pulse' ? 12 : W[s].range);
+    const armRanges = ['armL', 'armR'].filter(ok).map(s => MELEE.has(W[s].kind) ? 2 : W[s].kind === 'pulse' ? 20 : W[s].range);   // 脈衝 20 格 → 站 12 格（慢子彈有時間躲）
     // 對方靠追蹤飛彈（射程 / 鎖定 18 格）、我有脈衝（20 格）→ 站在 19 格外只用脈衝打，飛彈根本不會發射
     const myPulse = ['armL', 'armR'].some(s => ok(s) && W[s].kind === 'pulse');
     const foeHoming = Object.values(F).some(w => w && !w.broken && w.ammo > 0 && (w.kind === 'missile' || w.kind === 'vmissile' || w.kind === 'split'));
@@ -93,6 +93,8 @@ export default {
     if (P.kiteOn && myPulse && foeHoming && !foeStill) { want = P.kite; mode = '遠距'; tol = 0.45; }
     else if (foeStill && myRockets) { want = 4; mode = '趁失衡'; }
     else if (myRockets && myRktReady && (!foeBurstReady || !foeBurstAny)) { want = P.rush; mode = '衝'; }
+    // 我沒火箭、對方有火箭 / 加農砲：站遠一點（火箭飛久了就躲得掉），用脈衝 / 飛彈打
+    else if (!myRockets && foeBurstAny && P.kiteR) { want = P.kiteR; mode = '遠'; }
     else if (myRockets || foeBurstReady) { want = P.hold; mode = '等'; }
     else { want = armRanges.length ? Math.min(...armRanges) * 0.6 : 8; mode = '磨'; }
     if (foeMelee && !foeStill) want = Math.max(want, foeMelee + 2.5);
@@ -179,8 +181,15 @@ export default {
       : act.find(s => W[s].kind === 'rocket' && cdOf(s) < 0.3) ?? act.find(s => !MELEE.has(W[s].kind)) ?? act[0] ?? 'armR';
     const t = Math.min(1.2, flightT(W[mainS], dist));
     const tx = foe.x + (foeStill ? 0 : foe.vx * t), tz = foe.z + (foeStill ? 0 : foe.vz * t);
-    const aimYaw = Math.atan2(tx - me.x, tz - me.z);
-    const aligned = Math.abs(api.angleDiff(me.yaw, aimYaw));
+    let aimYaw = Math.atan2(tx - me.x, tz - me.z);
+    let aligned = Math.abs(api.angleDiff(me.yaw, aimYaw));
+    // 架盾：脈衝還沒好（冷卻 / 沒能量）、也沒在照射 → 上半身偏一點，讓對方落在盾的正中間（盾中心偏 35°）
+    const myShieldUp = !!me.shield && me.shield.hp > 30 && !me.hp[me.shield.slot]?.broken;
+    if (P.guard && myShieldUp && !me.beaming && !foeStill) {
+      const pw = pulseS && W[pulseS];
+      const pulseSoon = pw && cdOf(pulseS) < 0.25 && me.energy >= pw.energy + 5;
+      if (!pulseSoon) { aimYaw -= P.guard * (me.shield.slot === 'armL' ? 1 : -1); mem.guarding = true; } else mem.guarding = false;
+    } else mem.guarding = false;
 
     // ---- 開火 ----
     const fire = {};
@@ -196,7 +205,7 @@ export default {
         fire[side] = good && dist < 20 && aligned < 0.1;
         continue;
       }
-      if (w.kind === 'missile') { fire[side] = dist < w.range && (o.lock.locked || dist < 9) && aligned < 0.5; continue; }
+      if (w.kind === 'missile') { fire[side] = dist < w.range && (o.lock.locked || dist < 9) && aligned < 0.6; continue; }
       if (w.kind === 'pulse') { fire[side] = o.los && dist < w.range - 0.5 && aligned < P.pAlign && (me.energy >= w.energy + (me.energy > 70 ? 0 : P.pReserve) || foeStill); continue; }
       if (w.kind === 'lance') { fire[side] = dist > 4 && dist < w.range && aligned < 0.08 && api.clearAhead(dir.x, dir.z, dist) >= dist - 1; continue; }
       fire[side] = dist < w.range && aligned < (MELEE.has(w.kind) ? 0.35 : w.kind === 'missile' ? 0.6 : 0.12);

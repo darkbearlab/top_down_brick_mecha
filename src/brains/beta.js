@@ -95,8 +95,20 @@ export default {
     if ((mem.flip -= dt) <= 0) { mem.flip = 0.7 + Math.random() * 1.5; if (Math.random() < 0.5) mem.strafe *= -1; }
     // 橫移方向：撞牆或往牆角 → 換邊
     const tanClear = sg => api.clearAhead(-dir.z * sg, dir.x * sg, 3);
+    // 繞側：往對方沒拿盾的那一側繞（它的盾在左手 → 繞到它的右邊），我的子彈 / 光束就不會打在盾上
+    //   對方照射脈衝時上半身只剩 0.4 倍轉速：近距離橫移的角速度 > 它的轉速 → 光束追不上
+    const E2 = globalThis.process?.env ?? {}, FL = +(E2.FL ?? 0);
+    const foeSh = foe.shield && foe.shield.hp > 0 && !foe.hp[foe.shield.slot]?.broken;
+    if (FL && o.los && ((FL === 1 && foeSh) || (FL >= 2 && foe.beaming) || (FL === 3 && foeSh))) {
+      const fx = Math.sin(foe.yaw), fz = Math.cos(foe.yaw), sd = foeSh && foe.shield.slot === 'armR' ? -1 : 1;
+      // 對方的右邊 = (-fz, fx)；盾在右手就反過來
+      const rx = -fz * sd, rz = fx * sd;
+      mem.strafe = (-dir.z * rx + dir.x * rz) > 0 ? 1 : -1;
+      if (foe.beaming) mem.flip = Math.max(mem.flip, 0.3);
+    }
     if (tanClear(mem.strafe) < 2.5 && tanClear(-mem.strafe) > tanClear(mem.strafe)) mem.strafe *= -1;
     let radial = dist > want + 1.5 ? 1 : dist < want - 1 ? -1 : 0;
+    if (FL && foe.beaming && +(E2.BR ?? 0)) radial = dist > 5 ? 0.35 : 0;
     // 往後退的路被擋住 → 改成大幅橫移（繞出去）
     if (radial < 0 && api.clearAhead(-dir.x, -dir.z, 3) < 2.5) radial = -0.2;
     const sw = radial > 0 ? 0.7 : 1;
@@ -117,7 +129,32 @@ export default {
         mem.nav = best ?? { x: -dir.z * mem.strafe, z: dir.x * mem.strafe }; mem.navT = 0.4;
       }
       mx = mem.nav.x; mz = mem.nav.z;
-    } else mem.nav = null;
+    } else {
+      mem.nav = null;
+      // 看得到、但主武器（手臂在右邊 / 左邊偏一點）的射線被柱子擋住 → 往射線會通的方向挪一步
+      const fs = ['R', 'L'].map(sd => slotOf(me, sd)).find(sl => ok(W, sl) && W[sl].kind !== 'missile' && W[sl].kind !== 'vmissile');
+      if (fs && !o.lineClear[fs] && dist < 21 && +(globalThis.process?.env?.LC ?? 1)) {
+        if ((mem.lcT = (mem.lcT ?? 0) - dt) <= 0 || !mem.lc) {
+          const lx = fs === 'armR' || fs === 'backR' ? -0.7 : 0.7;
+          const clearFrom = (px, pz) => {
+            const yw = Math.atan2(foe.x - px, foe.z - pz), s = Math.sin(yw), c = Math.cos(yw);
+            const qx = px + lx * c + 1.4 * s, qz = pz - lx * s + 1.4 * c;
+            const d = Math.hypot(foe.x - qx, foe.z - qz) - foe.r;
+            return api.rayBlock(qx, qz, s, c, d) >= d;
+          };
+          let best = null, bs = -1e9;
+          for (let i = 0; i < 12; i++) {
+            const a = i / 12 * Math.PI * 2, ux = Math.sin(a), uz = Math.cos(a);
+            if (api.clearAhead(ux, uz, 1.8) < 1.8) continue;
+            const okc = clearFrom(me.x + ux * 1.6, me.z + uz * 1.6);
+            const sc = (okc ? 10 : 0) + (ux * mx + uz * mz) * 1.5;
+            if (sc > bs) { bs = sc; best = { x: ux, z: uz }; }
+          }
+          mem.lc = best; mem.lcT = 0.3;
+        }
+        if (mem.lc) { mx = mem.lc.x; mz = mem.lc.z; }
+      } else mem.lc = null;
+    }
     ({ mx, mz } = api.steer(mx, mz));
     // 保持速度：要轉向超過 ~100° 時（例如橫移換邊）先只轉 90°，不要整個倒車停下來
     //   （停下來 = 速度 < 2.5，對手會趁這時候打火箭；轉個彎也讓對手照速度預判的瞄準落空）
@@ -161,6 +198,12 @@ export default {
           else { const sg = (me.x - t.x) * t.uz - (me.z - t.z) * t.ux > 0 ? 1 : -1; boost = sideStep(t.ux, t.uz, -sg); }
         }
       }
+      // 對方脈衝在充能 / 照射、正對著我 → 橫推進甩開光束（光束轉不快）
+      if (!boost && +(E2.BB ?? 0) && foe.beaming && dist < +(E2.BBD ?? 14) && me.energy >= +(E2.BBE ?? 60)) {
+        const fx = Math.sin(foe.yaw), fz = Math.cos(foe.yaw);
+        const miss = Math.abs((me.x - foe.x) * fz - (me.z - foe.z) * fx);
+        if (miss < +(E2.BBM ?? 1.5) && (+(E2.BBS ?? 0) || !shieldCovers(me, -dir.x, -dir.z))) { const bx = -dir.z * mem.strafe, bz = dir.x * mem.strafe, L = api.boostLen(bx, bz); if (api.clearAhead(bx, bz, L) >= L * 0.85) boost = { x: bx, z: bz }; }
+      }
       // 近戰型貼太近：往後推
       if (!boost && threat && foe.weapons && dist < 3.5 && !foe.staggered && ranged) {
         const L = api.boostLen(-dir.x, -dir.z);
@@ -175,8 +218,15 @@ export default {
     const mainS = act.find(s => W[s].kind === 'pulse') ?? act.find(s => W[s].kind === 'rocket') ?? act.find(s => W[s].kind === 'bullet') ?? act[0] ?? 'armR';
     const tf = Math.min(1.2, flightT(W[mainS], dist));
     const tx = foe.x + (foeStill ? 0 : foe.vx * tf), tz = foe.z + (foeStill ? 0 : foe.vz * tf);
-    const aimYaw = Math.atan2(tx - me.x, tz - me.z);
+    let aimYaw = Math.atan2(tx - me.x, tz - me.z);
     const aligned = Math.abs(api.angleDiff(me.yaw, aimYaw));
+    // 架盾：脈衝還沒好、也沒在照射 → 上半身往沒盾那側偏一點，讓對方落在盾的正中間（盾中心偏 35°）
+    const GD = +(globalThis.process?.env?.GD ?? 0);
+    if (GD && me.shield && me.shield.hp > 0 && !me.hp[me.shield.slot]?.broken && !me.beaming) {
+      const ps = ['armL', 'armR'].find(sl => ok(W, sl) && W[sl].kind === 'pulse' && !me.ready[sl.slice(-1)]);
+      const pulseSoon = ps && (W[ps].cd ?? 0) < 0.25 && me.energy >= W[ps].energy + 20 && dist < W[ps].range;
+      if (!pulseSoon) aimYaw += me.shield.slot === 'armL' ? -GD : GD;
+    }
 
     // ---- 開火 ----
     const fire = {};
