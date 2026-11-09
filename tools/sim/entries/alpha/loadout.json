@@ -1,0 +1,2 @@
+{ "name": "alpha", "head": "std", "core": "std", "legs": "biped", "armL": "shotgun", "armR": "autocannon", "backL": "rocket", "backR": "rocket",
+  "armor": { "head": "composite", "torso": "ceramic", "arms": "ceramic", "legs": "composite" } }
