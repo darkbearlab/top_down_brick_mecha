@@ -6,7 +6,7 @@
 import * as THREE from 'three';
 import { voxelBody } from './voxbody.js';
 import { addMat } from './core.js';
-import { ARMORS, CORES, DMG_TYPES, ELITES, HEADS, LEGS, WEAPONS } from './parts.js';
+import { ARMORS, CORES, DMG_TYPES, ELITES, GRUNTS, GRUNTS_LOW, HEADS, LEGS, WEAPONS } from './parts.js';
 import { SHAPES } from './shapes.js';
 
 export const V = 1 / 16;
@@ -32,7 +32,8 @@ const LEG_SHAPES = {
     [-8, 1, -8, 16, 1, 1, 'g'], [-8, 1, 7, 16, 1, 1, 'g'], [-8, 1, -7, 1, 1, 14, 'g'], [7, 1, -7, 1, 1, 14, 'g'], [-2, 8, 9, 4, 2, 1, 't']] },
 };
 const corePoints = C => ({ head: [0, C.top, 0], armL: [C.halfW + 3, 0, 0], backL: [C.halfW - 2, C.top - 1, -6] });
-const eliteOf = name => ELITES.find(E => E.name === name);
+// 有自訂外型（body）的機體：菁英、雜魚（照名字找）
+const eliteOf = name => ELITES.find(E => E.name === name) ?? Object.values(GRUNTS).find(G => G.name === name && G.body) ?? Object.values(GRUNTS_LOW).find(G => G.name === name && G.body);
 // 原本的外型（設計單位）：{ boxes, points }；沒有這個零件 → null
 export function legacyShape(key) {
   const [kind, id, sub] = key.split(':');

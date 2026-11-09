@@ -8,6 +8,7 @@
 //   動能 → 鏡面（碎）   化學 → 複合（聚能穿透）   能量 → 陶瓷（受熱裂）
 //   反過來：複合擋動能、陶瓷擋化學、鏡面擋能量
 import { CHIPS, DEVICES, techWeight } from './tech.js';
+import { GRUNT_BODIES } from './gruntbodies.js';
 
 export const DMG_TYPES = {
   kinetic: { name: '動能', css: '#e8d070', hex: 0xe8d070 },
@@ -191,6 +192,8 @@ export const GRUNTS_LOW = {
   igniter: { name: '燒夷兵', faction: 'base', head: 'dome', core: 'std', legs: 'reverse', armL: null, armR: 'mg_l', backL: 'napalm_l', backR: null, hp: 85 },
   shielder: { name: '盾兵', faction: 'base', head: 'dome', core: 'std', legs: 'biped', armL: 'shield', armR: 'autocannon_l', backL: null, backR: null, hp: 120 },
 };
+// 雜魚的專屬外型（src/gruntbodies.js）：body 掛上去，model.js 照菁英那套蓋（elite:<名字>:<部位>）
+for (const [k, B] of Object.entries(GRUNT_BODIES)) { const G = GRUNTS[k] ?? GRUNTS_LOW[k]; if (G) G.body = B; }
 // ---------- 登場方式 ----------
 // stand = 一開始就站在地上（遠征小隊散開站著）；drop = 從天上空投（空投小隊、增援、追到別層、無盡 / 觀戰模式）
 // 雜魚定義裡 entries 列出牠能用哪幾種，沒寫 = ['stand', 'drop']（蟲群只能 stand → 不會出現在空投小隊和增援裡）
