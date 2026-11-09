@@ -27,6 +27,18 @@ function axisOffset(mode, min, max) {
   return 0;
 }
 
+// ---------- 每顆方塊的明暗：環境光遮蔽 + 顏色雜訊 ----------
+// 遮蔽：數周圍 26 格有幾格有方塊。平面上的方塊 = 17 格；凹進去的角落、縫隙更多 → 壓暗；凸出的邊角更少 → 稍微亮一點（像邊緣反光）
+// 雜訊：照座標雜湊，每顆亮度差一點點（同一個模型每次蓋出來都一樣）
+const AO_K = 0.07, AO_MIN = 0.55, AO_MAX = 1.12, NOISE = 0.13;
+const vhash = (x, y, z) => { let h = (x * 374761393 + y * 668265263 + z * 2147483647) | 0; h = (h ^ (h >> 13)) * 1274126177; return ((h ^ (h >> 16)) >>> 0) / 4294967296; };
+export function shadeOf(set, x, y, z) {
+  let occ = 0;
+  for (let i = -1; i <= 1; i++) for (let j = -1; j <= 1; j++) for (let k = -1; k <= 1; k++) if ((i || j || k) && set.has(x + i, y + j, z + k)) occ++;
+  const ao = Math.max(AO_MIN, Math.min(AO_MAX, 1 + (17 - occ) * AO_K));
+  return ao * (1 + (vhash(x, y, z) - 0.5) * NOISE);
+}
+
 // 只放外露的方塊（被六面包住的看不到，省效能）
 export function buildVoxelMesh(set, material, palette = {}, anchor = { x: 'none', y: 'none', z: 'none' }) {
   const all = [...set.map.values()];
@@ -47,8 +59,9 @@ export function buildVoxelMesh(set, material, palette = {}, anchor = { x: 'none'
     const hex = typeof c === 'number' ? c : (palette[c] ?? 0xff00ff);
     m.makeTranslation(px, py, pz);
     mesh.setMatrixAt(i, m);
-    mesh.setColorAt(i, col.setHex(hex));
-    voxels.push({ x: px, y: py, z: pz, c: hex });
+    col.setHex(hex).multiplyScalar(shadeOf(set, x, y, z));
+    mesh.setColorAt(i, col);
+    voxels.push({ x: px, y: py, z: pz, c: col.getHex() });   // c = 實際顯示的顏色（磨損的碎片、焦痕照這個）
   });
   mesh.castShadow = true;
   mesh.frustumCulled = false;     // 實例會偏離原點，預設的包圍球不準

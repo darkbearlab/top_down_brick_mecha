@@ -2,6 +2,7 @@ import * as THREE from 'three';
 import { sampleVoxels } from './voxel.js';
 import { DEBRIS_GEO, FLASH_GEO, UNIT_BOX, WALL_H, addMat, debrisMat, scene } from './core.js';
 import { fogMaterial, fogU } from './fog.js';
+import { clearLights, flashLight, updateLights } from './lights.js';
 
 // 粒子撞牆判定由場地模組注入（pitTest：那裡是空洞 → 碎片掉下去）
 let wallTest = () => false, pitTest = () => false;
@@ -38,6 +39,7 @@ export function setRubbleLayer(k, parent = scene, U = fogU) {
 export function clearRubble() {
   for (const P of rubblePools.values()) for (const o of [P.mesh, P.soot]) { o.parent?.remove(o); o.dispose(); o.material.dispose(); }
   rubblePools.clear(); rubble = null;
+  clearLights();
   for (const d of debris) scene.remove(d.m);
   debris.length = 0;
 }
@@ -284,6 +286,7 @@ export function smoke(x, y, z, n = 1, size = 1, color) {
 }
 // 爆炸：閃光 → 往外炸開的火球方塊（很快被空氣擋下來、慢慢上浮）→ 地面一圈塵 → 火星 → 晚一點冒出的黑煙柱
 export function explosion(x, y, z, scale = 1) {
+  flashLight(x, y + 0.4, z, 0xffa050, 70 * scale, 5 + 6 * scale, 0.35 + 0.35 * scale);   // 照亮周圍（src/lights.js）
   spawnGlow({ x, y, z, life: 0.12, s0: 1.4 * scale, s1: 2.2 * scale, ramp: RAMP.flash, vr: 0 });
   const n = Math.round(46 * scale);
   for (let i = 0; i < n; i++) {
@@ -308,10 +311,11 @@ export function explosion(x, y, z, scale = 1) {
 }
 // 持續燃燒的點（殘骸）：火勢隨時間變小
 const burners = [];
-export function burnAt(x, y, z, dur = 4, k = 1) { burners.push({ x, y, z, t: 0, dur, k, acc: 0 }); }
+export function burnAt(x, y, z, dur = 4, k = 1) { burners.push({ x, y, z, t: 0, dur, k, acc: 0 }); flashLight(x, y + 0.6, z, 0xff7a28, 22 * k, 5, dur, true); }
 
 export function muzzleFlash(x, y, z, color, size = 1) {
   spawnGlow({ x, y, z, life: 0.06, s0: 0.42 * size, s1: 0.2 * size, ramp: rampOf(color), vr: 0 });
+  flashLight(x, y, z, color, 9 * size, 3.5, 0.07);
 }
 // 推進器火焰
 export function flame(x, y, z, dx, dz) {
@@ -352,6 +356,7 @@ function stepList(list, dt, mesh, write) {
 }
 
 export function updateParticles(dt) {
+  updateLights(dt);
   for (let i = debris.length - 1; i >= 0; i--) {
     const d = debris[i];
     if (!d) continue;   // 這一幀中途換層 / 清場把清單清掉了

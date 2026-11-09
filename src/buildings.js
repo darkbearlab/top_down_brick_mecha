@@ -85,6 +85,9 @@ function build() {
       const ck = Math.floor(tc / CHUNK) + ',' + Math.floor(tr / CHUNK);
       if (!chunks.has(ck)) chunks.set(ck, { list: [], mesh: null, dirty: false, cdirty: false });
       const ch = chunks.get(ck);
+      // 明暗：貼地的幾排壓暗（地面的環境光遮蔽），每顆亮度差一點點（照座標雜湊，每次蓋都一樣）
+      const hh = Math.sin(gx * 12.9898 + gz * 78.233 + y * 37.719 + c0 * 3.1 + r0 * 7.7) * 43758.5453;
+      c = shade(c, (y === 0 ? 0.68 : y === 1 ? 0.82 : y === 2 ? 0.93 : 1) * (0.95 + (hh - Math.floor(hh)) * 0.1));
       const v = { x, y: yy, z, c, alive: true, t, ch, i: ch.list.length };
       t.vox.push(v);
       ch.list.push(v);
