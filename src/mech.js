@@ -251,11 +251,12 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   const dashing = m.charge?.phase === 'dash';
   if (dashing) lanceHit(m);
   const hit = collideBlocks(m, m.r, 0, !!m.fly);
-  // 騎槍衝刺撞牆 / 建築：撞敵機會給的那一下，全部吃在自己身上
+  // 騎槍衝刺撞牆 / 建築：撞敵機會給的那一下，全部吃在拿騎槍的那隻手上
   if (dashing && m.charge && hit.hit > 2) {
     const C2 = m.charge, dmg = Math.min(C2.d.dmgMax, C2.v * C2.d.dmgK);
     m.charge = null;
-    hitMech(m, dmg, hit.nx, hit.nz, 0, 'kinetic', null, dmg);
+    // 拿騎槍的那隻手扛下撞擊（那隻手已經沒了就算軀幹）
+    hitMech(m, dmg, hit.nx, hit.nz, 0, 'kinetic', m.parts[C2.slot] && !m.parts[C2.slot].broken ? C2.slot : 'torso', dmg);
     damageBuilding(m.x - hit.nx * (m.r + 0.05), 1, m.z - hit.nz * (m.r + 0.05), dmg * 1.5, -hit.nx, -hit.nz);
     hitSparks(m.x - hit.nx * m.r, 1, m.z - hit.nz * m.r, hit.nx, hit.nz, 2.4);
     burst(m.x - hit.nx * m.r, 0.8, m.z - hit.nz * m.r, [0x7a8090, 0x4a505c], 6, 3.5);

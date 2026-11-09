@@ -298,3 +298,5 @@ body.killcam::before, body.killcam::after { height: 9vh; transition: height .12s
 /* 小地圖的指北針：貼在框上、跟著鏡頭轉到北邊的位置 */
 #northMark { position: absolute; width: 14px; height: 16px; line-height: 16px; text-align: center; font: bold 11px sans-serif; color: #ff7060; background: #07080b; border: 1px solid rgba(255,112,96,.6); border-radius: 3px; pointer-events: none; z-index: 6; }
 #northMark.hidden { display: none; }
+/* 手把在選單裡的焦點 */
+.padfocus { outline: 2px solid #7ff0ff !important; outline-offset: 2px; box-shadow: 0 0 10px rgba(127,240,255,.55) !important; }

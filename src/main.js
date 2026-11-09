@@ -1,7 +1,7 @@
 import * as THREE from 'three';
 import { sfx, unlockAudio } from './audio.js';
 import { CAM_PITCH, G, addMat, angleDiff, camDist, camTarget, camera, hemi, renderer, scene, sun } from './core.js';
-import { clearPressed, input, updateInput } from './input.js';
+import { clearPressed, input, padUi, updateInput } from './input.js';
 import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayers, loadMap, mapId, randomOpenSpot, rayBlock, setLayer, tileC, tileR } from './arena.js';
 import { THEMES, rng } from './mapgen.js';
 import { TERRAINS, genStage, terrainOf } from './stagegen.js';
@@ -31,6 +31,7 @@ import { clearPickups, pickups, restorePickups, spawnPickup, stashPickups, updat
 import { sensors, setSensorsVisible, updateSensors } from './sensors.js';
 import { closeGarage, garage, openGarage } from './garage.js';
 import { forward, s2w, turning, view, w2s } from './camview.js';
+import { updatePadNav } from './padnav.js';
 
 const $ = id => document.getElementById(id);
 
@@ -1079,7 +1080,7 @@ function showResult(win) {
 }
 const HELP = `<div class="help">
 <b>操作</b>WASD 移動・滑鼠瞄準・左鍵 / 右鍵 左右手・Q / E 左右背・Space / Shift 推進衝刺<br>G 整備・F 互動（遠征：開箱、撿武器、傳送門）・Esc 暫停<br>
-手把：左右搖桿、LT / RT 左右手、LB / RB 左右背、A 衝刺、X 互動、Back 整備、Start 暫停<br>
+手把：左搖桿移動、右搖桿瞄準、LB / RB 左右開火、RT 衝刺、X / Y 切換左右的手臂 / 背部武器、A 互動 / 確認、B 取消、LT 或按下右搖桿 主動裝置、Back 整備、Start 暫停（設定裡可以換成任天堂配置：A 在右、B 在下）<br>
 <b>移動</b>有慣性：放開方向鍵會滑一段。冰面很滑、泥地很慢。衝刺吃能量，不受摩擦限制<br>
 <b>屬性</b>動能剋鏡面、化學剋複合、能量剋陶瓷；反過來會被擋下（藍白色火花）<br>
 <b>部位</b>打到哪看子彈從哪個方向來：正面是軀幹裝甲、側面是手臂、背面是弱點和背部武器<br>
@@ -1354,6 +1355,8 @@ function step(t) {
   last = t;
   G.now += raw;
   updateInput();
+  // 手把：選單開著 → 十字鍵 / 確認 / 取消操作選單；沒有選單 → 確認鍵 = 互動
+  if (!updatePadNav() && padUi.confirm) input.interactPressed = true;
   // 重組畫面：世界停住，只畫傳送隧道
   if (reasmActive()) { updateReasm(raw); renderReasm(renderer); updateReticle(false); clearPressed(); return; }
   const playing = MODE.name !== 'menu', watching = MODE.name === 'watch';

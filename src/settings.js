@@ -8,6 +8,7 @@ import { setHazeLevel } from './haze.js';
 import { setLightsOn } from './lights.js';
 import { setHeightFogOn } from './fog.js';
 import { setPerfPanel } from './perf.js';
+import { padCfg, setPadLayout } from './input.js';
 import { setViewMode, setViewSens, setViewSmooth, view } from './camview.js';
 
 const KEY = 'brickmecha.gfx';
@@ -93,6 +94,7 @@ function render() {
   row('鏡頭', view.mode === 'turn' ? '滑鼠鎖住：左右轉鏡頭和上半身、上下調瞄準遠近；WASD 照畫面方向走。點一下畫面開始、Esc 暫停並放開滑鼠' : '鏡頭固定朝北，游標指哪打哪', [['fixed', '固定'], ['turn', '滑鼠轉向']], view.mode, v => setViewMode(v));
   if (view.mode === 'turn') row('轉向靈敏度', '', [[0.6, '低'], [1, '中'], [1.5, '高'], [2.2, '很高']], view.sens, v => setViewSens(v));
   if (view.mode === 'turn') row('鏡頭緩衝', '鏡頭追上半身時起步和停下都放慢；越高越穩、越有重量感，但反應越慢', [[0, '低'], [1, '中'], [2, '高']], view.smooth, v => setViewSmooth(v));
+  row('手把按鍵配置', padCfg.layout === 'nintendo' ? 'A（確認 / 互動）在右、B（取消）在下；Y 在左 = 切左邊武器、X 在上 = 切右邊' : 'A（確認 / 互動）在下、B（取消）在右；X 在左 = 切左邊武器、Y 在上 = 切右邊', [['xbox', 'Xbox'], ['nintendo', '任天堂']], padCfg.layout, v => setPadLayout(v));
 }
 export const settingsOpen = () => !root.classList.contains('hidden');
 export function openSettings(then = null) { onClose = then; render(); root.classList.remove('hidden'); }
