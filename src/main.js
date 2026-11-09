@@ -135,9 +135,17 @@ const watchLoadout = () => Math.random() < 0.5 ? ENEMY_PRESETS[Math.floor(Math.r
 // 每場交換左右（場地有一點點不對稱）；打完自動下一場
 const BRAIN_ENTRIES = ['alpha', 'beta'];
 async function startBrainWatch(fresh = false) {
-  const [BA] = await Promise.all([import('./brainapi.js')]);
-  const load = async n => ({ name: n, lo: await (await fetch(`../tools/sim/entries/${n}/loadout.json`, { cache: 'no-cache' })).json(), brain: (await import(`./brains/${n}.js`)).default });
-  const E = await Promise.all(BRAIN_ENTRIES.map(load));
+  let BA, E;
+  try {
+    BA = await import('./brainapi.js');
+    const load = async n => ({ name: n, lo: await (await fetch(`tools/sim/entries/${n}/loadout.json`, { cache: 'no-cache' })).json(), brain: (await import(`./brains/${n}.js`)).default });
+    E = await Promise.all(BRAIN_ENTRIES.map(load));
+  } catch (err) {
+    // 載入失敗（多半是瀏覽器快取了舊的 JS：Ctrl+Shift+R 強制重新整理）：講清楚，不要默默回到選單
+    console.error('AI 對打載入失敗', err);
+    showPanel('AI 對打載入失敗', `${String(err.message ?? err).replace(/</g, '&lt;')}<br><br>多半是瀏覽器還在用舊的程式檔：按 Ctrl+Shift+R 強制重新整理再試一次。`, [{ label: '返回', primary: true, run: hidePanel }]);
+    return;
+  }
   resetWorld();
   MODE.name = 'watch';
   if (fresh || MODE.kind !== 'brains') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
