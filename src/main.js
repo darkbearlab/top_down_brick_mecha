@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { sfx, unlockAudio } from './audio.js';
-import { CAM_PITCH, G, addMat, camDist, camTarget, camera, hemi, renderer, scene, sun } from './core.js';
+import { CAM_PITCH, G, addMat, angleDiff, camDist, camTarget, camera, hemi, renderer, scene, sun } from './core.js';
 import { clearPressed, input, updateInput } from './input.js';
 import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayers, loadMap, mapId, randomOpenSpot, rayBlock, setLayer, tileC, tileR } from './arena.js';
 import { THEMES, rng } from './mapgen.js';
@@ -1171,17 +1171,19 @@ $('gClose').addEventListener('click', () => { sfx.click(); leaveGarage(); });
 const raycaster = new THREE.Raycaster(), ndc = new THREE.Vector2(), tmpV = new THREE.Vector3();
 const aimPlane = new THREE.Plane(new THREE.Vector3(0, 1, 0), -1.4);
 let aimYaw = Math.PI, aimPoint = { x: 0, z: 0 };
-const LOOK_SENS = 0.0032;   // 滑鼠轉向：每像素轉幾弧度（× 設定的靈敏度）
+const LOOK_SENS = 0.0032, LOOK_LEAD = 1.1;   // 滑鼠轉向：每像素轉幾弧度（× 設定的靈敏度）、瞄準最多領先上半身幾弧度
 function updateAim(raw) {
   // 滑鼠轉向：左右 = 轉鏡頭（上半身跟著轉到鏡頭正前方）、上下 = 瞄準點遠近；手把右搖桿左右轉
+  // 滑鼠動的是「想轉到的方向」（aimYaw），上半身照機體的轉向速度追過去、鏡頭跟著上半身；最多領先上半身 LOOK_LEAD（再甩也不會更前面）
   if (turning()) {
-    if (input.source === 'pad') { if (input.padAim.active) view.yaw -= input.padAim.x * 2.6 * raw; }
+    if (input.source === 'pad') { if (input.padAim.active) aimYaw -= input.padAim.x * 2.6 * raw; }
     else if (input.locked) {
-      view.yaw -= input.look.dx * LOOK_SENS * view.sens;
+      aimYaw -= input.look.dx * LOOK_SENS * view.sens;
       view.aimDist = Math.max(3, Math.min(26, view.aimDist - input.look.dy * 0.035 * view.sens));
     }
-    const [fx, fz] = forward();
-    aimYaw = Math.atan2(fx, fz);
+    const lead = angleDiff(player.torsoYaw, aimYaw);
+    if (Math.abs(lead) > LOOK_LEAD) aimYaw = player.torsoYaw + Math.sign(lead) * LOOK_LEAD;
+    const fx = Math.sin(aimYaw), fz = Math.cos(aimYaw);
     aimPoint = { x: player.x + fx * view.aimDist, z: player.z + fz * view.aimDist };
     // 準星（游標旁的彈藥）畫在瞄準點上
     tmpV.set(aimPoint.x, 1.4, aimPoint.z).project(camera);
@@ -1299,7 +1301,7 @@ function updateHud() {
 
 // ---------- 鏡頭看得到的範圍 ----------
 // 從上一幀的鏡頭打四條射線到地面（畫面左右邊緣、上下邊緣往內一點），量出從畫面中心往四個方向看得到多遠；除以鏡頭距離 = 每單位距離的範圍
-let lockZoom = 1, lastCd = 30, minimapYaw = 0;
+let lockZoom = 1, lastCd = 30, minimapYaw = '';
 // 滑鼠轉向模式：遊戲中游標鎖住（點一下畫面才鎖得住，瀏覽器規定要有使用者動作）；離開遊戲畫面就放開
 // 鎖住時按 Esc 瀏覽器會直接放開、不送按鍵給網頁 → 被放開又還在玩 = 當作按了暫停
 let wantLock = false;
@@ -1308,6 +1310,10 @@ function updatePointerLock(want) {
   if (!wantLock && input.locked) document.exitPointerLock?.();
   lockHint.classList.toggle('hidden', !wantLock || input.locked);
 }
+// 小地圖的指北針（N）
+const northMark = document.createElement('div');
+northMark.id = 'northMark'; northMark.className = 'hidden'; northMark.textContent = 'N';
+document.body.appendChild(northMark);
 const lockHint = document.createElement('div');
 lockHint.id = 'lockHint'; lockHint.className = 'hidden'; lockHint.textContent = '點一下畫面鎖定滑鼠（滑鼠轉向模式）';
 document.body.appendChild(lockHint);
@@ -1500,9 +1506,20 @@ function step(t) {
   const sh = G.trauma * G.trauma * 0.7;
   const ox = (Math.random() - 0.5) * sh, oz = (Math.random() - 0.5) * sh;
   const cd = dist * (watching ? watchK : 1) * (1 - 0.42 * killK);
+  // 滑鼠轉向：鏡頭跟著上半身轉（上半身照機體的轉向速度追滑鼠，重的機體鏡頭就轉得慢）
+  if (turning() && playing && !watching && player.alive && !garage.open) view.yaw += angleDiff(view.yaw, player.torsoYaw + Math.PI) * (1 - Math.exp(-14 * raw));
+  // 特寫（擊墜、頭目登場）和觀戰：暫時回到固定朝北的鏡頭，結束後轉回來
+  const camYaw = watching ? 0 : view.yaw + angleDiff(view.yaw, 0) * killK;
   const back = Math.cos(CAM_PITCH) * cd;   // 鏡頭在正前方的反方向（固定模式 = 南邊）
-  camera.position.set(camTarget.x + ox + Math.sin(view.yaw) * back, Math.sin(CAM_PITCH) * cd, camTarget.z + Math.cos(view.yaw) * back + oz);
-  if (minimapYaw !== view.yaw) { minimapYaw = view.yaw; $('minimap').style.transform = view.yaw ? `rotate(${view.yaw}rad)` : ''; }   // 小地圖跟著轉（上方 = 鏡頭正前方）
+  camera.position.set(camTarget.x + ox + Math.sin(camYaw) * back, Math.sin(CAM_PITCH) * cd, camTarget.z + Math.cos(camYaw) * back + oz);
+  const mm = $('minimap'), mmKey = mm.classList.contains('hidden') ? 'off' : `${view.yaw}|${mm.offsetWidth}|${innerWidth}`;
+  if (minimapYaw !== mmKey) {   // 小地圖跟著轉（上方 = 鏡頭正前方）；指北針貼在小地圖的框上、指著北邊
+    minimapYaw = mmKey;
+    mm.style.transform = view.yaw ? `rotate(${view.yaw}rad)` : '';
+    const r = mm.offsetWidth / 2, [nx, ny] = w2s(0, -1);
+    northMark.style.left = `${mm.offsetLeft + r + nx * (r - 2) - 7}px`; northMark.style.top = `${mm.offsetTop + r + ny * (r - 2) - 8}px`;
+    northMark.classList.toggle('hidden', mmKey === 'off');
+  }
   camera.lookAt(camTarget.x + ox, 0, camTarget.z + oz);
   lastCd = cd; camLook.set(camTarget.x + ox, 0, camTarget.z + oz);
   sun.position.set(camTarget.x - 8, 22, camTarget.z + 6);
