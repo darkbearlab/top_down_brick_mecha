@@ -7,9 +7,10 @@ import { THEMES, rng } from './mapgen.js';
 import { TERRAINS, genStage, terrainOf } from './stagegen.js';
 import { flowDist, flyDist, updateFlow } from './pathing.js';
 import { addProp, clearProps, nearProp, props, removeProp, setPortal, setPropLayer, spendProp, updateProps } from './props.js';
-import { RADIUS, exploredAt, fogActive, fogOff, initFogLayers, setFogLayer, updateFog, visibleAt } from './fog.js';
+import { RADIUS, exploredAt, fogActive, fogOff, initFogLayers, setFogLayer, setHeightFog, updateFog, visibleAt } from './fog.js';
 import { hideMinimap, initMinimap, setMinimapLayer, updateMinimap } from './minimap.js';
 import { renderFrame } from './post.js';
+import { setHaze, updateHaze } from './haze.js';
 import { ENEMY_COLORS, PLAYER_COLORS, activeSlot, collideMechs, driveMech, facing, makeMech, mechs, poseMech, muzzleOf, removeMech, syncWear, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { ARENA_LAYOUT, buildLayerBuildings, resetBuildings, setBuildingLayer, setLayout, updateBuildings } from './buildings.js';
 import { SLOW_K, clearHusks, clearWrecks, killCam, setHuskLayer, updateWrecks } from './wreck.js';
@@ -81,7 +82,7 @@ function resetWorld(map = null) {
     resetBuildings();
   }
   setPropLayer(0);
-  applyLight(false);
+  applyLight(false, want.terrain);
   scene.background.setHex(want.layers ? 0x000000 : 0x0b0d12);   // 遠征：地圖外面跟沒去過的地方一樣全黑
   hideMinimap();
   fogOff();
@@ -822,7 +823,14 @@ function enterReasm() {
 //   其他的收起來（小隊回到待命、記住血量；增援部隊直接散掉）；地上的掉落物收起來，回到那層再擺回去
 const HOP_T = 0.6, HOP_SWAP = 0.28;
 const chaseOf = e => e.boss ? 99 : e.fixed || e.hold ? 0 : e.enElite || (e.lvl ?? 0) >= 3 ? 1 : 0;
-function applyLight(dark) { hemi.intensity = dark ? 0.55 : 1.3; sun.intensity = dark ? 0.75 : 2.4; }
+// 燈光 + 空氣（地面的風沙 src/haze.js、坑和下層的高度霧 src/fog.js）：地下暗、霧濃、灰塵少；地表照地形換風沙的顏色
+const HAZE = { ruins: [0xc2a87e, 0.17], hive: [0x9c9a82, 0.13] };
+function applyLight(dark, terrain = null) {
+  hemi.intensity = dark ? 0.55 : 1.3; sun.intensity = dark ? 0.75 : 2.4;
+  const [hc, ha] = dark ? [0x6c6a60, 0.09] : HAZE[terrain] ?? [0xa8a69c, 0.08];
+  setHaze(hc, ha);
+  setHeightFog(dark ? 0x0b0d11 : 0x2a2f37, dark ? 0.2 : 0.12);
+}
 function useLink(p) {
   const to = p.link[p.end === 'a' ? 'b' : 'a'];
   EX.hop = { t: 0, to, up: to.layer > EX.layer, swapped: false, y: 0, dark: p.style === 'hole' || p.style === 'shaft' };
@@ -883,7 +891,7 @@ function switchLayer(to) {
 function enterLayer(k) {
   EX.layer = k;
   setLayer(k); setBuildingLayer(k); setFogLayer(k); setMinimapLayer(k); setPropLayer(k); setRubbleLayer(k, layerGroup(k), layerU(k)); setHuskLayer(k);
-  applyLight(!!EX.map.layers[k].under);
+  applyLight(!!EX.map.layers[k].under, EX.map.terrain);
   restorePickups(EX.stash[k]); EX.stash[k] = null;
   updateFog(1, player.x, player.z);
 }
@@ -1465,6 +1473,7 @@ function frame(t) {
     $('wRound').textContent = `第 ${MODE.round} 場`;
     $('wNext').textContent = MODE.result && MODE.endT > 0 ? `${Math.ceil(MODE.endT)} 秒後下一場` : '';
   }
+  updateHaze(raw, camTarget.x, camTarget.z);
   renderFrame(scene, camera);   // 模型桌後製（src/post.js），O 鍵開關
 }
 addEventListener('pointerdown', unlockAudio);

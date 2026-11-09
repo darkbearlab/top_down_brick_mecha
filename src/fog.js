@@ -18,18 +18,27 @@ export const makeFogU = () => ({ fogTex: { value: null }, fogOn: { value: 0 }, f
 export const fogU = makeFogU();
 let on = false, L = null, layers = [], acc = 1, pc = 0, pr = 0;
 
+// 高度霧：比目前這層的地面低的東西（坑、下面那層、崖壁）越深越往霧色混 → 看下去有深度、深處模糊成一片
+// 1 − exp(−深度 × 密度)：沉 5 格（下一層）大約混一半、9 格深的崖壁底幾乎全是霧；所有吃迷霧的材質共用（其他模式也有）
+export const heightFog = { hfColor: { value: new THREE.Color(0x232831) }, hfDensity: { value: 0.16 } };
+export function setHeightFog(hex, density) { heightFog.hfColor.value.setHex(hex); heightFog.hfDensity.value = density; }
+
 // 讓材質吃迷霧（InstancedMesh 也可以）
 export function fogMaterial(mat, U = fogU) {
   mat.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, U);
-    sh.vertexShader = 'varying vec2 vFogXZ;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+    Object.assign(sh.uniforms, U, heightFog);
+    sh.vertexShader = 'varying vec2 vFogXZ;\nvarying float vFogY;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
       vec4 fogP = vec4(transformed, 1.0);
       #ifdef USE_INSTANCING
         fogP = instanceMatrix * fogP;
       #endif
-      vFogXZ = (modelMatrix * fogP).xz;`);
-    sh.fragmentShader = 'uniform sampler2D fogTex;\nuniform float fogOn;\nuniform float fogDim;\nuniform vec2 fogSize;\nvarying vec2 vFogXZ;\n' + sh.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>
-      if (fogOn > 0.5) gl_FragColor.rgb *= texture2D(fogTex, (vFogXZ + fogSize * 0.5) / fogSize).r * fogDim;`);
+      vec4 fogW = modelMatrix * fogP;
+      vFogXZ = fogW.xz; vFogY = fogW.y;`);
+    sh.fragmentShader = 'uniform sampler2D fogTex;\nuniform float fogOn;\nuniform float fogDim;\nuniform vec2 fogSize;\nuniform vec3 hfColor;\nuniform float hfDensity;\nvarying vec2 vFogXZ;\nvarying float vFogY;\n' + sh.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>
+      if (fogOn > 0.5) gl_FragColor.rgb *= texture2D(fogTex, (vFogXZ + fogSize * 0.5) / fogSize).r * fogDim;
+      // 高度霧：比地面低越多越往霧色混（霧色也照那層的迷霧亮度，沒去過的地方還是黑的）
+      float hfK = 1.0 - exp(-max(0.0, -vFogY - 0.15) * hfDensity);
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, hfColor * (fogOn > 0.5 ? texture2D(fogTex, (vFogXZ + fogSize * 0.5) / fogSize).r * fogDim : 1.0), hfK);`);
   };
   mat.customProgramCacheKey = () => 'fog';
   return mat;
