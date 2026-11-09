@@ -284,6 +284,7 @@
 - `src/buildings.js` 可破壞建築
 - `src/wreck.js` 擊墜演出與殘骸
 - `src/input.js` 鍵盤滑鼠與手把；`src/padnav.js` 手把操作選單
+- 觀戰「AI vs 雜魚（alpha / beta）」：代理機體 + 大腦打三個雜魚小隊一起（內建 AI、難度 hard），每場換一組（main.js BRAIN_PACKS，最後一組是精英包），右下顯示剩幾台
 - 觀戰「AI 對打（alpha vs beta）」：代理設計的機體（tools/sim/entries/<名字>/loadout.json）+ 大腦（src/brains/<名字>.js）在遊戲裡對打，每場交換左右、打完自動下一場（main.js BRAIN_ENTRIES 換參賽者）
 - `src/brainapi.js` AI 大腦介面（attachBrain 掛上去就取代內建 AI；觀察 / 動作格式見 tools/sim/BRAINS.md）；`src/brains/` 大腦（sample = 範例）
 - `src/combatlog.js` 戰鬥紀錄（平常關著；`tools/sim` 無頭對戰模擬開著跑，見 tools/sim/README.md）

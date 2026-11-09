@@ -169,6 +169,45 @@ async function startBrainWatch(fresh = false) {
   }
   toast(`AI 對打・第 ${MODE.round} 場（alpha 在${swap ? '右' : '左'}）`);
 }
+// AI vs 雜魚（第三階段的代理作品打狼群）：一台代理機體 + 大腦 vs 一群雜魚小隊（內建 AI），每場換一組小隊
+const BRAIN_PACKS = [
+  { name: '突擊隊 + 火箭伏擊 + 精英小隊', squads: ['rush', 'ambush', 'elite'] },
+  { name: '狙擊組 + 飛彈小隊 + 砲擊陣地', squads: ['snipers', 'missile', 'mortar'] },
+  { name: '蟲巢守衛 + 衝鋒蟲群 + 蟲群', squads: ['hive', 'stampede', 'swarm'] },
+  { name: '衝鋒隊 + 自爆小隊 + 縱火隊', squads: ['breakers', 'kamikaze', 'arson'] },
+  { name: '精英小隊 ×2 + 重裝隊（難）', squads: ['elite', 'elite', 'heavy'] },
+];
+async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
+  let BA, E;
+  try {
+    BA = await import('./brainapi.js');
+    E = { lo: await (await fetch(`tools/sim/entries/${who}/loadout.json`, { cache: 'no-cache' })).json(), brain: (await import(`./brains/${who}.js`)).default };
+  } catch (err) {
+    console.error('AI vs 雜魚載入失敗', err);
+    showPanel('AI vs 雜魚載入失敗', `${String(err.message ?? err).replace(/</g, '&lt;')}<br><br>多半是瀏覽器還在用舊的程式檔：按 Ctrl+Shift+R 強制重新整理再試一次。`, [{ label: '返回', primary: true, run: hidePanel }]);
+    return;
+  }
+  resetWorld();
+  MODE.name = 'watch';
+  if (fresh || MODE.kind !== 'brainpack') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
+  MODE.kind = 'brainpack';
+  MODE.round++;
+  AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.hard;
+  if (player) { removeMech(player); player.alive = false; }
+  const pack = BRAIN_PACKS[(MODE.round - 1) % BRAIN_PACKS.length], units = pack.squads.flatMap(k => SQUADS[k].units);
+  const ace = spawnEnemy(SIDE_B, { ...E.lo, name: who, chips: [], device: null }, SIDE_A, { team: 'blue', colors: BLUE_COLORS });
+  BA.attachBrain(ace, E.brain);
+  const reds = units.map((k, j) => { const g = spawnEnemy(SIDE_A, gruntOf(k), { x: SIDE_B.x - 2 + (j % 2) * 3, z: (j - (units.length - 1) / 2) * 2.6 }, { team: 'red', colors: GRUNT_COLORS, diff: DIFFS.hard, grunt: true }); g.foe = ace; return g; });
+  ace.foe = reds[0];
+  MODE.bp = { who, ace, reds, total: reds.length, pack };
+  $('menu').classList.add('hidden'); $('duel').classList.add('hidden'); $('hud').classList.add('hidden');
+  $('watch').classList.remove('hidden');
+  setSensorsVisible(false);
+  $('wBName').textContent = `${who}（${E.brain.name} 大腦）`;
+  $('wBGuns').innerHTML = SLOTS.map(s => E.lo[s]).filter(Boolean).map(id => `<span class="wt" style="--c:${DMG_TYPES[WEAPONS[id].type].css}">${WEAPONS[id].name}</span>`).join('') + `<span class="wt" style="--c:#8a96a6">${LEGS[E.lo.legs].name}</span>`;
+  $('wRName').textContent = pack.name;
+  toast(`第 ${MODE.round} 場・雜魚 ${reds.length} 台`);   // 小隊名字在右下的面板
+}
 function startWatch(fresh = false) {
   resetWorld();
   MODE.name = 'watch';
@@ -1047,6 +1086,12 @@ AI.onEnemyDeath = (e) => {
     if (T.killed >= SK_TOTAL) endWatch(e.team === 'blue' ? 'red' : 'blue');
     return;
   }
+  if (MODE.name === 'watch' && MODE.kind === 'brainpack') {
+    if (MODE.result) return;
+    if (e === MODE.bp.ace) endWatch('red');
+    else if (!MODE.bp.reds.some(g => g.alive)) endWatch('blue');
+    return;
+  }
   if (MODE.name === 'watch' && MODE.kind === 'horde') {
     const H = MODE.horde;
     if (MODE.result) return;
@@ -1095,10 +1140,10 @@ function hidePanel() { $('panel').classList.add('hidden'); }
 const panelOpen = () => !$('panel').classList.contains('hidden');
 function restart() { MODE.name === 'explore' ? startRun() : MODE.name === 'endless' ? startEndless() : MODE.name === 'duel' ? startDuel(MODE.duel.preset, MODE.duel.diffKey) : MODE.name === 'watch' ? nextWatch() : startSandbox(); }
 const WATCH_LIMIT = 180;   // 觀戰一場最多幾秒（遊戲時間）
-const nextWatch = () => MODE.kind === 'horde' ? startHorde() : MODE.kind === 'skirmish' ? startSkirmish() : MODE.kind === 'brains' ? startBrainWatch() : startWatch();
+const nextWatch = () => MODE.kind === 'horde' ? startHorde() : MODE.kind === 'skirmish' ? startSkirmish() : MODE.kind === 'brains' ? startBrainWatch() : MODE.kind === 'brainpack' ? startBrainPack() : startWatch();
 function pause() {
   G.paused = true;
-  showPanel('暫停', MODE.name === 'explore' ? `遠征・地圖 #${EX.map.seed}<br>${runSummary()}` : MODE.name === 'endless' ? `無盡模式・${mmss(EN.t)}・擊破 ${EN.kills}` : MODE.name === 'duel' ? `對戰・${DIFFS[MODE.duel.diffKey].name}` : MODE.name === 'watch' ? `觀戰${MODE.kind === 'horde' ? '（王牌 vs 雜魚）' : MODE.kind === 'skirmish' ? '（雜魚 vs 雜魚）' : MODE.kind === 'brains' ? '（AI 對打）' : ''}・第 ${MODE.round} 場` : '試玩場', [
+  showPanel('暫停', MODE.name === 'explore' ? `遠征・地圖 #${EX.map.seed}<br>${runSummary()}` : MODE.name === 'endless' ? `無盡模式・${mmss(EN.t)}・擊破 ${EN.kills}` : MODE.name === 'duel' ? `對戰・${DIFFS[MODE.duel.diffKey].name}` : MODE.name === 'watch' ? `觀戰${MODE.kind === 'horde' ? '（王牌 vs 雜魚）' : MODE.kind === 'skirmish' ? '（雜魚 vs 雜魚）' : MODE.kind === 'brains' ? '（AI 對打）' : MODE.kind === 'brainpack' ? '（AI vs 雜魚）' : ''}・第 ${MODE.round} 場` : '試玩場', [
     { label: '繼續', primary: true, run: () => { hidePanel(); G.paused = false; } },
     { label: MODE.name === 'watch' ? '下一場' : '重新開始', run: restart },
     ...(MODE.name === 'duel' ? [{ label: '換對手', run: openDuelSetup }] : []),
@@ -1155,6 +1200,8 @@ $('mWatchMenu').onclick = () => {
     { label: '電腦對電腦', desc: '隨機配裝・打完自動換下一場', primary: true, run: () => startWatch(true) },
     { label: '王牌 vs 雜魚', desc: '一台王牌機對上一批批空投的雜魚機（共 18 台）', run: () => startHorde(true) },
     { label: '雜魚 vs 雜魚', desc: '藍紅兩隊雜魚各 12 台，從兩側空投，先全滅的輸', run: () => startSkirmish(true) },
+    { label: 'AI vs 雜魚（alpha）', desc: 'alpha 的機體 + 大腦打一群雜魚（三個小隊一起），每場換一組，最後一組是精英包', run: () => startBrainPack(true, 'alpha') },
+    { label: 'AI vs 雜魚（beta）', desc: 'beta 的機體 + 大腦打一群雜魚，同上', run: () => startBrainPack(true, 'beta') },
     { label: 'AI 對打（alpha vs beta）', desc: '代理設計的兩台機體和大腦（tools/sim/entries）・每場交換左右・打完自動下一場', run: () => startBrainWatch(true) },
   ]);
 };
@@ -1442,6 +1489,11 @@ function step(t) {
     if (!watching && player.alive) updateFlow(dt, player.x, player.z);
     if (watching && MODE.kind === 'horde') updateHorde(dt);
     if (watching && MODE.kind === 'skirmish') updateSkirmish(dt);
+    // AI vs 雜魚：代理機體每幀打最近的那台（跟無頭模擬一樣）
+    if (watching && MODE.kind === 'brainpack' && MODE.bp?.ace.alive) {
+      const A = MODE.bp.ace; let bd = Infinity;
+      for (const g of MODE.bp.reds) if (g.alive && !g.drop) { const d = Math.hypot(g.x - A.x, g.z - A.z); if (d < bd) { bd = d; A.foe = g; } }
+    }
     for (const e of enemies.slice()) {
       updateEnemy(e, dt, e.foe ?? player);
       if (e.alive && !e.drop) driveMech(e, dt, e.drive.mx, e.drive.mz, e.aimYaw);
@@ -1589,6 +1641,10 @@ function step(t) {
         const T = MODE.sk[team], onField = enemies.filter(e => e.team === team && e.alive).length;
         $('w' + side + 'Guns').innerHTML = `<span class="wt" style="--c:${team === 'blue' ? '#6aa8ff' : '#e08a50'}">剩 ${SK_TOTAL - T.killed} / ${SK_TOTAL}</span><span class="wt" style="--c:#8a96a6">場上 ${onField}</span>`;
       }
+    }
+    if (MODE.kind === 'brainpack' && MODE.bp) {
+      const left = MODE.bp.reds.filter(g => g.alive).length;
+      $('wRGuns').innerHTML = `<span class="wt" style="--c:#e08a50">剩 ${left} / ${MODE.bp.total}</span>`;
     }
     if (MODE.kind === 'horde' && MODE.horde) {
       const H = MODE.horde, onField = enemies.filter(e => e.grunt && e.alive).length;
