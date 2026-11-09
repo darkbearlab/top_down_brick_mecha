@@ -123,6 +123,86 @@ function genRuins(seed, stage) {
   };
 }
 
+// ---------- 保證走得到傳送門 ----------
+// 每層切成「機體走得過去的塊」（3×3 都是空地才算走得過去），連接點把塊接成有向圖（升降梯雙向、彈射台往上、跳下點往下）
+// 死路 = 從出發點到得了、但怎麼走都到不了傳送門的塊（傳送門本身到不了時，出發點那一串全部都算）
+// 有死路就在它跟「到得了傳送門的塊」（上一層或下一層）最近的地方補一座升降梯，重算，直到沒有死路
+function ensureReach(layers, links, spawn, portal, W, H, stand) {
+  const NL = layers.length, toX = toXf(W), toZ = toZf(H);
+  const open = (k, c, r) => { for (let y = r - 1; y <= r + 1; y++) for (let x = c - 1; x <= c + 1; x++) { const t = layers[k].grid[y]?.[x]; if (t === undefined || t === '#' || t === 'v') return false; } return true; };
+  for (let iter = 0; iter < 16; iter++) {
+    const comp = layers.map(() => new Int32Array(W * H).fill(-1)), pieces = [];
+    for (let k = 0; k < NL; k++) for (let r = 1; r < H - 1; r++) for (let c = 1; c < W - 1; c++) {
+      if (comp[k][r * W + c] >= 0 || !open(k, c, r)) continue;
+      const id = pieces.length, cells = [], q = [r * W + c];
+      comp[k][q[0]] = id;
+      while (q.length) {
+        const i = q.pop(), x = i % W, y = (i - x) / W; cells.push(i);
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const X = x + dx, Y = y + dy, j = Y * W + X; if (comp[k][j] < 0 && open(k, X, Y)) { comp[k][j] = id; q.push(j); } }
+      }
+      pieces.push({ k, cells });
+    }
+    const pieceAt = e => { const c = fromX(W, e.x), r = fromZ(H, e.z); for (let d = 0; d <= 2; d++) for (let y = r - d; y <= r + d; y++) for (let x = c - d; x <= c + d; x++) { const v = comp[e.layer][y * W + x]; if (v >= 0) return v; } return -1; };
+    const fwd = new Map(), rev = new Map(), add = (M, a, b) => { if (a < 0 || b < 0) return; if (!M.has(a)) M.set(a, []); M.get(a).push(b); };
+    for (const L of links) {
+      const a = pieceAt(L.a), b = pieceAt(L.b);
+      add(fwd, a, b); add(rev, b, a);
+      if (L.kind === 'lift' || L.kind === 'stairs') { add(fwd, b, a); add(rev, a, b); }
+    }
+    const walkFrom = (s, M) => { const seen = new Set([s]), q = [s]; while (q.length) { const v = q.pop(); for (const n of M.get(v) ?? []) if (!seen.has(n)) { seen.add(n); q.push(n); } } return seen; };
+    const s = pieceAt(spawn), p = pieceAt(portal);
+    if (s < 0 || p < 0) return;
+    const reach = walkFrom(s, fwd), good = walkFrom(p, rev);
+    const bad = [...reach].filter(v => !good.has(v)).sort((a, b) => pieces[b].cells.length - pieces[a].cells.length);
+    if (!bad.length) return;
+    // 每個死路塊：找它跟上下層「好的塊」最近的一對格子（兩邊都站得住）
+    let best = null;
+    for (const RAD of [12, 24, 48]) {   // 近的找不到再放寬（很少見：整層被切得很碎）
+    for (const v of bad) {
+      const P = pieces[v];
+      for (let n = 0; n < P.cells.length; n += 2) {
+        const i = P.cells[n], c = i % W, r = (i - c) / W;
+        for (const k2 of [P.k - 1, P.k + 1]) {
+          if (k2 < 0 || k2 >= NL) continue;
+          for (let y = r - RAD; y <= r + RAD; y++) for (let x = c - RAD; x <= c + RAD; x++) {
+            const g = comp[k2][y * W + x], d = Math.hypot(x - c, y - r);
+            if (g < 0 || !good.has(g) || (best && d >= best.d)) continue;
+            if (!stand(P.k, c, r, 1) || !stand(k2, x, y, 1)) continue;
+            best = { d, a: { layer: P.k, c, r }, b: { layer: k2, c: x, r: y } };
+          }
+        }
+      }
+      if (best) break;   // 最大的死路塊先接；接好再重算（其他死路可能也一起通了）
+    }
+    if (best) break;
+    }
+    // 還是沒有（附近根本沒有到得了傳送門的塊）：先接到旁邊一層「還沒去過」的塊裡離傳送門最近的那個，下一輪再從那裡往下接
+    if (!best) {
+      const pc = fromX(W, portal.x), pr = fromZ(H, portal.z);
+      for (const v of bad) {
+        const P = pieces[v];
+        for (let n = 0; n < P.cells.length; n += 3) {
+          const i = P.cells[n], c = i % W, r = (i - c) / W;
+          for (const k2 of [P.k - 1, P.k + 1]) {
+            if (k2 < 0 || k2 >= NL) continue;
+            for (let y = r - 16; y <= r + 16; y++) for (let x = c - 16; x <= c + 16; x++) {
+              const g = comp[k2][y * W + x];
+              if (g < 0 || reach.has(g) || pieces[g].cells.length < 60) continue;
+              const sc = Math.hypot(x - pc, y - pr) + Math.hypot(x - c, y - r) * 0.5;
+              if (best && sc >= best.d) continue;
+              if (!stand(P.k, c, r, 1) || !stand(k2, x, y, 1)) continue;
+              best = { d: sc, a: { layer: P.k, c, r }, b: { layer: k2, c: x, r: y } };
+            }
+          }
+        }
+      }
+    }
+    if (!best) return;
+    const [lo, hi] = best.a.layer < best.b.layer ? [best.a, best.b] : [best.b, best.a];
+    links.push({ kind: 'lift', a: { layer: lo.layer, x: toX(lo.c), z: toZ(lo.r) }, b: { layer: hi.layer, x: toX(hi.c), z: toZ(hi.r) }, fix: true });
+  }
+}
+
 // ---------- 層疊城塞 ----------
 function genHive(seed, stage) {
   const m = genWorld(seed, { themePool: ['city', 'city', 'city', 'ruins', 'plaza', 'chasm'] }), R = rng(seed * 5 + 77), { W, H } = m, toX = toXf(W), toZ = toZf(H);
@@ -231,6 +311,7 @@ function genHive(seed, stage) {
     const q = near(k, z, Math.round(m.zones[z].c), Math.round(m.zones[z].r), 40, 2);
     if (q) portal = { c: q.c, r: q.r, x: toX(q.c), z: toZ(q.r), zone: z, layer: k };
   }
+  ensureReach(layers, links, { ...m.spawn, layer: 0 }, portal, W, H, stand);
   return {
     ...m, terrain: 'hive', links, sites, caches, portal,
     zones: m.zones.map((Z, k) => ({ ...Z, layer: lvl[k] })),

@@ -75,10 +75,13 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 312, H = 
     const t = P.tiles.reduce((b, q) => Math.hypot(q[0] - mc, q[1] - mr) < Math.hypot(b[0] - mc, b[1] - mr) ? q : b);
     const A = seeds[P.a], B = seeds[P.b], ul = Math.hypot(B.c - A.c, B.r - A.r), ux = (B.c - A.c) / ul, uy = (B.r - A.r) / ul;
     const wide = ri(8, 11);
-    for (let r = t[1] - 14; r <= t[1] + 14; r++) for (let c = t[0] - 14; c <= t[0] + 14; c++) {
-      if (!inside(c, r) || grid[r][c] !== '#') continue;
+    // 往兩邊各挖到碰到空地再多 2 格（至少 10 格）；岩壁比較厚的地方固定 10 格會挖不穿 → 整片區域被封死、最後被填平
+    const reachOut = sgn => { for (let s = 0; s <= 30; s++) { const c = Math.round(t[0] + ux * s * sgn), r = Math.round(t[1] + uy * s * sgn); if (inside(c, r) && grid[r][c] !== '#') return s; } return 10; };
+    const fa = Math.min(30, Math.max(10, reachOut(1) + 2)), fb = Math.min(30, Math.max(10, reachOut(-1) + 2));
+    for (let r = t[1] - 32; r <= t[1] + 32; r++) for (let c = t[0] - 32; c <= t[0] + 32; c++) {
+      if (!inside(c, r) || grid[r][c] !== '#' || edgeBand[r * W + c]) continue;
       const dx = c - t[0], dy = r - t[1], along = dx * ux + dy * uy, across = -dx * uy + dy * ux;
-      if (Math.abs(along) <= 10 && Math.abs(across) <= wide / 2) grid[r][c] = 'd';
+      if (along <= fa && along >= -fb && Math.abs(across) <= wide / 2) grid[r][c] = 'd';
     }
     passes.push({ c: t[0], r: t[1], a: P.a, b: P.b, tree: !!P.tree });
   }
@@ -105,14 +108,40 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 312, H = 
   const buildings = [];
   const addB = (c, r, w, h, f, st) => { buildings.push([c, r, w, h, f, st]); for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) grid[y][x] = 'B'; };
   const blob = (c, r, rad, ch, k) => { for (let y = Math.floor(r - rad); y <= r + rad; y++) for (let x = Math.floor(c - rad); x <= c + rad; x++) if (Math.hypot(x - c, y - r) <= rad && inZone(x, y, k, 3) && grid[y][x] !== 'B') grid[y][x] = ch; };
+  // 這個區域被切成幾塊（機體走得過去 = 3×3 都是空地；太小的碎角不算，最後會被填平）
+  // 坑 / 裂谷挖下去之後塊數變多 = 把區域切斷了 → 整個退回不挖（層疊城塞裡隔壁的區域常常在別層，區域內部斷掉就可能永遠走不到傳送門）
+  const walk = (x, y) => { for (let b = y - 1; b <= y + 1; b++) for (let a = x - 1; a <= x + 1; a++) { const t = grid[b]?.[a]; if (t === undefined || t === '#' || t === 'B' || t === 'v') return false; } return true; };
+  const zoneParts = k => {
+    const B = box[k], seen = new Set();
+    let n = 0;
+    for (let r = B.r0; r <= B.r1; r++) for (let c = B.c0; c <= B.c1; c++) {
+      const i = r * W + c;
+      if (seen.has(i) || zoneOf[i] !== k || !walk(c, r)) continue;
+      let size = 0; const q = [i]; seen.add(i);
+      while (q.length) {
+        const j = q.pop(), x = j % W, y = (j - x) / W; size++;
+        for (const [dx, dy] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const X = x + dx, Y = y + dy, J = Y * W + X; if (!seen.has(J) && zoneOf[J] === k && walk(X, Y)) { seen.add(J); q.push(J); } }
+      }
+      if (size >= 40) n++;
+    }
+    return n;
+  };
+  // 挖洞（fn 把要挖的格子交給 set）；切斷區域就退回
+  const dig = (k, fn) => {
+    const before = zoneParts(k), changed = [];
+    fn((x, y) => { if (grid[y][x] !== 'v') { changed.push([x, y, grid[y][x]]); grid[y][x] = 'v'; } });
+    if (changed.length && zoneParts(k) > before) for (const [x, y, t] of changed) grid[y][x] = t;
+  };
   // 空洞：邊緣不規則的圓坑（半徑隨角度起伏），不蓋掉建築、離隘口遠一點
   const pit = (cx, cy, R0, k) => {
     if (nearPass(cx, cy, 12)) return;
     const ph = rand() * 6.28, ph2 = rand() * 6.28;
-    for (let y = Math.floor(cy - R0 * 1.5); y <= cy + R0 * 1.5; y++) for (let x = Math.floor(cx - R0 * 1.5); x <= cx + R0 * 1.5; x++) {
-      const a = Math.atan2(y - cy, x - cx), rr = R0 * (1 + 0.28 * Math.sin(3 * a + ph) + 0.14 * Math.sin(5 * a + ph2));
-      if (Math.hypot(x - cx, y - cy) <= rr && inZone(x, y, k, 5) && grid[y][x] !== 'B') grid[y][x] = 'v';
-    }
+    dig(k, set => {
+      for (let y = Math.floor(cy - R0 * 1.5); y <= cy + R0 * 1.5; y++) for (let x = Math.floor(cx - R0 * 1.5); x <= cx + R0 * 1.5; x++) {
+        const a = Math.atan2(y - cy, x - cx), rr = R0 * (1 + 0.28 * Math.sin(3 * a + ph) + 0.14 * Math.sin(5 * a + ph2));
+        if (Math.hypot(x - cx, y - cy) <= rr && inZone(x, y, k, 5) && grid[y][x] !== 'B') set(x, y);
+      }
+    });
   };
   const rndIn = (k, m = 10) => { const B = box[k]; for (let t = 0; t < 200; t++) { const c = ri(B.c0, B.c1), r = ri(B.r0, B.r1); if (inZone(c, r, k, m)) return [c, r]; } return [Math.round(seeds[k].c), Math.round(seeds[k].r)]; };
 
@@ -156,10 +185,10 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 312, H = 
       // 崩塌區：兩三個大坑 + 一條裂谷（不會整個切斷區域，連不到的角落最後會被填平），零星矮建築和岩塊
       for (let q = 0, n = ri(2, 3); q < n; q++) { const [x, y] = rndIn(k, 14); pit(x, y, ri(6, 10), k); }
       { const [x0, y0] = rndIn(k, 10), a0 = rand() * Math.PI * 2, len = ri(24, 40), wob = rand() * 6.28;
-        for (let s = 0; s < len; s += 0.5) {
+        dig(k, set => { for (let s = 0; s < len; s += 0.5) {
           const a = a0 + 0.5 * Math.sin(s / 7 + wob), x = x0 + Math.cos(a) * s, y = y0 + Math.sin(a) * s, w = 1.1 + 0.9 * Math.sin(s / len * Math.PI);
-          for (let yy = Math.floor(y - w); yy <= y + w; yy++) for (let xx = Math.floor(x - w); xx <= x + w; xx++) if (Math.hypot(xx - x, yy - y) <= w && inZone(xx, yy, k, 6) && !nearPass(xx, yy, 10) && grid[yy][xx] !== 'B') grid[yy][xx] = 'v';
-        } }
+          for (let yy = Math.floor(y - w); yy <= y + w; yy++) for (let xx = Math.floor(x - w); xx <= x + w; xx++) if (Math.hypot(xx - x, yy - y) <= w && inZone(xx, yy, k, 6) && !nearPass(xx, yy, 10) && grid[yy][xx] !== 'B') set(xx, yy);
+        } }); }
       for (let q = 0; q < 3; q++) { const [x, y] = rndIn(k); if (!nearPass(x, y, 12)) blob(x, y, 1 + rand() * 1.5, '#', k); }
       for (let q = 0, m = 0, want = ri(3, 5); q < 120 && m < want; q++) { const w = ri(2, 3), h = ri(2, 3), [x, y] = rndIn(k, 8); if (free(x, y, w, h, 3, k)) { addB(x, y, w, h, 1, style); m++; } }
     } else {
