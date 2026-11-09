@@ -24,11 +24,12 @@ const FACES = [
 // ---------- 樣板：從方塊清單（設計單位、顏色已經是 hex）蓋出格子 ----------
 // boxes = [[x, y, z, w, h, d, hex], …]（後面的蓋掉前面的）；carve = 挖空的範圍（核心的位置）；cell = 設計單位的大小（1/16）
 const cache = new Map();
-export function voxelTemplate(boxes, cell, carve = []) {
-  const key = JSON.stringify([boxes, carve, cell]);
-  let T = cache.get(key);
+// F = 方塊清單的單位要切幾份（設計單位 → 2；已經是細格單位 → 1）
+// useCache = false：不存（零件工坊每改一次就蓋一次，存下來會一直長）
+export function voxelTemplate(boxes, cell, carve = [], F = FINE, useCache = true) {
+  const key = useCache ? JSON.stringify([boxes, carve, cell, F]) : null;
+  let T = key && cache.get(key);
   if (T) return T;
-  const F = FINE;
   let x0 = Infinity, y0 = Infinity, z0 = Infinity, x1 = -Infinity, y1 = -Infinity, z1 = -Infinity;
   for (const [x, y, z, w, h, d] of boxes) {
     x0 = Math.min(x0, x * F); y0 = Math.min(y0, y * F); z0 = Math.min(z0, z * F);
@@ -78,7 +79,7 @@ export function voxelTemplate(boxes, cell, carve = []) {
   }));
   T = { n, nx, ny, nz, x0, y0, z0, gx, gy, gz, grid, depth, col, hex: out, s: cell / F, surf: depth.reduce((a, d) => a + (d === 1), 0), list, nb, geo: null };
   T.geo = buildGeo(T, null, null);
-  cache.set(key, T);
+  if (key) cache.set(key, T);
   return T;
 }
 
@@ -179,4 +180,4 @@ export function flushVoxBodies() {
   while (k < dirtyList.length) { dirtyList[k++].flush(); if (performance.now() - t0 > FLUSH_MS) break; }
   dirtyList.splice(0, k);
 }
-export function voxelBody(boxes, cell, material, carve = []) { return new VoxBody(voxelTemplate(boxes, cell, carve), material).mesh; }
+export function voxelBody(boxes, cell, material, carve = [], F = FINE, useCache = true) { return new VoxBody(voxelTemplate(boxes, cell, carve, F, useCache), material).mesh; }

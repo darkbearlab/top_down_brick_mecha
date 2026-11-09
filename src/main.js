@@ -14,6 +14,7 @@ import { setHaze, updateHaze } from './haze.js';
 import { closeSettings, openSettings, settingsOpen } from './settings.js';
 import { perfBegin, perfEnd } from './perf.js';
 import { hideMech, showCam, showMech, showScene, updateShowroom } from './showroom.js';
+import { openWorkshop, updateWorkshop, workshopOpen, wsCam, wsScene } from './workshop.js';
 import { ENEMY_COLORS, PLAYER_COLORS, activeSlot, collideMechs, driveMech, facing, makeMech, mechs, poseMech, muzzleOf, removeMech, syncWear, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { ARENA_LAYOUT, buildLayerBuildings, resetBuildings, setBuildingLayer, setLayout, updateBuildings } from './buildings.js';
 import { SLOW_K, clearHusks, clearWrecks, killCam, setHuskLayer, updateWrecks } from './wreck.js';
@@ -1117,6 +1118,8 @@ $('mWatchMenu').onclick = () => {
 };
 $('mGarage').onclick = () => { unlockAudio(); sfx.click(); openGarageFrom('menu'); };
 $('mSettings').onclick = () => { unlockAudio(); sfx.click(); openSettings(); };
+// 零件工坊：關掉時重蓋玩家機體（試穿的外型套上 / 拿掉）
+$('mWorkshop').onclick = () => { unlockAudio(); sfx.click(); $('menu').classList.add('hidden'); openWorkshop(() => { spawnPlayer(0, 0, 0); $('menu').classList.remove('hidden'); }); };
 $('mHelp').onclick = () => { unlockAudio(); sfx.click(); showPanel('操作說明', HELP, [{ label: '返回', primary: true, run: hidePanel }]); };
 
 let duelPick = 0, duelDiff = 'normal';
@@ -1485,6 +1488,8 @@ function step(t) {
     $('wNext').textContent = MODE.result && MODE.endT > 0 ? `${Math.ceil(MODE.endT)} 秒後下一場` : '';
   }
   updateHaze(raw, camTarget.x, camTarget.z);
+  // 零件工坊（src/workshop.js）：自己的場景和鏡頭
+  if (workshopOpen()) { hideMech(scene, player?.model.root); updateWorkshop(raw); renderFrame(wsScene, wsCam); return; }
   // 主選單、整備：畫展示空間（src/showroom.js），機體搬過去
   const showOn = (MODE.name === 'menu' || garage.open) && !!player;
   if (showOn) {

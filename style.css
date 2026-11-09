@@ -260,3 +260,35 @@ body.killcam::before, body.killcam::after { height: 9vh; transition: height .12s
 #perf i { font-style: normal; }
 #perf .ok { color: #7fe08a; } #perf .warn { color: #ffd060; } #perf .bad { color: #ff7060; }
 #perf .dim { opacity: .5; }
+
+/* 零件工坊 */
+#workshop { position: fixed; inset: 0; z-index: 11; pointer-events: none; }
+#workshop.hidden { display: none; }
+.wpanel { pointer-events: auto; position: absolute; left: 0; top: 0; bottom: 0; width: min(340px, 40vw); overflow-y: auto; background: rgba(10,12,16,.94); border-right: 1px solid rgba(255,255,255,.1); padding: 14px 14px 20px; display: flex; flex-direction: column; gap: 8px; font-size: 13px; }
+.whead { display: flex; align-items: center; justify-content: space-between; }
+.whead b { font-size: 18px; letter-spacing: 4px; }
+.whead button, .wbtn { padding: 6px 10px; border-radius: 7px; border: 1px solid rgba(255,255,255,.16); background: rgba(255,255,255,.06); color: #e8ecf2; font: 700 12px system-ui, sans-serif; cursor: pointer; }
+.whead button { border-color: #7ff0ff; color: #7ff0ff; }
+.wbtn:hover { background: rgba(255,255,255,.12); }
+.wrow { display: flex; align-items: center; justify-content: space-between; gap: 8px; flex-wrap: wrap; }
+.wrow.col { flex-direction: column; align-items: stretch; }
+.wrow > span { opacity: .7; font-size: 12px; }
+#wsKey { width: 100%; padding: 6px; border-radius: 7px; background: #161a22; color: #e8ecf2; border: 1px solid rgba(255,255,255,.16); font: 13px system-ui, sans-serif; }
+.wpanel .seg { flex-wrap: wrap; flex-shrink: 1; }
+.wpanel .seg button { padding: 6px 8px; min-width: 0; font-size: 12px; }
+.wpanel { overflow-x: hidden; }
+.wsw { display: flex; flex-wrap: wrap; gap: 4px; }
+.wsw button { display: flex; align-items: center; gap: 4px; padding: 4px 7px; border-radius: 6px; border: 1px solid rgba(255,255,255,.14); background: rgba(255,255,255,.04); color: #e8ecf2; font: 700 11px system-ui, sans-serif; cursor: pointer; }
+.wsw button i { width: 12px; height: 12px; border-radius: 3px; background: var(--c); border: 1px solid rgba(255,255,255,.3); }
+.wsw button.on { border-color: #7ff0ff; background: rgba(127,240,255,.16); }
+.wchk { display: flex; flex-wrap: wrap; gap: 4px 12px; }
+.wchk label, .wtry { display: flex; align-items: center; gap: 4px; cursor: pointer; }
+.wpt { display: flex; align-items: center; gap: 5px; padding: 4px 6px; border-radius: 6px; border: 1px solid transparent; cursor: pointer; }
+.wpt.on { border-color: #7ff0ff; background: rgba(127,240,255,.1); }
+.wpt i { width: 10px; height: 10px; border-radius: 2px; flex-shrink: 0; }
+.wpt b { flex: 1; font-size: 12px; }
+.wpt input { width: 46px; padding: 2px 3px; background: #161a22; color: #e8ecf2; border: 1px solid rgba(255,255,255,.16); border-radius: 4px; font: 11px ui-monospace, monospace; }
+.wbtns { display: flex; flex-wrap: wrap; gap: 6px; align-items: center; }
+.wnote { font-size: 11px; color: #ffb070; }
+.whint { position: absolute; left: min(340px, 40vw); right: 0; bottom: 10px; text-align: center; font-size: 12px; opacity: .55; pointer-events: none; }
+#wsStatus { position: absolute; right: 12px; top: 10px; font: 600 12px ui-monospace, Consolas, monospace; opacity: .7; pointer-events: none; }
