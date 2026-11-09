@@ -23,6 +23,28 @@ let on = false, L = null, layers = [], acc = 1, pc = 0, pr = 0;
 export const heightFog = { hfColor: { value: new THREE.Color(0x232831) }, hfDensity: { value: 0.16 } };
 export function setHeightFog(hex, density) { heightFog.hfColor.value.setHex(hex); heightFog.hfDensity.value = density; }
 
+// 迷霧取樣（著色器共用）：貼圖一格一個像素，直接線性內插的話邊緣是糊糊的鋸齒（一格一格的階梯）
+// 改成：取周圍 4 格，在最暗和最亮的中間畫一條等高線、只在一兩個螢幕像素內過渡 → 階梯變成乾淨的直線 / 斜線
+// 4 格都一樣（或一起淡入淡出）時 max = min，就照原本的值，不影響漸變
+export const FOG_GLSL = `uniform sampler2D fogTex; uniform vec2 fogSize;
+  float fogSample(vec2 xz) {
+    vec2 p = (xz + fogSize * 0.5) - 0.5, i = floor(p), f = p - i;
+    float a = texture2D(fogTex, (i + vec2(0.5, 0.5)) / fogSize).r, b = texture2D(fogTex, (i + vec2(1.5, 0.5)) / fogSize).r;
+    float c = texture2D(fogTex, (i + vec2(0.5, 1.5)) / fogSize).r, d = texture2D(fogTex, (i + vec2(1.5, 1.5)) / fogSize).r;
+    // 平滑的值：三次 B 樣條（用 4 次線性取樣湊出 4×4 格的加權）→ 階梯被抹成平順的坡，等高線就是直的 / 圓滑的
+    vec2 f2 = f * f, f3 = f2 * f;
+    vec2 w0 = (1.0 - 3.0 * f + 3.0 * f2 - f3) / 6.0, w1 = (4.0 - 6.0 * f2 + 3.0 * f3) / 6.0;
+    vec2 w2 = (1.0 + 3.0 * f + 3.0 * f2 - 3.0 * f3) / 6.0, w3 = f3 / 6.0;
+    vec2 g0 = w0 + w1, g1 = w2 + w3, h0 = i + 0.5 - 1.0 + w1 / g0, h1 = i + 0.5 + 1.0 + w3 / g1;
+    float v = g0.y * (g0.x * texture2D(fogTex, vec2(h0.x, h0.y) / fogSize).r + g1.x * texture2D(fogTex, vec2(h1.x, h0.y) / fogSize).r)
+            + g1.y * (g0.x * texture2D(fogTex, vec2(h0.x, h1.y) / fogSize).r + g1.x * texture2D(fogTex, vec2(h1.x, h1.y) / fogSize).r);
+    float lo = min(min(a, b), min(c, d)), hi = max(max(a, b), max(c, d));
+    v = clamp(v, lo, hi);
+    float t = (v - lo) / max(hi - lo, 1e-3), w = clamp(fwidth(t) * 0.8, 0.01, 0.5);   // 導數要在分支外面算
+    return hi - lo < 0.02 ? v : mix(lo, hi, smoothstep(0.5 - w, 0.5 + w, t));
+  }
+`;
+
 // 讓材質吃迷霧（InstancedMesh 也可以）
 export function fogMaterial(mat, U = fogU) {
   mat.onBeforeCompile = sh => {
@@ -34,11 +56,12 @@ export function fogMaterial(mat, U = fogU) {
       #endif
       vec4 fogW = modelMatrix * fogP;
       vFogXZ = fogW.xz; vFogY = fogW.y;`);
-    sh.fragmentShader = 'uniform sampler2D fogTex;\nuniform float fogOn;\nuniform float fogDim;\nuniform vec2 fogSize;\nuniform vec3 hfColor;\nuniform float hfDensity;\nvarying vec2 vFogXZ;\nvarying float vFogY;\n' + sh.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>
-      if (fogOn > 0.5) gl_FragColor.rgb *= texture2D(fogTex, (vFogXZ + fogSize * 0.5) / fogSize).r * fogDim;
+    sh.fragmentShader = 'uniform float fogOn;\nuniform float fogDim;\nuniform vec3 hfColor;\nuniform float hfDensity;\nvarying vec2 vFogXZ;\nvarying float vFogY;\n' + FOG_GLSL + sh.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>
+      float fogV = fogOn > 0.5 ? fogSample(vFogXZ) * fogDim : 1.0;
+      gl_FragColor.rgb *= fogV;
       // 高度霧：比地面低越多越往霧色混（霧色也照那層的迷霧亮度，沒去過的地方還是黑的）
       float hfK = 1.0 - exp(-max(0.0, -vFogY - 0.15) * hfDensity);
-      gl_FragColor.rgb = mix(gl_FragColor.rgb, hfColor * (fogOn > 0.5 ? texture2D(fogTex, (vFogXZ + fogSize * 0.5) / fogSize).r * fogDim : 1.0), hfK);`);
+      gl_FragColor.rgb = mix(gl_FragColor.rgb, hfColor * fogV, hfK);`);
   };
   mat.customProgramCacheKey = () => 'fog';
   return mat;

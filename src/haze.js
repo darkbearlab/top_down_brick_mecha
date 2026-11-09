@@ -4,7 +4,7 @@
 // setHaze(color, amount) 換顏色和濃度（每種地形 / 每層可以不一樣；amount = 0 關掉）
 import * as THREE from 'three';
 import { scene } from './core.js';
-import { fogU } from './fog.js';
+import { FOG_GLSL, fogU } from './fog.js';
 
 const SIZE = 70;
 const U = {
@@ -13,7 +13,7 @@ const U = {
 };
 const VERT = `varying vec2 vXZ;
   void main() { vec4 w = modelMatrix * vec4(position, 1.0); vXZ = w.xz; gl_Position = projectionMatrix * viewMatrix * w; }`;
-const FRAG = `uniform float t, amount, scale, speed, fogOn, fogDim; uniform vec3 color; uniform vec2 wind, fogSize; uniform sampler2D fogTex;
+const FRAG = FOG_GLSL + `uniform float t, amount, scale, speed, fogOn, fogDim; uniform vec3 color; uniform vec2 wind;
   varying vec2 vXZ;
   float h(vec2 p) { return fract(sin(dot(p, vec2(127.1, 311.7))) * 43758.5453); }
   float n(vec2 p) { vec2 i = floor(p), f = fract(p); f = f * f * (3.0 - 2.0 * f);
@@ -24,7 +24,7 @@ const FRAG = `uniform float t, amount, scale, speed, fogOn, fogDim; uniform vec3
     // 大塊的雲 × 細的條紋（被風拉長）
     float big = fbm(p * 0.35 + vec2(0.0, t * 0.02)), streak = fbm(vec2(p.x * 0.6, p.y * 1.8) - wind * t * speed * 0.6);
     float a = smoothstep(0.38, 0.85, big * 0.65 + streak * 0.5) * amount;
-    if (fogOn > 0.5) a *= texture2D(fogTex, (vXZ + fogSize * 0.5) / fogSize).r * fogDim;
+    if (fogOn > 0.5) a *= fogSample(vXZ) * fogDim;
     gl_FragColor = vec4(color, a);
     #include <colorspace_fragment>
   }`;
