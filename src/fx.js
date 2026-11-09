@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { sampleVoxels } from './voxel.js';
-import { DEBRIS_GEO, FLASH_GEO, UNIT_BOX, WALL_H, addMat, debrisMat, scene } from './core.js';
+import { DEBRIS_GEO, FLASH_GEO, UNIT_BOX, WALL_H, addMat, camera, debrisMat, scene } from './core.js';
 import { fogMaterial, fogU } from './fog.js';
 import { clearLights, flashLight, updateLights } from './lights.js';
 
@@ -35,6 +35,7 @@ export function setRubbleLayer(k, parent = scene, U = fogU) {
   // 還在飛的碎片是上一層的：直接收掉
   for (const d of debris) scene.remove(d.m);
   debris.length = 0;
+  clearMenders();
 }
 export function clearRubble() {
   for (const P of rubblePools.values()) for (const o of [P.mesh, P.soot]) { o.parent?.remove(o); o.dispose(); o.material.dispose(); }
@@ -42,6 +43,7 @@ export function clearRubble() {
   clearLights();
   for (const d of debris) scene.remove(d.m);
   debris.length = 0;
+  clearMenders();
 }
 function bake(d) {
   if (!rubble) setRubbleLayer(0);
@@ -355,8 +357,70 @@ function stepList(list, dt, mesh, write) {
   if (mesh.instanceColor) mesh.instanceColor.needsUpdate = true;
 }
 
+// ---------- 修理：方塊從道具 / 修復站飛到機身上，再飄出綠色十字 ----------
+// m = 被修的機體；(sx, sy, sz) = 方塊從哪裡飛出來；n = 幾塊；spread = 出發點散多開（修復站比較大）
+// 每塊飛向機身上隨機一顆方塊的位置（跟著機體移動），拋物線、越飛越快，貼上去時閃一下綠光
+const MEND_C = [0x60ff90, 0x9aa4b0, 0x60ff90, 0x6c747e];
+const menders = [], crosses = [];
+const CROSS_MAT = new THREE.MeshBasicMaterial({ color: 0x60ff90, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, toneMapped: false });
+const CROSS_H = new THREE.BoxGeometry(0.45, 0.15, 0.15), CROSS_V = new THREE.BoxGeometry(0.15, 0.45, 0.15);
+export function repairFx(m, sx, sy, sz, n = 16, spread = 0.25, crossN = 4) {
+  const pts = sampleVoxels(m.model.root, n);
+  pts.forEach((v, i) => {
+    const mesh = new THREE.Mesh(DEBRIS_GEO, debrisMat(MEND_C[i % MEND_C.length]));
+    const s = R(0.6, 1.0);
+    mesh.scale.setScalar(s); mesh.visible = false;
+    scene.add(mesh);
+    menders.push({ mesh, m, s, ox: v.x - m.x, oy: v.y, oz: v.z - m.z,
+      x0: sx + R(-spread, spread), y0: sy + R(-0.15, 0.3), z0: sz + R(-spread, spread),
+      t: -i * R(0.02, 0.05), dur: R(0.4, 0.65), arc: R(0.5, 1.3), spin: R(8, 16) });
+  });
+  for (let k = 0; k < crossN; k++) {
+    const g = new THREE.Group(), mat = CROSS_MAT.clone();
+    g.add(new THREE.Mesh(CROSS_H, mat), new THREE.Mesh(CROSS_V, mat));
+    g.visible = false; g.renderOrder = 6;
+    scene.add(g);
+    crosses.push({ g, mat, m, ox: R(-0.45, 0.45), oz: R(-0.45, 0.45), y: R(0.9, 1.6) * (m.k ?? 1), t: -(0.35 + k * 0.17 + R(0, 0.08)), life: 1.1, sc: R(0.9, 1.3) });
+  }
+}
+function clearMenders() {
+  for (const d of menders) scene.remove(d.mesh);
+  for (const c of crosses) { scene.remove(c.g); c.mat.dispose(); }
+  menders.length = crosses.length = 0;
+}
+function updateMenders(dt) {
+  for (let i = menders.length - 1; i >= 0; i--) {
+    const d = menders[i];
+    d.t += dt;
+    if (d.t < 0) continue;
+    const f = Math.min(1, d.t / d.dur), e = f * f * (3 - 2 * f) * 0.4 + f * f * 0.6;
+    const tx = d.m.x + d.ox, ty = d.oy, tz = d.m.z + d.oz;
+    d.mesh.visible = true;
+    d.mesh.position.set(d.x0 + (tx - d.x0) * e, d.y0 + (ty - d.y0) * e + Math.sin(Math.PI * f) * d.arc, d.z0 + (tz - d.z0) * e);
+    d.mesh.rotation.x += d.spin * dt; d.mesh.rotation.y += d.spin * 0.7 * dt;
+    d.mesh.scale.setScalar(d.s * (1 - f * 0.4));
+    if (f >= 1) {
+      spawnGlow({ x: tx, y: ty, z: tz, life: 0.25, s0: 0.16, s1: 0, ramp: rampOf(0x60ff90), vr: 0 });
+      scene.remove(d.mesh); menders.splice(i, 1);
+    }
+  }
+  for (let i = crosses.length - 1; i >= 0; i--) {
+    const c = crosses[i];
+    c.t += dt;
+    if (c.t < 0) continue;
+    const f = c.t / c.life;
+    if (f >= 1) { scene.remove(c.g); c.mat.dispose(); crosses.splice(i, 1); continue; }
+    c.g.visible = true;
+    c.g.position.set(c.m.x + c.ox, c.y + f * 0.9, c.m.z + c.oz);
+    c.g.quaternion.copy(camera.quaternion);   // 永遠正對鏡頭
+    c.g.scale.setScalar(c.sc * (f < 0.15 ? 0.4 + f / 0.15 * 0.6 : 1));
+    c.mat.opacity = f < 0.6 ? 1 : 1 - (f - 0.6) / 0.4;
+  }
+}
+
 export function updateParticles(dt) {
   updateLights(dt);
+  updateMenders(dt);
   for (let i = debris.length - 1; i >= 0; i--) {
     const d = debris[i];
     if (!d) continue;   // 這一幀中途換層 / 清場把清單清掉了

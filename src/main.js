@@ -20,7 +20,7 @@ import { ARENA_LAYOUT, buildLayerBuildings, resetBuildings, setBuildingLayer, se
 import { SLOW_K, clearHusks, clearWrecks, killCam, setHuskLayer, updateWrecks } from './wreck.js';
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
 import { AI, DIFFS, clearEnemies, enemies, keepEnemies, parkEnemy, removeEnemy, spawnEnemy, unparkEnemy, updateEnemy } from './ai.js';
-import { burst, clearRubble, makeLaser, setLaser, setRubbleLayer, smoke, updateParticles } from './fx.js';
+import { burst, clearRubble, makeLaser, repairFx, setLaser, setRubbleLayer, smoke, updateParticles } from './fx.js';
 import { clearWarp, startWarp, updateWarp } from './warp.js';
 import { CHIPS, DEVICES, hasChip, techName } from './tech.js';
 import { clearDevices, deviceReady, updateDeviceCd, updateDevices, useDevice } from './devices.js';
@@ -326,7 +326,7 @@ function canTake(kind) {
   if (kind === 'repair') return Object.values(p.parts).some(q => !q.broken && q.hp < q.max);
   return true;
 }
-function takePickup(kind, val) {
+function takePickup(kind, val, src) {
   const p = player;
   if (kind === 'scrap') { EN.scrap += val; return; }
   if (kind === 'tech') {
@@ -343,7 +343,7 @@ function takePickup(kind, val) {
     let any = false;
     for (const k in p.parts) { const q = p.parts[k]; if (q.broken || q.hp >= q.max) continue; q.hp = Math.min(q.max, q.hp + q.max * 0.25); syncWear(p, k); any = true; }
     if (!any) return false;
-    toast('機體修理 +25%'); sfx.lock();
+    repairFx(p, src?.x ?? p.x, 0.6, src?.z ?? p.z, 12, 0.15, 3); sfx.lock();
   } else {
     const keys = Object.keys(MODS), k = keys[Math.floor(Math.random() * keys.length)];
     MODS[k].apply(p);
@@ -704,7 +704,7 @@ function interact(p) {
     if (EN.scrap < p.cost) { toast(`零件不足（需要 ${p.cost}，現在 ${EN.scrap}）`); sfx.click(); return; }
     EN.scrap -= p.cost; spendProp(p);
     rebuild(EN.loadout, null, true);
-    toast('全機修復完成'); sfx.lock();
+    repairFx(player, p.x, 0.9, p.z, 34, 0.5, 6); sfx.lock();
   } else if (p.kind === 'gun') offerGun(p);
   else if (p.kind === 'link') useLink(p);
   else if (p.kind === 'portal') {
