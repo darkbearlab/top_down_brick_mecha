@@ -51,7 +51,7 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   const has = k => ws.includes(k) || ws.includes(k + '_l');   // 低階版也算
   e.ai = {
     strafe: Math.random() < 0.5 ? -1 : 1, t: 1, burst: 0, rest: 1 + Math.random(), reposition: 3 + Math.random() * 3, lockT: 0, snipeT: 0, hold: { L: Math.random(), R: Math.random() },
-    want: has('saber') || has('shotgun') || has('flamer') ? 3 : has('sniper') ? 13 : has('acid') ? 11 : 8,   // 只會拋酸的投擲蟲站遠一點丟
+    want: has('saber') || has('shotgun') || has('flamer') || has('pile') ? 3 : has('lance') ? 7 : has('sniper') ? 13 : has('acid') ? 11 : has('pulse') ? 10 : 8,   // 只會拋酸的投擲蟲站遠一點丟
   };
   e.laser = makeLaser(0xff3020);
   // 特殊雜魚
@@ -146,7 +146,7 @@ function updateDrop(e, dt, player) {
 }
 
 // 這把武器打得到多遠
-const reachOf = d => d.kind === 'flame' ? d.range + 0.3 : d.kind === 'napalm' ? d.range : d.kind === 'saber' ? d.reach + 1.2 : d.kind === 'bullet' || d.kind === 'beam' ? d.speed * d.life : d.kind === 'rocket' ? 26 : 18;   // 敵人子彈慢，但飛得一樣久 → 射程一樣
+const reachOf = d => d.kind === 'pulse' ? d.range : d.kind === 'pile' ? d.reach + 1.9 : d.kind === 'lance' ? d.speed * d.dashT + 1.6 : d.kind === 'flame' ? d.range + 0.3 : d.kind === 'napalm' ? d.range : d.kind === 'saber' ? d.reach + 1.2 : d.kind === 'bullet' || d.kind === 'beam' ? d.speed * d.life : d.kind === 'rocket' ? 26 : 18;   // 敵人子彈慢，但飛得一樣久 → 射程一樣
 
 export function updateEnemy(e, dt, player) {
   if (e.fall) { updateFall(e, dt); return; }
@@ -259,6 +259,11 @@ export function updateEnemy(e, dt, player) {
       bx = -sdz * side; bz = sdx * side;
     }
   }
+  const PC = player.charge;
+  if (DF.dodge && PC && player.alive) {
+    const f = PC.phase === 'dash' ? { x: PC.dx, z: PC.dz } : facing(player), ox = e.x - player.x, oz = e.z - player.z, t = ox * f.x + oz * f.z;
+    if (t > 0 && t < 10 && Math.abs(ox * f.z - oz * f.x) < 1.6 && Math.random() < dt * 5) { boost = true; const side = ox * f.z - oz * f.x > 0 ? 1 : -1; bx = f.z * side; bz = -f.x * side; }
+  }
   if (A.reposition <= 0 && player.alive) { A.reposition = e.preset?.elite?.jumpy ? 1.8 + Math.random() * 2 : 4 + Math.random() * 4; boost = true; if (A.want <= 3 && dist > 4) { bx = nx; bz = nz; } }
   if (boost && !DF.dodge && !(A.reposition > 3.9)) boost = false;
   if (e.fixed || Hd) boost = false;
@@ -301,6 +306,15 @@ export function updateEnemy(e, dt, player) {
     const inRange = clear && dist < reachOf(d);
     let t = false;
     if (d.kind === 'saber') t = inRange && canShoot && Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.4;
+    // 打樁拳：貼到拳頭打得到、正對著才打
+    else if (d.kind === 'pile') t = canShoot && dist < d.reach + e.r + player.r + 0.15 && Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.3;
+    // 騎槍：中距離、正對著、整條衝刺路線上沒有牆才衝（撞牆是自己吃傷害）
+    else if (d.kind === 'lance') {
+      const f = facing(e);
+      t = canShoot && dist > 3.5 && dist < reachOf(d) && Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.1 && rayBlock(e.x, e.z, f.x, f.z, dist) >= dist - 0.3 && Math.random() < dt * 1.5 / DF.rest;
+    }
+    // 脈衝光束：瞄準了就照（照射中上半身轉得慢 → 玩家橫移躲得掉）
+    else if (d.kind === 'pulse') t = onTarget && inRange && Math.random() < dt * 1.4 / DF.rest;
     else if (d.kind === 'missile' || d.kind === 'split') t = canShoot && clear && locks.length > 0 && Math.random() < dt * 1.6 / DF.rest;
     else if (d.kind === 'vmissile') t = clear && locks.length > 0 && dist > 6 && Math.random() < dt * 1.2 / DF.rest;
     else if (d.speed > 50) {
@@ -328,7 +342,7 @@ export function updateEnemy(e, dt, player) {
 // 射線檢查：從槍口沿著上半身正前方，到目標的距離內有沒有方塊
 //   子彈 / 光束：整段要通；直射 / 分裂飛彈：轉得慢，前面 5 格要空；垂直飛彈越過掩體、劍是近戰，不用管
 function lineClear(e, slot, d, tgt) {
-  if (d.kind === 'saber' || d.kind === 'vmissile' || d.kind === 'napalm') return true;
+  if (d.kind === 'saber' || d.kind === 'vmissile' || d.kind === 'napalm' || d.kind === 'pile' || d.kind === 'lance') return true;
   const mz = muzzleOf(e, slot), f = facing(e);
   const md = Math.hypot(tgt.x - mz.x, tgt.z - mz.z);
   const need = d.kind === 'missile' || d.kind === 'split' ? Math.min(md - 0.5, 5) : md - tgt.r;
@@ -348,7 +362,7 @@ function updateReadyChoice(e, dt, dist, canShoot, tgt) {
     const back = e.guns['back' + side], arm = e.guns['arm' + side];
     if (!back || slotBroken(e, 'back' + side) || !arm || slotBroken(e, 'arm' + side)) continue;   // 沒得選（沒手臂武器的會自動架著）
     if (e.deployT[side] > 0) continue;
-    const melee = arm.def.kind === 'saber' && dist < 5;
+    const melee = (arm.def.kind === 'saber' || arm.def.kind === 'pile') && dist < 5 || arm.def.kind === 'lance' && dist < 9;
     if (e.ready[side] && melee) { toggleReady(e, side); A.hold[side] = 1.5; continue; }
     if ((A.hold[side] -= dt) > 0) continue;
     const useful = back.ammo > 0 && backUseful(e, 'back' + side, back.def, dist, canShoot, headStats(e), tgt);

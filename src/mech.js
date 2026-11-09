@@ -151,7 +151,7 @@ export function boostDirOf(m, mx, mz) {
 }
 export const boostKOf = m => m.spec.boost * (m.parts.legs.broken ? 0.75 : 1) * (hasChip(m, 'lowCG') ? 0.6 : 1);   // 低重心：推進短
 export function tryBoost(m, mx, mz) {
-  if (!m.alive || m.grunt || !m.spec.boost || m.staggerT > 0 || m.boostCd > 0 || m.energy < BOOST_COST) return false;
+  if (!m.alive || m.grunt || !m.spec.boost || m.staggerT > 0 || m.boostCd > 0 || m.energy < BOOST_COST || m.charge) return false;
   const d = boostDirOf(m, mx, mz), k = boostKOf(m);
   // 噴射只往一個方向：原本的速度只留沿著噴射方向的分量（往反方向跑的會被抵銷），橫向的全部吃掉
   const along = Math.max(0, m.vx * d.x + m.vz * d.z);
@@ -180,8 +180,23 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   m.energyT -= dt;
   if (m.energyT <= 0) m.energy = Math.min(100, m.energy + ENERGY_REGEN * S.regen * (hasChip(m, 'doubleBoost') ? 0.75 : 1) * dt);
   // 失衡：腳不出力、轉不太動
-  if (m.staggerT > 0) { if ((m.staggerT -= dt) <= 0) m.staggerImm = STAGGER_IMM; mx = 0; mz = 0; }
+  if (m.staggerT > 0) { if ((m.staggerT -= dt) <= 0) m.staggerImm = STAGGER_IMM; mx = 0; mz = 0; m.charge = null; }
   else if (m.staggerImm > 0) m.staggerImm -= dt;
+  // 騎槍衝鋒（weapons.js 開的頭）：點火時站住不動、衝刺時整台鎖在一個方向；兩段都不吃移動指令
+  const C = m.charge;
+  if (C) {
+    mx = mz = 0;
+    if ((C.t -= dt) <= 0) {
+      if (C.phase === 'ignite') {
+        const f = facing(m);
+        Object.assign(C, { phase: 'dash', t: C.d.dashT, dx: f.x, dz: f.z, v: C.d.speed });
+        sfx.boost(); sfx.cannon();
+        for (let i = 0; i < 10; i++) flame(m.x - f.x * 0.5, m.model.hipY + 0.5, m.z - f.z * 0.5, -f.x * 2 + (Math.random() - 0.5), -f.z * 2 + (Math.random() - 0.5));
+        smoke(m.x - f.x * 0.6, 0.4, m.z - f.z * 0.6, 4, 1.2, 0x9a9ca2);
+        if (m.team === 'player') addTrauma(0.3);
+      } else m.charge = null;
+    }
+  }
   const ml = Math.hypot(mx, mz);
 
   // 履帶：只能沿車身前後開，方向鍵決定車身要轉去哪；往後按就倒車
@@ -195,7 +210,18 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
     tx = lf.x * sp; tz = lf.z * sp;
   } else if (ml > 0.1 && m.boostT <= 0) m.legYaw = approachAngle(m.legYaw, Math.atan2(mx, mz), S.legTurn * lk * dt);
 
-  if (m.boostT > 0) {
+  if (C && m.charge) {
+    const f = facing(m);
+    if (C.phase === 'dash') {
+      m.vx = C.dx * C.v; m.vz = C.dz * C.v;
+      for (let i = 0; i < 3; i++) flame(m.x - C.dx * 0.5 + (Math.random() - 0.5) * 0.4, m.model.hipY + 0.5, m.z - C.dz * 0.5 + (Math.random() - 0.5) * 0.4, -C.dx * 1.5, -C.dz * 1.5);
+    } else {
+      // 點火：剎住、背後的噴射器火越來越大
+      const k = Math.exp(-14 * dt); m.vx *= k; m.vz *= k;
+      const heat = 1 - C.t / C.d.ignite;
+      for (let i = 0; i < 1 + heat * 3; i++) flame(m.x - f.x * 0.45 + (Math.random() - 0.5) * 0.3, m.model.hipY + 0.5, m.z - f.z * 0.45 + (Math.random() - 0.5) * 0.3, -f.x * (0.3 + heat), -f.z * (0.3 + heat));
+    }
+  } else if (m.boostT > 0) {
     // 噴射中不吃任何方向指令：速度鎖在噴射方向上
     m.boostT -= dt;
     const sp = Math.max(0, m.vx * m.boostDir.x + m.vz * m.boostDir.z) + BOOST_PUSH * m.boostK * dt;
@@ -222,7 +248,22 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   m.vx *= drag; m.vz *= drag;
 
   m.x += m.vx * dt; m.z += m.vz * dt;
+  const dashing = m.charge?.phase === 'dash';
+  if (dashing) lanceHit(m);
   const hit = collideBlocks(m, m.r, 0, !!m.fly);
+  // 騎槍衝刺撞牆 / 建築：撞敵機會給的那一下，全部吃在自己身上
+  if (dashing && m.charge && hit.hit > 2) {
+    const C2 = m.charge, dmg = Math.min(C2.d.dmgMax, C2.v * C2.d.dmgK);
+    m.charge = null;
+    hitMech(m, dmg, hit.nx, hit.nz, 0, 'kinetic', null, dmg);
+    damageBuilding(m.x - hit.nx * (m.r + 0.05), 1, m.z - hit.nz * (m.r + 0.05), dmg * 1.5, -hit.nx, -hit.nz);
+    hitSparks(m.x - hit.nx * m.r, 1, m.z - hit.nz * m.r, hit.nx, hit.nz, 2.4);
+    burst(m.x - hit.nx * m.r, 0.8, m.z - hit.nz * m.r, [0x7a8090, 0x4a505c], 6, 3.5);
+    sfx.crash();
+    if (m.team === 'player') addTrauma(0.6);
+    stick(m, hit.hit, hit.nx, hit.nz);
+    hit.hit = 0;   // 不再另外算一般的撞牆傷害
+  }
   if (hit.hit > STICK_SPEED) {
     // 不反彈，連沿著牆滑的速度也被磨掉一大半
     const vt = m.vx * -hit.nz + m.vz * hit.nx, keep = Math.max(0.15, 1 - hit.hit * 0.08);
@@ -233,7 +274,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   const wh = collideWrecks(m);
   if (wh.hit > STICK_SPEED) stick(m, wh.hit, wh.nx, wh.nz);
 
-  m.torsoYaw = approachAngle(m.torsoYaw, aimYaw, S.turn * (m.parts.head.broken ? 0.7 : 1) * (m.staggerT > 0 ? 0.2 : 1) * dt);
+  if (!dashing) m.torsoYaw = approachAngle(m.torsoYaw, aimYaw, S.turn * (m.parts.head.broken ? 0.7 : 1) * (m.staggerT > 0 ? 0.2 : 1) * (m.beamTurnK ?? 1) * dt);   // 衝刺中上半身鎖住；光束照射中轉得慢
   const prev = m.walk;
   m.walk += dt * (L.type === 'tread' || L.type === 'hover' ? 0 : ml * 9 * lk * (L.type === 'reverse' ? 1.15 : 1));
   m.bob += dt;
@@ -245,6 +286,29 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   const kL = 1 - Math.exp(-8 * dt);
   m.lean.x += (Math.max(-0.2, Math.min(0.2, -fwdA * 0.012)) - m.lean.x) * kL;
   m.lean.z += (Math.max(-0.2, Math.min(0.2, sideA * 0.012)) - m.lean.z) * kL;
+}
+
+// 騎槍衝刺撞上敵機：正前方、碰到（槍尖多算 0.45 格）就撞
+// 傷害 = 撞上去的相對速度（自己的速度 − 對方沿衝刺方向的速度：迎面衝過來的更痛）× dmgK，最多 dmgMax；自己不受傷、停下來
+function lanceHit(m) {
+  const C = m.charge, d = C.d;
+  for (const o of mechs) {
+    if (o === m || !o.alive || o.drop || o.team === m.team) continue;
+    const ox = o.x - m.x, oz = o.z - m.z, dist = Math.hypot(ox, oz);
+    if (dist > m.r + o.r + 0.45 || ox * C.dx + oz * C.dz < 0) continue;
+    const closing = Math.max(0, C.v - (o.vx * C.dx + o.vz * C.dz));
+    const dmg = Math.min(d.dmgMax, closing * d.dmgK) * (m.dmgMul ?? 1);
+    hitMech(o, dmg, C.dx, C.dz, d.kb, 'kinetic', null, closing * d.dmgK);
+    const hx = m.x + C.dx * (m.r + 0.3), hz = m.z + C.dz * (m.r + 0.3);
+    hitSparks(hx, 1.1, hz, -C.dx, -C.dz, 3);
+    explosion(hx, 1.1, hz, 0.35);
+    burst(hx, 1, hz, [0x8a909a, 0x5a606c], 6, 4);
+    sfx.crash(); sfx.hit();
+    if (m.team === 'player' || o.team === 'player') addTrauma(0.55);
+    m.vx = C.dx * 1.5; m.vz = C.dz * 1.5;
+    m.charge = null;
+    return;
+  }
 }
 
 // 卡住：撞得越重卡越久；畫面上機體陷進去一點、震一下

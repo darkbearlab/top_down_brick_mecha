@@ -95,6 +95,21 @@ export const WEAPONS = {
   // 燒夷彈（背部）：拋到瞄準點（最遠 range 格），落地小爆炸 + 半徑 zone 的火海燒 zoneT 秒，站在裡面每秒疊 burn 層（燒腳 → 變慢）
   napalm: { name: '燒夷彈', type: 'chemical', mount: 'back', weight: 6, kind: 'napalm', interval: 2.2, ammo: 10, dmg: 24, splash: 1.6, range: 16, zone: 2.4, zoneT: 5, burn: 1.4, size: 0.2,
     model: [[-3, -3, -4, 6, 6, 8, 'f'], [-2, -2, 4, 4, 4, 2, 'f'], [-1, -1, 6, 2, 2, 1, 'w'], [-3, 3, -3, 6, 1, 5, 'w']], muzzle: [0, 0, 7] },
+  // 脈衝光束步槍（手臂）：充能 charge 秒後，沿著上半身正前方射出一道持續 dur 秒的光束（跟瞄準雷射同一條線：停在第一面牆或第一台機體）
+  //   每 0.05 秒判定一次，dmg = 整道光束的總傷害（平均分到每一下）；照射中上半身轉速 ×turnK（可以掃，但甩不快）
+  pulse: { name: '脈衝光束步槍', type: 'energy', mount: 'arm', weight: 5, kind: 'pulse', interval: 1.7, dmg: 84, energy: 28, charge: 0.18, dur: 0.75, range: 20, kb: 0.05, turnK: 0.4, size: 0.12,
+    desc: '持續光束・充能 0.18 秒後照射 0.75 秒、停在第一個目標、可以掃', info: '總傷害 84（每 0.05 秒一下）・能量 28/發・照射中上半身轉得慢',
+    model: [[-2, -2, -1, 4, 4, 9, 'f'], [-1, -1, 8, 2, 2, 7, 'f'], [-2, -2, 10, 4, 4, 1, 'w'], [-2, -2, 13, 4, 4, 1, 'w'], [-1, -1, 15, 2, 2, 1, 'g'], [-1, 2, 1, 2, 2, 5, 'w']], muzzle: [0, 0, 16] },
+  // 打樁拳（手臂）：蓄力 windup 秒、往前一拳（reach 格內第一台）；打哪個部位看拳頭落在對方的哪一側（打得到手臂就打手臂）
+  //   威力大到標準軀幹的手臂（陶瓷 / 鏡面）一拳就掉；會失衡；彈藥 = 樁的數量
+  pile: { name: '打樁拳', type: 'kinetic', mount: 'arm', weight: 5, kind: 'pile', interval: 1.6, ammo: 10, dmg: 140, reach: 1.7, windup: 0.16, lunge: 3.5, kb: 6, size: 0.1,
+    desc: '近戰・蓄力 0.16 秒打出一樁、射程 1.7 格・拳頭打在哪一側就打那一側的手臂（標準手臂一拳打掉）', info: '傷害 140・彈藥 10 樁',
+    model: [[-2, -3, -1, 5, 6, 6, 'f'], [-2, -2, 5, 5, 4, 2, 'w'], [0, -1, 7, 1, 2, 4, 'f'], [-2, 3, 0, 5, 1, 4, 'w']], muzzle: [0.5, 0, 11] },
+  // 衝擊騎槍（手臂）：吃一大口推進能量 → 噴射器點火 ignite 秒（不動）→ 整台往正前方彈出去（speed，最多 dashT 秒）
+  //   撞到敵機：傷害 = 撞上去的速度（加上對方迎面過來的速度）× dmgK，自己不受傷；撞到牆 / 建築：同樣的傷害打在自己身上
+  lance: { name: '衝擊騎槍', type: 'kinetic', mount: 'arm', weight: 6, kind: 'lance', interval: 2.0, energy: 45, ignite: 0.3, dashT: 0.38, speed: 21, dmgK: 6.5, dmgMax: 230, kb: 9, size: 0.1,
+    desc: '衝鋒・點火 0.3 秒後整台往前彈出約 8 格・撞上敵機傷害看速度（最高 230）、自己不受傷・撞牆傷害全吃在自己身上', info: '推進能量 45/次',
+    model: [[-2, -2, -2, 4, 4, 5, 'f'], [-3, -3, 3, 6, 6, 2, 'w'], [-1, -1, 5, 3, 3, 8, 'f'], [0, 0, 13, 2, 2, 6, 'f'], [0, 0, 19, 1, 1, 3, 'w']], muzzle: [0.5, 0.5, 22] },
   split: { name: '分裂飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'split', interval: 1.8, ammo: 8, dmg: 11, salvo: 1, bomblets: 6, speed: 16, accel: 16, maxSpeed: 25, turn: 1.2, life: 1.9, size: 0.18, splash: 1.0,
     model: [[-3, -3, -4, 6, 6, 9, 'f'], [-2, -2, 5, 4, 4, 2, 'w']], muzzle: [0, 0, 7] },
 };
@@ -267,6 +282,13 @@ export const ENEMY_PRESETS = [
     armor: { head: 'composite', torso: 'composite', arms: 'ceramic', legs: 'composite' } },
   { name: '重砲型', faction: 'base', head: 'dome', core: 'heavy', legs: 'tread', armL: 'mg', armR: 'mg', backL: 'cannon', backR: 'split',
     armor: { head: 'ceramic', torso: 'composite', arms: 'composite', legs: 'ceramic' } },
+  // 新武器的使用者：打樁（貼身一拳拆手）、脈衝（中距離掃光束）、騎槍（點火 → 衝過來撞）
+  { name: '打樁型', faction: 'base', head: 'std', core: 'heavy', legs: 'biped', armL: 'pile', armR: 'autocannon', backL: 'missile', backR: null,
+    armor: { head: 'composite', torso: 'composite', arms: 'ceramic', legs: 'composite' } },
+  { name: '脈衝型', faction: 'base', head: 'hunter', core: 'std', legs: 'hover', armL: 'pulse', armR: 'mg', backL: 'vmissile', backR: null,
+    armor: { head: 'mirror', torso: 'mirror', arms: 'mirror', legs: 'mirror' } },
+  { name: '騎槍型', faction: 'base', head: 'dome', core: 'std', legs: 'reverse', armL: 'lance', armR: 'shotgun', backL: 'rocket', backR: null,
+    armor: { head: 'ceramic', torso: 'ceramic', arms: 'ceramic', legs: 'composite' } },
 ];
 
 // ---------- 菁英機 ----------

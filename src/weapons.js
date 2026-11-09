@@ -5,6 +5,9 @@
 //   bullet  一般子彈（機槍、機砲、霰彈、狙擊、加農砲）
 //   beam    光束：吃能量，不用換彈
 //   saber   光束劍：吃能量，往前突進揮一刀，打中扇形內的敵機，順便劈掉飛過來的子彈
+//   pulse   脈衝光束步槍：吃能量，充能後照射一陣子的持續光束（跟瞄準雷射同一條線，停在第一個目標），每 0.05 秒判定一次
+//   pile    打樁拳：蓄力後往前一拳，打在對方哪一側就打那一側的手臂
+//   lance   衝擊騎槍：吃推進能量，點火後整台彈出去（衝刺本身在 mech.js driveMech），撞上的速度越快越痛
 //   missile 直射飛彈：有鎖定就追目標
 //   vmissile 垂直飛彈：先往上飛再從上方砸下來（越過掩體），要鎖定
 //   split   分裂飛彈：飛一段後分裂成好幾顆小飛彈
@@ -14,11 +17,11 @@
 //           d.status = 'corrode' 就是酸液彈（投擲蟲）：落地不爆炸、濺開一灘酸，站在裡面腳被腐蝕
 // 敵人的子彈和光束比較慢，看得到、閃得掉
 import * as THREE from 'three';
-import { UNIT_BOX, addMat, addTrauma, scene } from './core.js';
+import { UNIT_BOX, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { isBlock, rayBlock, wallFace } from './arena.js';
 import { blastBuildings, damageBuilding, isBuilding } from './buildings.js';
 import { facing, hitMech, mechs, muzzleOf, slotBroken, slotLive, updateReady, useEnergy } from './mech.js';
-import { RAMP, burnAt, explosion, flame, hitSparks, muzzleFlash, rampOf, scorch, smoke, wallMark, sparks, spawnGlow, spawnPuff } from './fx.js';
+import { RAMP, burnAt, explosion, flame, hitSparks, makeLaser, muzzleFlash, rampOf, scorch, setLaser, smoke, wallMark, sparks, spawnGlow, spawnPuff } from './fx.js';
 import { DMG_TYPES, SLOTS, WEAPONS } from './parts.js';
 import { sfx } from './audio.js';
 import { chipDmgK, chipRateK, chipSpreadK, empOff } from './tech.js';
@@ -45,11 +48,13 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
     for (let i = m.salvo.length - 1; i >= 0; i--) { const q = m.salvo[i]; q.t -= dt; if (q.t <= 0) { m.salvo.splice(i, 1); if (m.alive) q.fn(); } }
   }
   if (m.swing) updateSwing(m, dt);
+  if (m.pulses) updatePulses(m, dt);
+  if (m.punch) updatePunch(m, dt);
   for (const slot in m.guns) {
     const gun = m.guns[slot], d = gun.def;
     if (d.kind === 'shield') continue;   // 盾牌：純被動
     gun.cd -= dt;
-    if (!triggers[slot.slice(-1)] || !slotLive(m, slot) || gun.cd > 0 || !m.alive || slotBroken(m, slot) || m.swing || m.staggerT > 0 || empOff(m)) continue;
+    if (!triggers[slot.slice(-1)] || !slotLive(m, slot) || gun.cd > 0 || !m.alive || slotBroken(m, slot) || m.swing || m.punch || m.charge || m.staggerT > 0 || empOff(m)) continue;
     if (gun.ammo <= 0) { gun.cd = 0.3; if (m.team === 'player') sfx.click(); continue; }   // 彈盡
     if (d.needLock && !locks.length && m.team === 'player') { gun.cd = 0.3; sfx.click(); continue; }
     if (d.energy && !useEnergy(m, d.energy)) continue;
@@ -67,6 +72,9 @@ function fire(m, slot, d, locks, aim, salvoN = d.salvo ?? 1) {
   const mz = muzzleOf(m, slot), f = facing(m), base = Math.atan2(f.x, f.z);
   const spreadK = m.spec.spreadMul * (m.parts.head.broken ? 2.5 : 1) * chipSpreadK(m) * burnSpreadK(m, slot);   // 那個掛點燒起來散布變大
   if (d.kind === 'saber') { startSwing(m, slot, d); return; }
+  if (d.kind === 'pulse') { startPulse(m, slot, d); return; }
+  if (d.kind === 'pile') { startPunch(m, slot, d); return; }
+  if (d.kind === 'lance') { m.charge = { slot, d, phase: 'ignite', t: d.ignite }; sfx.stow(); return; }   // 衝刺本身在 mech.js
   if (d.kind === 'flame') { flameCone(m, d, mz, base, spreadK); return; }
   if (d.kind === 'napalm') { lobNapalm(m, d, mz, aim, f); return; }
   if (d.kind === 'bullet' || d.kind === 'beam') {
@@ -295,6 +303,113 @@ function updateSwing(m, dt) {
   if (s.t <= 0) m.swing = null;
 }
 
+// ---------- 脈衝光束步槍 ----------
+// 線 = 從槍口沿上半身正前方（跟瞄準雷射一樣）：停在第一面牆或第一台敵機；充能時細細一條在閃，照射時粗、亮
+// 判定每 PULSE_TICK 秒一次（跟幀率無關），總傷害平均分到每一下；照射中上半身轉速 ×turnK（driveMech 看 m.beamTurnK）
+const PULSE_TICK = 0.05, livePulses = [];
+function startPulse(m, slot, d) {
+  m.pulses ??= {}; m.pulseL ??= {};
+  const L = m.pulseL[slot] ??= makeLaser(DMG_TYPES.energy.hex);
+  const n = Math.round(d.dur / PULSE_TICK);
+  const P = { m, slot, d, L, t: -d.charge, acc: 0, n: 0, per: d.dmg / n * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg / n };
+  m.pulses[slot] = P; livePulses.push(P);
+  sfx.beam();
+}
+// 從 (x, z) 往 (dx, dz) 的射線：第一台敵機（圓）在多遠、是哪台
+function rayMech(m, x, z, dx, dz, maxLen) {
+  let best = null, bt = maxLen;
+  for (const o of mechs) {
+    if (!o.alive || o.drop || o.team === m.team) continue;
+    const ox = o.x - x, oz = o.z - z, t = ox * dx + oz * dz;
+    if (t < -o.r || t > bt + o.r) continue;
+    const px = ox - dx * t, pz = oz - dz * t, h = o.r * o.r - px * px - pz * pz;
+    if (h < 0) continue;
+    const tt = Math.max(0, t - Math.sqrt(h));
+    if (tt < bt) { bt = tt; best = o; }
+  }
+  return { o: best, t: bt };
+}
+function updatePulses(m, dt) {
+  let any = false;
+  for (const slot in m.pulses) {
+    const P = m.pulses[slot], d = P.d;
+    P.t += dt;
+    if (!m.alive || slotBroken(m, slot) || P.t >= d.dur) { P.done = true; P.L.g.visible = false; delete m.pulses[slot]; continue; }
+    any = P.t >= 0;
+    const mz = muzzleOf(m, slot), f = facing(m);
+    const wall = rayBlock(mz.x, mz.z, f.x, f.z, d.range), hit = rayMech(m, mz.x, mz.z, f.x, f.z, wall);
+    const len = hit.o ? hit.t : wall, ex = mz.x + f.x * len, ez = mz.z + f.z * len;
+    if (P.t < 0) { setLaser(P.L, mz.x, mz.z, f.x, f.z, len, mz.y, 0.2 + Math.random() * 0.35, 0.02); continue; }   // 充能
+    setLaser(P.L, mz.x, mz.z, f.x, f.z, len, mz.y, 0.9, 0.08 + Math.random() * 0.03);
+    if (Math.random() < 0.6) spawnGlow({ x: ex, y: mz.y, z: ez, vx: -f.x * 2, vy: R(0, 2), vz: -f.z * 2, life: 0.15, s0: 0.14, s1: 0, ramp: RAMP.armor });
+    P.acc += dt;
+    while (P.acc >= PULSE_TICK) {
+      P.acc -= PULSE_TICK; P.n++;
+      if (hit.o) {
+        const r = hitMech(hit.o, P.per, f.x, f.z, d.kb, 'energy', null, P.power);
+        sparks(ex, mz.y, ez, 0x60e0ff, 3, -f.x, -f.z);
+        if (P.n % 3 === 0) { hitSparks(ex, mz.y, ez, -f.x, -f.z, 0.7, r && r.eff < 1); r && r.eff < 1 ? sfx.armorHit() : sfx.hit(); }
+      } else if (wall < d.range - 0.05) {
+        damageBuilding(ex, mz.y, ez, P.per, f.x, f.z);
+        if (P.n % 4 === 0) { hitSparks(ex, mz.y, ez, -f.x, -f.z, 0.5); if (!isBuilding(ex + f.x * 0.05, ez + f.z * 0.05)) wallMark(wallFace(ex, ez, f.x, f.z), mz.y, 0.18); }
+      }
+    }
+  }
+  m.beamTurnK = any ? Object.values(m.pulses)[0]?.d.turnK ?? 1 : 1;
+}
+// 機體死掉 / 被移除時光束還亮著：每幀收掉
+function sweepPulses() {
+  for (let i = livePulses.length - 1; i >= 0; i--) {
+    const P = livePulses[i];
+    if (P.done || !P.m.alive) { P.L.g.visible = false; if (P.m.pulses) delete P.m.pulses[P.slot]; livePulses.splice(i, 1); }
+  }
+}
+
+// ---------- 打樁拳 ----------
+// 蓄力 windup 秒（拳頭發光、整台往前踏一點）→ 一拳：拳頭往前 reach 格內的第一台敵機（被牆擋就打牆）
+// 打哪個部位：拳頭落在對方身體的哪一側（對方本地座標左右偏 0.28 格以上）就打那一側的手臂；正中間 / 那隻手沒了 → 軀幹（照方向打折）
+function startPunch(m, slot, d) {
+  const f = facing(m);
+  m.punch = { slot, d, t: d.windup };
+  m.vx += f.x * d.lunge; m.vz += f.z * d.lunge;
+  sfx.stow();
+}
+function updatePunch(m, dt) {
+  const P = m.punch, d = P.d;
+  P.t -= dt;
+  const mz = muzzleOf(m, P.slot), f = facing(m);
+  if (P.t > 0) { spawnGlow({ x: mz.x, y: mz.y, z: mz.z, vx: R(-1, 1), vy: R(0, 1), vz: R(-1, 1), life: 0.14, s0: 0.1, s1: 0, ramp: RAMP.spark }); return; }
+  m.punch = null;
+  if (!m.alive || slotBroken(m, P.slot)) return;
+  const enemy = m.team !== 'player';
+  const wall = rayBlock(mz.x, mz.z, f.x, f.z, d.reach + 0.3), hit = rayMech(m, mz.x, mz.z, f.x, f.z, Math.min(wall, d.reach));
+  muzzleFlash(mz.x + f.x * 0.3, mz.y, mz.z + f.z * 0.3, 0xffc060, 1.3);
+  smoke(mz.x, mz.y, mz.z, 3, 0.8, 0x8a8c92);
+  sfx.shotgun();
+  if (hit.o) {
+    const o = hit.o, px = mz.x + f.x * hit.t - o.x, pz = mz.z + f.z * hit.t - o.z;
+    const s = Math.sin(o.torsoYaw), c = Math.cos(o.torsoYaw), lx = (px * c - pz * s) / (o.k ?? 1);   // 拳頭落點在對方本地的左右（+x = 左手）
+    let part = Math.abs(lx) > 0.28 ? (lx > 0 ? 'armL' : 'armR') : 'torso';
+    if (o.grunt || !o.parts[part] || o.parts[part].broken) part = 'torso';
+    let dmg = d.dmg * (m.dmgMul ?? 1) * chipDmgK(m);
+    if (part === 'torso' && !o.grunt) { const a = Math.abs(angleDiff(o.torsoYaw, Math.atan2(-f.x, -f.z))); dmg *= a < 0.7 ? 0.6 : a < 2.27 ? 0.85 : 1.35; }
+    const r = hitMech(o, dmg, f.x, f.z, d.kb, 'kinetic', part, d.dmg);
+    const hx = mz.x + f.x * hit.t, hz = mz.z + f.z * hit.t;
+    hitSparks(hx, mz.y, hz, -f.x, -f.z, 2.6, r && r.eff < 1);
+    explosion(hx, mz.y, hz, 0.3);
+    r && r.eff < 1 ? sfx.armorHit() : sfx.hit();
+    sfx.crash();
+    addTrauma(enemy ? (o.team === 'player' ? 0.45 : 0) : 0.35);
+  } else if (wall < d.reach + 0.3) {
+    const hx = mz.x + f.x * wall, hz = mz.z + f.z * wall;
+    damageBuilding(hx, mz.y, hz, d.dmg * 1.5, f.x, f.z);
+    hitSparks(hx, mz.y, hz, -f.x, -f.z, 1.6);
+    if (!isBuilding(hx + f.x * 0.05, hz + f.z * 0.05)) wallMark(wallFace(hx, hz, f.x, f.z), mz.y, 0.5);
+    sfx.crash();
+    if (!enemy) addTrauma(0.2);
+  } else for (let i = 0; i < 5; i++) spawnPuff({ x: mz.x + f.x * d.reach * i / 5, y: mz.y, z: mz.z + f.z * d.reach * i / 5, life: 0.25, s: 0.1, c0: 0xc8c8c8, c1: 0x6a6a6a, drag: 2 });   // 揮空
+}
+
 // ---------- 命中 ----------
 // 火花依剋制關係：被裝甲擋下 = 藍白、剋制 = 更多更大
 function impact(s, o, nx, nz, dmg, forced) {
@@ -324,6 +439,7 @@ function blast(s, x, y, z, direct) {
 }
 
 export function updateShots(dt) {
+  sweepPulses();
   for (let i = shots.length - 1; i >= 0; i--) {
     const s = shots[i];
     if (s.kind === 'bullet') stepBullet(s, i, dt);

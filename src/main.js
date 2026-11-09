@@ -670,6 +670,7 @@ function updateExplore(dt) {
 }
 // ---------- 互動：箱子、武器、傳送門 ----------
 const weaponLine = id => { const W = WEAPONS[id]; const tg = `<span class="wt" style="--c:${DMG_TYPES[W.type].css}">${DMG_TYPES[W.type].name}</span>`;
+  if (W.desc) return `${tg} 手臂・${W.name}：${W.desc}・${W.info}・重量 ${W.weight}`;
   if (W.kind === 'flame') return `${tg} 手臂・火焰噴射：${W.range} 格內扇形、穿透、疊燃燒・燃料 ${W.ammo}・重量 ${W.weight}`;
   if (W.kind === 'napalm') return `${tg} 背部・燒夷彈：拋到游標、留下 ${W.zoneT} 秒火海・彈藥 ${W.ammo}・重量 ${W.weight}`;
   if (W.kind === 'shield') return `<span class="wt" style="--c:${DMG_TYPES[W.type].css}">盾牌</span> 手臂・耐久 ${W.guard}・純被動：盾那一側前方的攻擊先打在盾上（爆風擋一半）・上半身轉速 ×${W.turnMul}・重量 ${W.weight}`; return `<span class="wt" style="--c:${DMG_TYPES[W.type].css}">${DMG_TYPES[W.type].name}</span> ${W.mount === 'arm' ? '手臂' : '背部'}・傷害 ${W.dmg}${W.pellets ? ' ×' + W.pellets : ''}${W.salvo > 1 ? ' ×' + W.salvo : ''}${W.splash ? '・爆風' : ''}・${W.ammo ? '彈藥 ' + W.ammo : '吃能量'}・重量 ${W.weight}`; };
