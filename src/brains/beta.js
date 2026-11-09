@@ -39,6 +39,16 @@ function foeThreatRange(F) {
   return r;
 }
 
+// 自己的盾擋不擋得住往 (ux, uz) 飛的東西（跟 mech.js hitMech 的判定一樣，留一點餘裕）
+function shieldCovers(me, ux, uz) {
+  const S = me.shield;
+  if (!S || S.hp <= 40 || me.hp[S.slot]?.broken) return false;
+  const fx = Math.sin(me.yaw), fz = Math.cos(me.yaw), sd = S.slot === 'armL' ? 1 : -1;
+  let cx = fx + fz * 0.7 * sd, cz = fz - fx * 0.7 * sd;
+  const cl = Math.hypot(cx, cz); cx /= cl; cz /= cl;
+  return -(ux * cx + uz * cz) > 0.4;
+}
+
 export default {
   name: 'beta',
   init(mem) { mem.strafe = Math.random() < 0.5 ? 1 : -1; mem.flip = 1.5; mem.nav = null; mem.navT = 0; },
@@ -58,8 +68,9 @@ export default {
       if (!ok(W, arm)) { back[side] = true; continue; }
       const wa = W[arm], wb = W[bk];
       if (wb.kind === 'missile' || wb.kind === 'vmissile') {
-        // 飛彈是主力：手臂是脈衝就看能量 / 距離，其他手臂武器 → 飛彈優先（在鎖定距離內）
-        back[side] = dist < Math.min(wb.range, o.lock.range) + 1 && !(wa.kind === 'pulse' && dist < wa.range && me.energy > 60 && !me.ready[side]);
+        // 手臂是脈衝：脈衝優先（瞬間命中，命中率遠高於飛彈），打不到才換飛彈；其他手臂武器 → 飛彈優先（在鎖定距離內）
+        if (wa.kind === 'pulse' && +(globalThis.process?.env?.PF ?? 0)) back[side] = me.ready[side] ? dist > wa.range - 1 : dist > wa.range + 0.5;
+        else back[side] = dist < Math.min(wb.range, o.lock.range) + 1 && !(wa.kind === 'pulse' && dist < wa.range && me.energy > 60 && !me.ready[side]);
       } else if (wb.kind === 'rocket') back[side] = dist < 16;
       else back[side] = me.ready[side] ? dist > wa.range * 0.85 && dist < wb.range : dist > wa.range && dist < wb.range * 0.95;
     }
@@ -67,7 +78,7 @@ export default {
     // ---- 想站的距離 ----
     const threat = foeThreatRange(F);
     let want;
-    if (ranged) want = Math.max(11, threat + 3);
+    if (ranged) want = Math.max(+(globalThis.process?.env?.MINW ?? 11), threat + (+(globalThis.process?.env?.BW ?? 8)));
     else {
       want = 8;
       for (const s in W) if (ok(W, s)) {
@@ -76,7 +87,8 @@ export default {
         want = Math.min(want, r);
       }
     }
-    want = Math.min(want, 15);
+    if (ranged && me.shield && (me.shield.hp <= 0 || me.hp[me.shield.slot]?.broken)) want += +(globalThis.process?.env?.SB ?? 0);
+    want = Math.min(want, +(globalThis.process?.env?.WMAX ?? 19));
     if (foeStill && !ranged) want = Math.min(want, 5);
 
     // ---- 移動 ----
@@ -107,6 +119,20 @@ export default {
       mx = mem.nav.x; mz = mem.nav.z;
     } else mem.nav = null;
     ({ mx, mz } = api.steer(mx, mz));
+    // 保持速度：要轉向超過 ~100° 時（例如橫移換邊）先只轉 90°，不要整個倒車停下來
+    //   （停下來 = 速度 < 2.5，對手會趁這時候打火箭；轉個彎也讓對手照速度預判的瞄準落空）
+    const ENV = globalThis.process?.env ?? {};
+    const spd = Math.hypot(me.vx, me.vz);
+    if (+(ENV.TL ?? 0) && spd > 2 && o.los) {
+      const vx = me.vx / spd, vz = me.vz / spd, ml = Math.hypot(mx, mz) || 1;
+      const dot = (mx * vx + mz * vz) / ml;
+      if (dot < -0.2) {
+        const cr = vx * mz - vz * mx >= 0 ? 1 : -1;   // 往哪邊轉比較近
+        let nx = -vz * cr, nz = vx * cr;               // 速度方向轉 90°
+        if (api.clearAhead(nx, nz, 2) < 1.5) { nx = -nx; nz = -nz; }
+        ({ mx, mz } = api.steer(nx, nz));
+      }
+    }
 
     // ---- 閃避 ----
     let boost = null;
@@ -118,7 +144,7 @@ export default {
       return null;
     };
     const canB = me.canBoost && me.boostCd <= 0 && !me.boosting && !me.staggered;
-    if (canB && me.energy >= 30) {
+    if (canB && me.energy >= +(globalThis.process?.env?.BMIN ?? 30)) {
       // 騎槍點火 / 衝刺、正對著我
       if (foe.charge && dist < 12) {
         const fx = Math.sin(foe.yaw), fz = Math.cos(foe.yaw);
@@ -128,7 +154,9 @@ export default {
       if (!boost) {
         const t = o.incoming.find(s => s.tti != null && s.tti < 0.42 && s.miss < 1.4 + s.splash * 0.4 &&
           (s.heavy || HEAVY_KIND.has(s.kind) || s.dmg >= 40) && !(s.kind === 'missile' && s.dmg < me.staggerAt && s.dmg < 35));
-        if (t) {
+        // 盾牌擋得住的方向來的直擊 → 不閃（盾擋下不會失衡；推進反而讓對手趁軌跡固定打火箭、又吃能量）
+        if (t && shieldCovers(me, t.ux, t.uz) && !t.point) mem.blocked = (mem.blocked ?? 0) + 1;
+        else if (t) {
           if (t.point) { const dx = me.x - t.point.x, dz = me.z - t.point.z, d = Math.hypot(dx, dz) || 1; if (d < 3) boost = { x: dx / d, z: dz / d }; }
           else { const sg = (me.x - t.x) * t.uz - (me.z - t.z) * t.ux > 0 ? 1 : -1; boost = sideStep(t.ux, t.uz, -sg); }
         }
@@ -158,7 +186,7 @@ export default {
       if (w.needLock && !o.lock.locked) continue;
       if (w.kind === 'lance') { fire[side] = dist > 3 && dist < w.range && aligned < 0.08 && api.clearAhead(dir.x, dir.z, dist) >= dist - 1; continue; }
       if (!o.lineClear[s]) continue;
-      if (w.kind === 'pulse') { fire[side] = dist < w.range - 0.5 && o.los && aligned < 0.07 && me.energy >= w.energy + (me.energy > 70 ? 0 : 20); continue; }
+      if (w.kind === 'pulse') { fire[side] = dist < w.range - 0.5 && o.los && aligned < 0.07 && me.energy >= w.energy + (+(globalThis.process?.env?.PR ?? -1) >= 0 ? +globalThis.process.env.PR : (me.energy > 70 ? 0 : 20)); continue; }
       if (w.kind === 'missile') { fire[side] = dist < w.range && (o.lock.locked || dist < 9) && aligned < 0.5; continue; }
       if (w.kind === 'rocket') { fire[side] = dist < 18 && aligned < 0.1 && (foeStill || dist < 8 || foe.boosting); continue; }
       const tol = MELEE.has(w.kind) ? 0.35 : w.id === 'shotgun' ? 0.2 : 0.12;

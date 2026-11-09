@@ -1,2 +1,1 @@
-{ "name": "alpha", "head": "std", "core": "std", "legs": "biped", "armL": "shotgun", "armR": "autocannon", "backL": "rocket", "backR": "rocket",
-  "armor": { "head": "composite", "torso": "ceramic", "arms": "ceramic", "legs": "composite" } }
+{"name":"alpha","head":"array","core":"heavy","legs":"biped","armL":"shield","armR":"pulse","backL":"missile","backR":"missile","armor":{"head":"ceramic","torso":"ceramic","arms":"ceramic","legs":"ceramic"}}
