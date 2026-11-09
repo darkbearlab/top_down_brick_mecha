@@ -19,7 +19,12 @@
   - 兩邊收斂到同一套機體：多重鎖定頭 + 重裝軀幹 + 雙足 + 左手盾 + 右手脈衝光束 + 雙直射飛彈；差在裝甲和大腦
   - 最終對打（主對話驗證，兩邊各 60 場）：beta 88–32（73%）；左右差很大（beta 在左 80–90%、在右 60–63%）
 - [x] 整理結果（重點見下）
-- [ ] 個性大腦 × 主題機體
+- [ ] 個性大腦 × 主題機體（第二輪，背景代理進行中）
+  - 使用者規定：每台對雜魚關卡（tools/sim/gauntlet.mjs，5 組雜魚包 × 10 場）總勝率 ≥ 80%（兩個種子都要過）；禁用脈衝光束步槍；盾牌只有說得通的主題能用（只有 knight）
+  - alpha：berserker 狂戰士（近戰）、sniper 狙擊手、artillery 重砲手
+  - beta：knight 騎士（騎槍，可帶盾）、arsonist 縱火犯（火焰 + 燒夷）、missileer 飛彈指揮官
+  - 檔案：tools/sim/entries/<名字>/（loadout.json、NOTES.md）、src/brains/<名字>.js
+  - 做完後：遊戲觀戰選單加上這六台（AI vs 雜魚、AI 對打可以選）
 - [x] 對抗雜魚（使用者加的）— duel.mjs `--b squad:<小隊>+<小隊>`、obs.enemies[] 已做：alpha / beta 的機體 + 大腦去打一群雜魚（內建 AI 的狼群戰術很強），目標勝率超過七成
   - 要先做：duel.mjs 支援一對多（B 方 = 一群雜魚，例如遠征的小隊組合）；brainapi 的 obs 加 `enemies[]`（所有活著的敵人），foe = 最近 / 正在瞄的那台
   - 等 alpha / beta 跑完再改（避免改到他們正在用的程式）
