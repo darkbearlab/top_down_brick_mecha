@@ -284,5 +284,6 @@
 - `src/buildings.js` 可破壞建築
 - `src/wreck.js` 擊墜演出與殘骸
 - `src/input.js` 鍵盤滑鼠與手把；`src/padnav.js` 手把操作選單
+- `src/brainapi.js` AI 大腦介面（attachBrain 掛上去就取代內建 AI；觀察 / 動作格式見 tools/sim/BRAINS.md）；`src/brains/` 大腦（sample = 範例）
 - `src/combatlog.js` 戰鬥紀錄（平常關著；`tools/sim` 無頭對戰模擬開著跑，見 tools/sim/README.md）
 - `src/gruntbodies.js` 雜魚的專屬外型（五種底盤共用腳 / 腰 / 手臂，只換軀幹一兩塊；沒有獨立的頭）；`src/fx.js` 粒子；`src/post.js` 後製（泛光、模型桌效果）；`src/lights.js` 短命點光源；`src/haze.js` 地面風沙；`src/settings.js` 設定畫面；`src/camview.js` 鏡頭模式；`src/showroom.js` 主選單 / 整備的展示空間；`src/workshop.js` 零件工坊；`src/shapes.js` 編輯過的零件外型；`src/perf.js` 效能面板；`src/voxel.js` 建築的方塊；`src/voxbody.js` 機體的方塊（只畫看得到的面）；`src/audio.js` 合成音效

@@ -149,6 +149,10 @@ function updateDrop(e, dt, player) {
 // 這把武器打得到多遠
 const reachOf = d => d.kind === 'pulse' ? d.range : d.kind === 'pile' ? d.reach + 1.9 : d.kind === 'lance' ? d.speed * d.dashT + 1.6 : d.kind === 'flame' ? d.range + 0.3 : d.kind === 'napalm' ? d.range : d.kind === 'saber' ? d.reach + 1.2 : d.kind === 'bullet' || d.kind === 'beam' ? d.speed * d.life : d.kind === 'rocket' ? 26 : 18;   // 敵人子彈慢，但飛得一樣久 → 射程一樣
 
+// 外掛的 AI 大腦（src/brainapi.js 掛上來）：有 e.brain 的機體，移動 / 瞄準 / 開火都交給大腦，下面這套內建 AI 不跑
+export const brainHook = { run: null };
+// 給大腦用的內建工具（避牆、推進距離、射線檢查、射程）
+export const aiTools = { steer: (e, mx, mz) => steer(e, mx, mz), clearAhead: (e, ux, uz, len) => clearAhead(e, ux, uz, len), boostLen: (e, ux, uz) => boostLen(e, ux, uz), lineClear: (e, slot, d, tgt) => lineClear(e, slot, d, tgt), reachOf: d => reachOf(d) };
 export function updateEnemy(e, dt, player) {
   if (e.fall) { updateFall(e, dt); return; }
   if (!e.alive) return;
@@ -167,6 +171,7 @@ export function updateEnemy(e, dt, player) {
     updateGuns(e, { L: false, R: false }, dt, [], null);
     return;
   }
+  if (e.brain && brainHook.run) { brainHook.run(e, dt, player); return; }
   const A = e.ai, DF = e.diff ?? AI.diff;
   const dx = player.x - e.x, dz = player.z - e.z, dist = Math.hypot(dx, dz) || 1;
   const nx = dx / dist, nz = dz / dist;

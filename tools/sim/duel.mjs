@@ -3,11 +3,13 @@
 // 用法（在專案根目錄）：
 //   node --import ./tools/sim/register.mjs tools/sim/duel.mjs --a 突擊型 --b 狙擊型 [--n 10] [--seed 1] [--diff hard] [--max 120] [--out tools/sim/out/xxx] [--quiet]
 //   --a / --b：機體名字（parts.js 的 ENEMY_PRESETS、ELITES），或配裝 JSON 檔的路徑
-//   --diff：雙方的電腦難度（easy / normal / hard）
+//   --diff：雙方的電腦難度（easy / normal / hard；大腦也吃它的傷害 / 鎖定倍率）
+//   --brainA / --brainB：大腦（src/brains/ 裡的名字，或 .js 檔路徑）；沒給 = 遊戲內建的 AI（default）
 //   結果：每場一個 battle-N.jsonl（所有事件 + 每 0.25 秒的狀態）、summary.json（每場的整理 + 總結）
 // 場地：對戰模式那張 64×48 對稱場地，A 在左（-26, 0）、B 在右（26, 0）
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
-import { join } from 'node:path';
+import { join, resolve } from 'node:path';
+import { pathToFileURL } from 'node:url';
 import { aggregate, summarize } from './analyze.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, all) => { if (v.startsWith('--')) a.push([v.slice(2), all[i + 1]?.startsWith('--') || all[i + 1] == null ? true : all[i + 1]]); return a; }, []));
@@ -24,6 +26,14 @@ const { updateStatus } = await import('../../src/status.js');
 const { clearWrecks, updateWrecks } = await import('../../src/wreck.js');
 const { updateParticles } = await import('../../src/fx.js');
 const { CL, log, logStart, logStop } = await import('../../src/combatlog.js');
+const { attachBrain } = await import('../../src/brainapi.js');
+const loadBrain = async b => {
+  if (!b || b === true || b === 'default') return null;
+  const p = existsSync(b) ? resolve(b) : resolve('src', 'brains', b.endsWith('.js') ? b : b + '.js');
+  return (await import(pathToFileURL(p).href)).default;
+};
+const BA = await loadBrain(args.brainA), BB = await loadBrain(args.brainB);
+const brainName = B => B?.name ?? 'default';
 
 const presetOf = s => {
   if (typeof s !== 'string') throw new Error('需要 --a 和 --b');
@@ -58,6 +68,8 @@ function battle(i) {
   const a = spawnEnemy(dummy, PA, { x: -26, z: 0 }, { team: 'blue', diff, noDrop: true });
   const b = spawnEnemy(dummy, PB, { x: 26, z: 0 }, { team: 'red', diff, noDrop: true });
   a.foe = b; b.foe = a; a.side = 'A'; b.side = 'B';
+  if (BA) attachBrain(a, BA);
+  if (BB) attachBrain(b, BB);
   a.torsoYaw = a.legYaw = a.aimYaw = Math.PI / 2; b.torsoYaw = b.legYaw = b.aimYaw = -Math.PI / 2;
   logStart();
   let t = 0, sampleT = 0, winner = null;
@@ -92,7 +104,7 @@ function battle(i) {
   const events = logStop();
   writeFileSync(join(out, `battle-${i}.jsonl`), events.map(e => JSON.stringify(e)).join('\n'));
   return summarize(events, { battle: i, seed: SEED * 7919 + i, time: r2(t), winner, timeout, diff: args.diff ?? 'hard',
-    mechs: [{ id: a.id, side: 'A', name: PA.name, brain: 'default' }, { id: b.id, side: 'B', name: PB.name, brain: 'default' }] });
+    mechs: [{ id: a.id, side: 'A', name: PA.name, brain: brainName(BA) }, { id: b.id, side: 'B', name: PB.name, brain: brainName(BB) }] });
 }
 
 const t0 = Date.now(), list = [];
@@ -104,4 +116,4 @@ for (let i = 0; i < N; i++) {
 const agg = aggregate(list);
 writeFileSync(join(out, 'summary.json'), JSON.stringify({ args, battles: list, aggregate: agg }, null, 1));
 console.log(`\n${N} 場，${((Date.now() - t0) / 1000).toFixed(1)} 秒 → ${out}`);
-for (const A of agg) console.log(`${A.side} ${A.name}：勝率 ${A.winRate}（${A.wins}/${A.n}，平手 ${A.draws}）・平均擊殺 ${A.avgKillT ?? '-'}s・平均輸出 ${A.dealt}・承受 ${A.taken}・武器 ${Object.entries(A.dealtBy).map(([k, v]) => `${k} ${v}`).join(' / ')}`);
+for (const A of agg) console.log(`${A.side} ${A.name}（${A.brain}）：勝率 ${A.winRate}（${A.wins}/${A.n}，平手 ${A.draws}）・平均擊殺 ${A.avgKillT ?? '-'}s・平均輸出 ${A.dealt}・承受 ${A.taken}・武器 ${Object.entries(A.dealtBy).map(([k, v]) => `${k} ${v}`).join(' / ')}`);
