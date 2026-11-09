@@ -12,6 +12,7 @@ export function setWallTest(fn, pit = null) { wallTest = fn; if (pit) pitTest = 
 // 每層一個（掛在那層的 group 底下、用那層的迷霧）；最多 RUBBLE_MAX 塊，超過就蓋掉最舊的；換關 / 換模式時清掉
 const RUBBLE_MAX = 20000;
 const RUBBLE_DIM = 0.55;   // 留在地上的碎片暗多少（1 = 跟飛的時候一樣亮）
+const SOOT_MAX = 12000, SOOT_A = 0.38;   // 燻黑薄片最多幾片、每片多黑
 const rubblePools = new Map();
 let rubble = null;
 const rM = new THREE.Matrix4(), rQ = new THREE.Quaternion(), rS = new THREE.Vector3(), rC = new THREE.Color();
@@ -22,7 +23,12 @@ export function setRubbleLayer(k, parent = scene, U = fogU) {
     mesh.count = 0; mesh.frustumCulled = false; mesh.receiveShadow = true;
     mesh.setColorAt(0, rC.set(0xffffff));
     parent.add(mesh);
-    rubblePools.set(k, { mesh, next: 0 });
+    // 燻黑層：半透明的黑色薄片（地面焦痕、牆上彈痕），疊越多片越黑 = 把底下的東西「壓暗」，不管底下原本什麼顏色
+    const soot = new THREE.InstancedMesh(DEBRIS_GEO, new THREE.MeshBasicMaterial({ color: 0xffffff, transparent: true, opacity: SOOT_A, depthWrite: false }), SOOT_MAX);
+    soot.count = 0; soot.frustumCulled = false; soot.renderOrder = 1;
+    soot.setColorAt(0, rC.set(0));
+    parent.add(soot);
+    rubblePools.set(k, { mesh, next: 0, soot, sNext: 0 });
   }
   rubble = rubblePools.get(k);
   // 還在飛的碎片是上一層的：直接收掉
@@ -30,7 +36,7 @@ export function setRubbleLayer(k, parent = scene, U = fogU) {
   debris.length = 0;
 }
 export function clearRubble() {
-  for (const P of rubblePools.values()) { P.mesh.parent?.remove(P.mesh); P.mesh.dispose(); P.mesh.material.dispose(); }
+  for (const P of rubblePools.values()) for (const o of [P.mesh, P.soot]) { o.parent?.remove(o); o.dispose(); o.material.dispose(); }
   rubblePools.clear(); rubble = null;
   for (const d of debris) scene.remove(d.m);
   debris.length = 0;
@@ -47,31 +53,53 @@ function bake(d) {
   R.mesh.instanceMatrix.needsUpdate = true; R.mesh.instanceColor.needsUpdate = true;
 }
 
-// 地面被炸：幾片壓扁的深色方塊疊成一塊焦痕（直接寫進碎片堆，跟碎片一起留著），再噴一點土塊
-const SCORCH_C = [0x2a231c, 0x231d17, 0x30281f, 0x1c1814];
-const sE = new THREE.Euler(), sP = new THREE.Vector3();
-export function scorch(x, z, r) {
-  if (pitTest(x, z) || wallTest(x, z)) return;
+// 燻黑一片：(x, y, z) 中心、(sx, sy, sz) 大小、繞 Y 轉 ry、顏色 c（黑 = 單純壓暗；墨綠 = 酸蝕）
+function soot(x, y, z, sx, sy, sz, ry, c) {
   if (!rubble) setRubbleLayer(0);
-  const P = rubble, n = Math.round(10 + r * 16);
+  const P = rubble, i = P.sNext;
+  sP.set(x, y, z);
+  rQ.setFromEuler(sE.set(0, ry, 0));
+  rM.compose(sP, rQ, rS.set(sx / 0.16, sy / 0.16, sz / 0.16));
+  P.soot.setMatrixAt(i, rM);
+  P.soot.setColorAt(i, rC.setHex(c));
+  P.sNext = (i + 1) % SOOT_MAX;
+  P.soot.count = Math.max(P.soot.count, i + 1);
+}
+function sootDone() { const P = rubble; P.soot.instanceMatrix.needsUpdate = true; P.soot.instanceColor.needsUpdate = true; }
+
+// 地面被炸：一堆半透明黑片疊成一塊焦痕（中間疊得多 = 最黑、外圍淡），一直留著；再噴一點土塊
+const SCORCH_C = [0x000000, 0x0a0806];
+const sE = new THREE.Euler(), sP = new THREE.Vector3();
+// cols：換顏色（酸液 = 墨綠）；dirt = false 不噴土（火海、酸池留下的痕跡）
+export function scorch(x, z, r, cols = SCORCH_C, dirt = true) {
+  if (pitTest(x, z) || wallTest(x, z)) return;
+  const n = Math.round(10 + r * 16);
   for (let k = 0; k < n; k++) {
-    // 中間密、外圍稀；越外圍的方塊越小
-    const a = Math.random() * Math.PI * 2, t = Math.sqrt(Math.random()), d = t * r * 0.7;
+    const a = Math.random() * Math.PI * 2, t = Math.sqrt(Math.random()), d = t * r * 0.6;
     const px = x + Math.cos(a) * d, pz = z + Math.sin(a) * d;
     if (wallTest(px, pz) || pitTest(px, pz)) continue;
-    const w = (0.14 + Math.random() * 0.2) * (1.25 - t * 0.6);
-    sP.set(px, 0.004 + Math.random() * 0.008, pz);
-    rQ.setFromEuler(sE.set(0, Math.random() * Math.PI, 0));
-    rM.compose(sP, rQ, rS.set(w / 0.16, 0.04, w / 0.16 * (0.7 + Math.random() * 0.3)));
-    const i = P.next;
-    P.mesh.setMatrixAt(i, rM);
-    P.mesh.setColorAt(i, rC.setHex(SCORCH_C[k % SCORCH_C.length]));
-    P.next = (i + 1) % RUBBLE_MAX;
-    P.mesh.count = Math.max(P.mesh.count, i + 1);
+    const w = (0.18 + Math.random() * 0.25) * (1.3 - t * 0.7) * Math.min(1.4, 0.6 + r * 0.4);
+    soot(px, 0.006 + Math.random() * 0.01, pz, w, 0.006, w * (0.7 + Math.random() * 0.3), Math.random() * Math.PI, cols[k % cols.length]);
   }
-  P.mesh.instanceMatrix.needsUpdate = true; P.mesh.instanceColor.needsUpdate = true;
+  sootDone();
   // 土塊：往外噴、落地留著
-  for (let k = 0; k < 4 + r * 4; k++) chipDebris(x + R(-0.3, 0.3), 0.12, z + R(-0.3, 0.3), [0x4a4238, 0x3a342c, 0x5a5044][k % 3], 0, 0, 2 + r * 1.6);
+  if (dirt) for (let k = 0; k < 4 + r * 4; k++) chipDebris(x + R(-0.3, 0.3), 0.12, z + R(-0.3, 0.3), [0x4a4238, 0x3a342c, 0x5a5044][k % 3], 0, 0, 2 + r * 1.6);
+}
+
+// 打不壞的牆（岩壁、外圍圍牆）被打中：牆面貼幾片半透明黑片（燻黑的彈痕，中間疊得多最黑），一直留著；再噴幾顆碎石
+// f = arena.js wallFace 的結果（牆面位置 + 朝外法線）；size 照威力
+export function wallMark(f, y, size, c = 0x5a5248) {
+  const n = 3 + Math.round(size * 10), tx = -f.nz, tz = f.nx;   // 牆面上的水平方向
+  for (let k = 0; k < n; k++) {
+    const a = Math.random() * Math.PI * 2, t = Math.sqrt(Math.random()) * size * 0.4;
+    const u = Math.cos(a) * t, v = Math.sin(a) * t * 0.8;
+    const w = (0.08 + Math.random() * 0.08 + size * 0.14) * (1.3 - 0.8 * t / Math.max(0.01, size * 0.4));
+    const off = 0.012 + Math.random() * 0.012;
+    soot(f.x + tx * u + f.nx * off, Math.max(0.05, y + v), f.z + tz * u + f.nz * off,
+      f.nx ? 0.008 : w, w * (0.7 + Math.random() * 0.5), f.nz ? 0.008 : w, 0, k % 3 ? 0x000000 : 0x0c0906);
+  }
+  sootDone();
+  for (let k = 0; k < 1 + size * 5; k++) chipDebris(f.x + f.nx * 0.08, y, f.z + f.nz * 0.08, k % 2 ? c : 0x3e3830, f.nx * 0.8, f.nz * 0.8, 1.6 + size * 2);
 }
 
 // ---------- 雷射（瞄準線） ----------
@@ -325,7 +353,9 @@ function stepList(list, dt, mesh, write) {
 
 export function updateParticles(dt) {
   for (let i = debris.length - 1; i >= 0; i--) {
-    const d = debris[i], p = d.m.position;
+    const d = debris[i];
+    if (!d) continue;   // 這一幀中途換層 / 清場把清單清掉了
+    const p = d.m.position;
     d.vy -= 24 * dt;
     p.x += d.vx * dt; p.y += d.vy * dt; p.z += d.vz * dt;
     d.m.rotation.x += d.sx * dt; d.m.rotation.z += d.sz * dt;

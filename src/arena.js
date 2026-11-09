@@ -38,6 +38,17 @@ export const tileC = x => Math.floor(x + W / 2);
 export const tileR = z => Math.floor(z + H / 2);
 export const tileAt = (c, r) => (c < 0 || r < 0 || c >= W || r >= H) ? '#' : grid[r][c];
 export const isBlock = (x, z) => tileAt(tileC(x), tileR(z)) === '#';
+// 子彈打中岩壁的那一面：x, z = 命中點（rayBlock 的結果，剛進到那格）；dx, dz = 子彈方向
+// 回傳那一面的位置（照岩塊實際的偏移和 1.12 倍大小）與朝外的法線；被打的是 x 面還是 z 面看子彈是從哪一邊進來的
+export function wallFace(x, z, dx, dz) {
+  const c = tileC(x + dx * 0.02), r = tileR(z + dz * 0.02);
+  const border = c <= 0 || r <= 0 || c >= W - 1 || r >= H - 1;
+  const half = border ? 0.5 : 0.56, cx = toWorldX(c) + (border ? 0 : (hash(r, c) - 0.5) * 0.15), cz = toWorldZ(r) + (border ? 0 : (hash(c + 7, r) - 0.5) * 0.15);
+  const xFace = tileC(x - dx * 0.12) !== c || (tileR(z - dz * 0.12) === r && Math.abs(dx) > Math.abs(dz));
+  if (xFace) { const nx = dx > 0 ? -1 : 1; return { x: cx + nx * half, z: Math.max(cz - half, Math.min(cz + half, z)), nx, nz: 0 }; }
+  const nz = dz > 0 ? -1 : 1;
+  return { x: Math.max(cx - half, Math.min(cx + half, x)), z: cz + nz * half, nx: 0, nz };
+}
 // 站得上去嗎（岩壁、建築、懸空都不行）
 export const isSolid = (x, z) => { const t = tileAt(tileC(x), tileR(z)); return t === '#' || t === 'v'; };
 export const surfaceAt = (x, z) => SURF[tileAt(tileC(x), tileR(z))] ?? SURF['.'];

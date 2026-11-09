@@ -15,10 +15,10 @@
 // 敵人的子彈和光束比較慢，看得到、閃得掉
 import * as THREE from 'three';
 import { UNIT_BOX, addMat, addTrauma, scene } from './core.js';
-import { isBlock, rayBlock } from './arena.js';
-import { blastBuildings, damageBuilding } from './buildings.js';
+import { isBlock, rayBlock, wallFace } from './arena.js';
+import { blastBuildings, damageBuilding, isBuilding } from './buildings.js';
 import { facing, hitMech, mechs, muzzleOf, slotBroken, slotLive, updateReady, useEnergy } from './mech.js';
-import { RAMP, burnAt, explosion, flame, hitSparks, muzzleFlash, rampOf, scorch, smoke, sparks, spawnGlow, spawnPuff } from './fx.js';
+import { RAMP, burnAt, explosion, flame, hitSparks, muzzleFlash, rampOf, scorch, smoke, wallMark, sparks, spawnGlow, spawnPuff } from './fx.js';
 import { DMG_TYPES, SLOTS, WEAPONS } from './parts.js';
 import { sfx } from './audio.js';
 import { chipDmgK, chipRateK, chipSpreadK, empOff } from './tech.js';
@@ -208,6 +208,7 @@ function acidSplash(s) {
 }
 // 地上一片會持續上狀態的區域：status = 'burn'（火海）/ 'corrode'（酸液）；每秒對裡面的敵機（team 以外）的腳疊 stacks 層
 const ZONE_LOOK = { burn: { color: 0xff5a18, ramp: 'fire' }, corrode: { color: 0x6ac828, ramp: 'acid' } };
+const ACID_STAIN = [0x0c2004, 0x102808];   // 酸蝕過的地：偏綠的壓暗
 export function spawnZone(x, z, r, t, status, stacks, team) {
   const L = ZONE_LOOK[status] ?? ZONE_LOOK.burn;
   const ring = new THREE.Mesh(ZONE_GEO, addMat(L.color, 0.3));
@@ -215,6 +216,7 @@ export function spawnZone(x, z, r, t, status, stacks, team) {
   // 火海的火：幾個點分散在圓裡（酸液沒有火，靠下面冒泡）
   if (status === 'burn') for (let k = 0; k < 6; k++) { const a = Math.random() * 6.28, rr = Math.sqrt(Math.random()) * r * 0.85; burnAt(x + Math.cos(a) * rr, 0.15, z + Math.sin(a) * rr, t * R(0.8, 1), 0.8); }
   fireZones.push({ x, z, r, t, burn: stacks, status, ramp: RAMP[L.ramp], team, ring, acc: 0 });
+  scorch(x, z, r * 0.85, status === 'corrode' ? ACID_STAIN : undefined, false);   // 地上留下燒過 / 被酸蝕過的痕跡
 }
 // 火海：每 0.2 秒點燃裡面的敵機的腳（雜魚整台算一個部位；會飛的燒不到）
 function updateFireZones(dt) {
@@ -347,6 +349,7 @@ function stepBullet(s, i, dt) {
     if (s.splash) blast(s, s.x, s.y, s.z, null);          // 加農砲：打到牆也是一團爆風
     else if (s.heavy) blastBuildings(s.x, s.y, s.z, s.dmg * 1.5, 0.7);
     else damageBuilding(s.x, s.y, s.z, s.dmg, s.dx, s.dz);
+    if (!isBuilding(s.x + s.dx * 0.05, s.z + s.dz * 0.05)) wallMark(wallFace(s.x, s.z, s.dx, s.dz), s.y, s.splash ? 0.9 : s.heavy ? 0.6 : Math.min(0.45, 0.12 + Math.sqrt(s.dmg) * 0.06));   // 打不壞的牆：燻黑
     smoke(s.x, s.y, s.z, s.heavy ? 3 : 1, 0.7, 0x6a6c72);
     kill(i); return;
   }
@@ -441,6 +444,7 @@ function stepMissile(s, i, dt) {
     s.x += dx * step; s.z += dz * step;
     trail(s);
     if (hit) { impact(s, hit, dx, dz, s.dmg); blast(s, s.x, s.y, s.z, hit); kill(i); return; }
+    if (isBlock(s.x, s.z) && !isBuilding(s.x, s.z)) wallMark(wallFace(s.x, s.z, dx, dz), s.y, 0.9);   // 炸在打不壞的牆上：燻黑一大片
     if (isBlock(s.x, s.z) || s.life <= 0) { blast(s, s.x, s.y, s.z, null); kill(i); return; }
   }
   s.g.position.set(s.x, s.y, s.z);

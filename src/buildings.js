@@ -1,6 +1,6 @@
 // ---------- 可破壞建築 ----------
 // 每棟建築由 0.25 格的小方塊堆成（每格地板 4×4，一層樓 4 塊高），外牆有窗戶、樓板線、屋頂邊。
-// 被打中：命中點附近的小方塊被打掉（會打出洞、往裡面越打越深），噴瓦礫和灰塵；
+// 被打中：命中點附近的小方塊被打掉（會打出洞、往裡面越打越深），洞的周圍燻黑，噴小碎屑和灰塵；
 //   一格的耐久扣到 0 或方塊剩不到 30% → 那一格倒塌：上面的方塊全部垮下來，變成一堆瓦礫（可以走過去、子彈也能飛過）
 // 受損嚴重的格子會冒煙、起火；倒塌時一大團灰塵、火光
 // 碰撞 / 子彈還是以「格」為單位（arena.js 的 '#'）；倒塌後那格變成 'r'（瓦礫地面）
@@ -11,7 +11,7 @@ import { fogMaterial } from './fog.js';
 import * as THREE from 'three';
 import { UNIT_BOX, scene } from './core.js';
 import { H, W, grid, tileC, tileR, toWorldX, toWorldZ } from './arena.js';
-import { burnAt, burst, explosion, fire, smoke, spawnPuff } from './fx.js';
+import { burnAt, burst, chipDebris, explosion, fire, smoke, spawnPuff } from './fx.js';
 import { sfx } from './audio.js';
 
 const V = 0.25, N = 4;             // 方塊大小、每格幾塊
@@ -119,6 +119,8 @@ function flush() {
   }
 }
 
+// 那裡是還沒倒的建築（打得壞的牆）
+export function isBuilding(x, z) { const t = tiles.get(key(tileC(x), tileR(z))); return !!t && !t.down; }
 export function resetBuildings() {
   disposeSets();
   const st = { chunks: new Map(), vox: [], tiles: new Map(), burning: new Set(), parent: scene, mat: MAT };
@@ -142,11 +144,22 @@ export function damageBuilding(x, y, z, dmg, dx = 0, dz = 0, splash = 0) {
   if (splash <= 0 && dmg < 12) gone = gone.filter(() => Math.random() < dmg / 12);   // 小口徑：不是每發都打得掉一塊
   const colors = [];
   for (const v of gone) { v.alive = false; t.alive--; v.ch.mesh.setMatrixAt(v.i, HIDE); touch(v); if (colors.length < 4) colors.push(v.c); }
+  // 洞的周圍燻黑：命中點附近還在的方塊壓暗（越近越可能；同一塊最多壓 3 次）
+  const sr = rad * 1.9 + 0.15;
+  for (const v of t.vox) {
+    if (!v.alive || (v.dk ?? 0) >= 3) continue;
+    const d2 = (v.x - x) ** 2 + (v.y - y) ** 2 + (v.z - z) ** 2;
+    if (d2 > sr * sr || Math.random() > (gone.length ? 0.75 : 0.35) * (1 - Math.sqrt(d2) / sr) + 0.1) continue;
+    v.dk = (v.dk ?? 0) + 1; v.c = shade(v.c, 0.68);
+    v.ch.mesh.setColorAt(v.i, col.setHex(v.c)); touch(v, true);
+  }
   flush();
   t.hp -= dmg * (splash > 0 ? 1.4 : 1);
   burning.add(t);
   if (gone.length) {
-    burst(x - dx * 0.1, y, z - dz * 0.1, colors, Math.min(6, Math.ceil(gone.length / 2)), 2.5 + Math.min(4, dmg * 0.05), -dx * 2, -dz * 2);
+    // 碎屑：很多顆小的往打過來的那一側噴（大塊的留給倒塌）
+    const nc = Math.min(16, 3 + gone.length * 2);
+    for (let i = 0; i < nc; i++) chipDebris(x - dx * 0.12, y + R(-0.1, 0.1), z - dz * 0.12, colors[i % colors.length], -dx, -dz, 2 + Math.min(4, dmg * 0.05));
     for (let i = 0; i < Math.min(5, 1 + gone.length / 3); i++)
       spawnPuff({ x: x - dx * 0.2, y, z: z - dz * 0.2, vx: -dx * R(0.5, 1.5) + R(-0.4, 0.4), vy: R(0.1, 0.6), vz: -dz * R(0.5, 1.5) + R(-0.4, 0.4),
         life: R(0.7, 1.2), s: R(0.2, 0.34), c0: 0x9a948a, c1: 0x6e6a64, drag: 1.6 });
