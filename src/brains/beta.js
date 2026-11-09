@@ -97,7 +97,7 @@ export default {
     const tanClear = sg => api.clearAhead(-dir.z * sg, dir.x * sg, 3);
     // 繞側：往對方沒拿盾的那一側繞（它的盾在左手 → 繞到它的右邊），我的子彈 / 光束就不會打在盾上
     //   對方照射脈衝時上半身只剩 0.4 倍轉速：近距離橫移的角速度 > 它的轉速 → 光束追不上
-    const E2 = globalThis.process?.env ?? {}, FL = +(E2.FL ?? 0);
+    const E2 = globalThis.process?.env ?? {}, FL = +(E2.FL ?? 1);
     const foeSh = foe.shield && foe.shield.hp > 0 && !foe.hp[foe.shield.slot]?.broken;
     if (FL && o.los && ((FL === 1 && foeSh) || (FL >= 2 && foe.beaming) || (FL === 3 && foeSh))) {
       const fx = Math.sin(foe.yaw), fz = Math.cos(foe.yaw), sd = foeSh && foe.shield.slot === 'armR' ? -1 : 1;
@@ -160,7 +160,7 @@ export default {
     //   （停下來 = 速度 < 2.5，對手會趁這時候打火箭；轉個彎也讓對手照速度預判的瞄準落空）
     const ENV = globalThis.process?.env ?? {};
     const spd = Math.hypot(me.vx, me.vz);
-    if (+(ENV.TL ?? 0) && spd > 2 && o.los) {
+    if (+(ENV.TL ?? 1) && spd > 2 && o.los) {
       const vx = me.vx / spd, vz = me.vz / spd, ml = Math.hypot(mx, mz) || 1;
       const dot = (mx * vx + mz * vz) / ml;
       if (dot < -0.2) {
@@ -192,17 +192,18 @@ export default {
         const t = o.incoming.find(s => s.tti != null && s.tti < 0.42 && s.miss < 1.4 + s.splash * 0.4 &&
           (s.heavy || HEAVY_KIND.has(s.kind) || s.dmg >= 40) && !(s.kind === 'missile' && s.dmg < me.staggerAt && s.dmg < 35));
         // 盾牌擋得住的方向來的直擊 → 不閃（盾擋下不會失衡；推進反而讓對手趁軌跡固定打火箭、又吃能量）
-        if (t && shieldCovers(me, t.ux, t.uz) && !t.point) mem.blocked = (mem.blocked ?? 0) + 1;
+        if (t && shieldCovers(me, t.ux, t.uz) && !t.point && !(+(globalThis.process?.env?.RDS ?? 1) && t.kind === "rocket" && me.energy >= +(globalThis.process?.env?.RDE ?? 30))) mem.blocked = (mem.blocked ?? 0) + 1;
         else if (t) {
           if (t.point) { const dx = me.x - t.point.x, dz = me.z - t.point.z, d = Math.hypot(dx, dz) || 1; if (d < 3) boost = { x: dx / d, z: dz / d }; }
           else { const sg = (me.x - t.x) * t.uz - (me.z - t.z) * t.ux > 0 ? 1 : -1; boost = sideStep(t.ux, t.uz, -sg); }
         }
       }
       // 對方脈衝在充能 / 照射、正對著我 → 橫推進甩開光束（光束轉不快）
-      if (!boost && +(E2.BB ?? 0) && foe.beaming && dist < +(E2.BBD ?? 14) && me.energy >= +(E2.BBE ?? 60)) {
+      const foeRkt = Object.entries(F).some(([sl, w]) => w && !w.broken && w.ammo > 0 && (w.kind === "rocket" || w.kind === "cannon") && (sl.startsWith("arm") || foe.ready[sl.slice(-1)]));
+      if (!boost && +(E2.BB ?? 1) && foe.beaming && !(+(E2.BBR ?? 0) && foeRkt && dist < 17) && dist < +(E2.BBD ?? 21) && me.energy >= +(E2.BBE ?? 60)) {
         const fx = Math.sin(foe.yaw), fz = Math.cos(foe.yaw);
         const miss = Math.abs((me.x - foe.x) * fz - (me.z - foe.z) * fx);
-        if (miss < +(E2.BBM ?? 1.5) && (+(E2.BBS ?? 0) || !shieldCovers(me, -dir.x, -dir.z))) { const bx = -dir.z * mem.strafe, bz = dir.x * mem.strafe, L = api.boostLen(bx, bz); if (api.clearAhead(bx, bz, L) >= L * 0.85) boost = { x: bx, z: bz }; }
+        if (miss < +(E2.BBM ?? 3) && (+(E2.BBS ?? 1) || !shieldCovers(me, -dir.x, -dir.z))) { const bx = -dir.z * mem.strafe, bz = dir.x * mem.strafe, L = api.boostLen(bx, bz); if (api.clearAhead(bx, bz, L) >= L * 0.85) boost = { x: bx, z: bz }; }
       }
       // 近戰型貼太近：往後推
       if (!boost && threat && foe.weapons && dist < 3.5 && !foe.staggered && ranged) {

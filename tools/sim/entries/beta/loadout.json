@@ -1,2 +1,2 @@
 { "name": "beta", "head": "array", "core": "heavy", "legs": "biped", "armL": "shield", "armR": "pulse", "backL": "missile", "backR": "missile",
-  "armor": { "head": "ceramic", "torso": "ceramic", "arms": "ceramic", "legs": "ceramic" } }
+  "armor": { "head": "mirror", "torso": "mirror", "arms": "mirror", "legs": "ceramic" } }
