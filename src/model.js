@@ -173,19 +173,21 @@ export function buildMechModel(lo, team) {
     const off = arm ? pointOf(armS, 'hand') ?? HAND : [0, 0, 0];
     const WS = W && getShape(`weapon:${id}`);
     if (WS) for (const [x, y, z, w, h, d, k] of WS.boxes) boxes.push([x + off[0] * 2, y + off[1] * 2, z + off[2] * 2, w, h, d, k]);
-    const p = partGroup(boxes, P, torsoG, armorKey);
+    // 右邊（armR、backR）= 左邊的鏡像：手臂、武器、槍口、刀身都左右翻過來
+    const R = slot.endsWith('R'), sx = R ? -1 : 1;
+    const p = partGroup(R ? boxes.map(([x, y, z, w, h, d, k]) => [-x - w, y, z, w, h, d, k]) : boxes, P, torsoG, armorKey);
     p.g.position.set(mx * V, my * V, mz * V);
     parts[slot] = p;
     if (W) {
       const mu = pointOf(WS, 'muzzle') ?? W.muzzle;
-      muzzles[slot] = [(mx + off[0] + mu[0]) * V, (my + off[1] + mu[1]) * V, (mz + off[2] + mu[2]) * V];
+      muzzles[slot] = [(mx + sx * (off[0] + mu[0])) * V, (my + off[1] + mu[1]) * V, (mz + off[2] + mu[2]) * V];
       // 光束劍：發光的刀身
       if (W.kind === 'saber') {
         const blade = new THREE.Group();
         const core = new THREE.Mesh(new THREE.BoxGeometry(1.2 * V, 1.2 * V, W.blade * V), addMat(0xffffff, 0.95));
         const glow = new THREE.Mesh(new THREE.BoxGeometry(3 * V, 3 * V, (W.blade + 1) * V), addMat(DMG_TYPES.energy.hex, 0.55));
         blade.add(core, glow);
-        blade.position.set((off[0] + 0) * V, (off[1] + 0.5) * V, (off[2] + 3 + W.blade / 2) * V);
+        blade.position.set(sx * off[0] * V, (off[1] + 0.5) * V, (off[2] + 3 + W.blade / 2) * V);
         p.g.add(blade);
         weapons[slot] = { blade };
       }
