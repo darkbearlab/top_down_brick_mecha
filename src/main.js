@@ -1302,6 +1302,9 @@ function updateHud() {
 // ---------- 鏡頭看得到的範圍 ----------
 // 從上一幀的鏡頭打四條射線到地面（畫面左右邊緣、上下邊緣往內一點），量出從畫面中心往四個方向看得到多遠；除以鏡頭距離 = 每單位距離的範圍
 let lockZoom = 1, lastCd = 30, minimapYaw = '';
+// 滑鼠轉向的鏡頭彈簧（ω，每秒）：0 = 低緩衝（跟得緊）、1 = 中、2 = 高（最慢最重）
+const CAM_SPRING = [10, 6.5, 4.2];
+let camYawV = 0;
 // 滑鼠轉向模式：遊戲中游標鎖住（點一下畫面才鎖得住，瀏覽器規定要有使用者動作）；離開遊戲畫面就放開
 // 鎖住時按 Esc 瀏覽器會直接放開、不送按鍵給網頁 → 被放開又還在玩 = 當作按了暫停
 let wantLock = false;
@@ -1507,7 +1510,13 @@ function step(t) {
   const ox = (Math.random() - 0.5) * sh, oz = (Math.random() - 0.5) * sh;
   const cd = dist * (watching ? watchK : 1) * (1 - 0.42 * killK);
   // 滑鼠轉向：鏡頭跟著上半身轉（上半身照機體的轉向速度追滑鼠，重的機體鏡頭就轉得慢）
-  if (turning() && playing && !watching && player.alive && !garage.open) view.yaw += angleDiff(view.yaw, player.torsoYaw + Math.PI) * (1 - Math.exp(-14 * raw));
+  //   用臨界阻尼的彈簧追（不是直接貼上）：起步慢慢加速、快到的時候慢慢減速停下，不會一下甩到底 → 比較不暈、有重量感
+  //   ω 越小越慢越「重」（設定的鏡頭緩衝）；上半身照樣用機體的轉向速度轉，鏡頭在後面追
+  if (turning() && playing && !watching && player.alive && !garage.open) {
+    const w = CAM_SPRING[view.smooth] ?? CAM_SPRING[1], d = angleDiff(view.yaw, player.torsoYaw + Math.PI);
+    camYawV += (w * w * d - 2 * w * camYawV) * raw;
+    view.yaw += camYawV * raw;
+  } else camYawV = 0;
   // 特寫（擊墜、頭目登場）和觀戰：暫時回到固定朝北的鏡頭，結束後轉回來
   const camYaw = watching ? 0 : view.yaw + angleDiff(view.yaw, 0) * killK;
   const back = Math.cos(CAM_PITCH) * cd;   // 鏡頭在正前方的反方向（固定模式 = 南邊）
