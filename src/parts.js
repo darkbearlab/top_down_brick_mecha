@@ -142,8 +142,8 @@ for (const k in WEAPONS) WEAPONS[k].id = k;
 //   lanceMode：'dash' = 現在的（點火 lanceIgnite 秒 → 鎖方向衝刺）；'thrust' = 沒有點火、不會自動衝，按下後 thrustT 秒內槍尖撞到敵機，傷害照自己當下沿正前方的速度（推進撞進去才痛）
 //   clearAheadK：避牆 / 路線檢查的兩側射線離中心多遠（× 機體半徑；0.8 會擦到轉角）；lanceWallK：騎槍撞牆的自傷倍率
 //   relock：飛彈逐發鎖定（實驗）：'off' 現在的（鎖上了就一直打）；'during' 每次發射清掉鎖定、冷卻中可以重新鎖；'after' 清掉、而且冷卻結束才開始重新鎖
-//   wallLockK：隔牆鎖定（長距鎖定頭，看不到目標時）的鎖定時間倍率；1 = 現在的、2 = 隔牆要鎖兩倍久
-export const BAL = { wallLockK: 1, relock: 'off', staggerAccum: false, staggerDecay: 0.6, missileK: 0.8, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4, clearAheadK: 1, lanceWallK: 1 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
+//   wallLockK：隔牆鎖定（長距鎖定頭，看不到目標時）的鎖定時間倍率；2026-11 定為 2（隔牆要鎖兩倍久，壓制躲在牆後無限飛彈）
+export const BAL = { wallLockK: 2, relock: 'off', staggerAccum: false, staggerDecay: 0.6, missileK: 0.8, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4, clearAheadK: 1, lanceWallK: 1 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
 export const HP_MUL = 1.35;
 
 // ---------- 敵人的主題（派系） ----------
