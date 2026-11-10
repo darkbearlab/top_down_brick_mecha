@@ -79,7 +79,7 @@ export function boostTo(api, ux, uz) {
 
 // 該不該閃（回傳推進方向或 null）
 //   重彈 / 火箭 / 飛彈快打到、拋射物落點在腳下、衝鋒機直線衝過來、自爆機貼上來
-//   opt.shieldOk(ux, uz)：盾擋得住就不閃（騎士用）；opt.light：連小飛彈也閃
+//   opt.shieldOk(ux, uz)：盾擋得住就不閃（騎士用）；opt.light：連小飛彈也閃（能量 ≥ opt.lightE 才閃）
 export function dodge(o, api, mem, opt = {}) {
   const { me } = o;
   if (!me.canBoost || me.boostCd > 0 || me.boosting || me.staggered || me.charge || me.energy < (opt.minE ?? 30)) return null;
@@ -108,7 +108,7 @@ export function dodge(o, api, mem, opt = {}) {
       continue;
     }
     if (s.miss > 1.3 + s.splash * 0.4) continue;
-    const heavy = s.heavy || s.kind === 'rocket' || s.dmg >= 40 || (opt.light && HEAVY_KIND.has(s.kind));
+    const heavy = s.heavy || s.kind === 'rocket' || s.dmg >= 40 || (opt.light && HEAVY_KIND.has(s.kind) && me.energy >= (opt.lightE ?? 0));
     if (!heavy) continue;
     if (opt.shieldOk && opt.shieldOk(s.ux, s.uz)) continue;
     const sg = (me.x - s.x) * s.uz - (me.z - s.z) * s.ux > 0 ? 1 : -1;
