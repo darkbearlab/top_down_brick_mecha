@@ -29,6 +29,8 @@ export default {
     // 包夾收尾：只剩一台敵人、隊友還活著 → 出掩體、縮到機砲距離、跟隊友從兩邊夾
     const pincer = !!(tgt && ally && E.length === 1);
     const keep = pincer ? P.pkeep : P.keep;
+    // 背靠背：對面有會貼身的 → 跟隊友靠在一起（誰被咬，另一台馬上打得到牠）
+    const b2b = !!(ally && !pincer && E.some(e => Object.values(e.weapons ?? {}).some(w => w && !w.broken && ['saber', 'pile', 'lance', 'flame'].includes(w.kind))));
     const rushers = E.filter(e => ['bug', 'blade', 'brawler', 'bomber', 'charger'].includes(e._D.kind) && e.dist < 12);
 
     // ---- 燒夷彈的落點：敵人最多的地方（照 0.75 秒後的位置）；衝過來的近戰 → 丟在牠前面封路 ----
@@ -92,13 +94,15 @@ export default {
         if (pincer) sc += Math.min(crossAngle(px, pz, ally, tgt), 1.6) * P.cross;
         const ad = Math.hypot(ally.x - px, ally.z - pz);
         if (ad < 5) sc -= (5 - ad) * 0.4;
+        if (b2b && ad > 7) sc -= (ad - 7) * 0.5;
       }
       return sc;
     };
     const d = pickDir(o, api, mem, score, 0.3);
     let mx = d.x, mz = d.z, mode;
     const hidden = !nearSee;
-    if (nd < P.close) mode = '後撤';
+    if (nd < P.close) mode = b2b ? '退向隊友' : '後撤';
+    else if (b2b && ally && ally.dist > 7) mode = '背靠背';
     else if (hidden) mode = '隔牆砲擊';
     else mode = '砲擊陣地';
     if (nd > lockR - 2) { const n = navToSee(o, api, mem, near.x, near.z, 0); mx = n.x; mz = n.z; mode = '推進到射程'; }

@@ -1,2 +1,0 @@
-{ "name": "b-arsonist", "head": "std", "core": "heavy", "legs": "biped", "armL": "flamer", "armR": "flamer", "backL": "missile", "backR": "napalm",
-  "armor": { "head": "ceramic", "torso": "ceramic", "arms": "ceramic", "legs": "ceramic" } }

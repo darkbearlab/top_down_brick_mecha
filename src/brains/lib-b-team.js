@@ -53,7 +53,7 @@ export function multVs(mix, e) {
 //   原本的集火目標 −stick；失衡中 −0.6；超過 maxD（例如鎖定距離）+ 4
 //   回傳 { e, why }：why = '集火'（跟隊友同一台）/ '掩護'（威脅隊友的那台）/ '求援'（貼上自己的）/ null
 export function pickFocus(o, tm, opt = {}) {
-  const K = { ttkK: +(process.env.TK ?? 2), distK: +(process.env.DK ?? 3), follow: 2, guard: 1, guardR: 7, self: 0, selfR: 6, stick: 1.2, maxD: 99, ...opt };
+  const K = { ttkK: 2, distK: 3, follow: 2, guard: 1, guardR: 7, self: 0, selfR: 6, stick: 1.2, maxD: 99, ...opt };
   const ally = o.allies[0];
   const mine = dmgMix(o.me), theirs = ally ? dmgMix(ally) : null;
   let best = null, bs = 1e9;
@@ -105,18 +105,17 @@ export function threatTo(o, ally) {
 // 後排（飛彈 / 砲台）共用：選集火目標、被貼近就往隊友身後退（把追兵帶進前排的攻擊範圍＝誘敵）、離太遠歸隊
 //   opt：focus = pickFocus 參數；lureR 幾格內有敵人就誘敵；behind 退到隊友身後幾格；regroup 離隊友超過幾格就歸隊
 export function supportPost(o, api, act, tm, opt = {}) {
-  const K = { lureR: 8, behind: 3, regroup: 14, lureK: 0.6, regK: 0.45, ...opt };
+  const K = { lure: false, regroupOn: false, lureR: 8, behind: 3, regroup: 14, lureK: 0.6, regK: 0.45, ...opt };
   const { me } = o, ally = o.allies[0];
-  const BT = process.env.BT ?? 'F';
   let t = null;
-  if (BT.includes('F')) { const f = pickFocus(o, tm, { maxD: o.lock.range, ...opt.focus }); if (f.e) act.target = f.e.id; t = f.why; }
+  { const f = pickFocus(o, tm, { maxD: o.lock.range, ...opt.focus }); if (f.e) act.target = f.e.id; t = f.why; }
   const near = o.enemies[0];
-  if (BT.includes('L') && near && near.dist < K.lureR && ally.dist > 3.5 && dist2(near, ally) > near.dist + 1) {
+  if (K.lure && near && near.dist < K.lureR && ally.dist > 3.5 && dist2(near, ally) > near.dist + 1) {
     // 追兵比較靠近我：往「隊友身後」退（隊友在我跟追兵之間）
     const u = unit(ally.x - near.x, ally.z - near.z);
     pull(api, act, me, ally.x + u.x * K.behind, ally.z + u.z * K.behind, K.lureK);
     t = '誘敵';
-  } else if (BT.includes('R') && ally.dist > K.regroup && (!near || near.dist > K.lureR + 2)) {
+  } else if (K.regroupOn && ally.dist > K.regroup && (!near || near.dist > K.lureR + 2)) {
     pull(api, act, me, ally.x, ally.z, K.regK);
     t = t ?? '歸隊';
   }
