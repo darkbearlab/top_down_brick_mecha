@@ -261,7 +261,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   const hit = collideBlocks(m, m.r, 0, !!m.fly);
   // 騎槍衝刺撞牆 / 建築：撞敵機會給的那一下，全部吃在拿騎槍的那隻手上
   if (dashing && m.charge && hit.hit > 2) {
-    const C2 = m.charge, dmg = Math.min(C2.d.dmgMax, C2.v * C2.d.dmgK);
+    const C2 = m.charge, dmg = Math.min(C2.d.dmgMax, C2.v * C2.d.dmgK) * BAL.lanceWallK;
     m.charge = null;
     // 拿騎槍的那隻手扛下撞擊（那隻手已經沒了就算軀幹）
     log('charge', { m: m.id, phase: 'wall', dmg: Math.round(dmg) });

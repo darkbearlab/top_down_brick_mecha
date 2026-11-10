@@ -14,7 +14,7 @@ import { isBlock, isSolid, randomOpenSpot, rayBlock, rayWalk, tileAt, tileC, til
 import { headStats } from './sensors.js';
 import { BOOST_DV, BOOST_PUSH, BOOST_TIME, ENEMY_COLORS, activeSlot, boostDirOf, boostKOf, legK, damagePart, facing, hitMech, makeMech, muzzleOf, mechs, removeMech, slotBroken, stagger, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { makeGuns, shots, updateGuns } from './weapons.js';
-import { ENEMY_PRESETS, SLOTS } from './parts.js';
+import { BAL, ENEMY_PRESETS, SLOTS } from './parts.js';
 import { burst, explosion, hitSparks, makeLaser, setLaser, shatterSmall, smoke, sparks } from './fx.js';
 import { blastBuildings } from './buildings.js';
 import { sfx } from './audio.js';
@@ -383,7 +383,7 @@ function updateReadyChoice(e, dt, dist, canShoot, tgt) {
 // ---------- 避牆 ----------
 // 三條射線（中間 + 左右肩寬）裡最短的那條：機體整台過不過得去
 function clearAhead(e, ux, uz, len) {
-  const o = e.r * 0.8, ray = e.fly ? rayBlock : rayWalk;   // 走路的空洞也算擋住；會飛的只看岩壁和建築
+  const o = e.r * BAL.clearAheadK, ray = e.fly ? rayBlock : rayWalk;   // 走路的空洞也算擋住；會飛的只看岩壁和建築
   return Math.min(ray(e.x, e.z, ux, uz, len), ray(e.x - uz * o, e.z + ux * o, ux, uz, len), ray(e.x + uz * o, e.z - ux * o, ux, uz, len));
 }
 const hoverOf = e => e.spec.legs.type === 'hover';

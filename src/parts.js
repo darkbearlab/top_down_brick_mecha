@@ -140,7 +140,8 @@ for (const k in WEAPONS) WEAPONS[k].id = k;
 //   staggerAccum：true = 失衡改成累積制（短時間內的威力加總超過腳的門檻才失衡，累積值每秒消退 門檻 × staggerDecay）
 //   enemyMissileK：電腦射的飛彈 / 火箭速度倍率（子彈已經是 ×0.55）
 //   lanceMode：'dash' = 現在的（點火 lanceIgnite 秒 → 鎖方向衝刺）；'thrust' = 沒有點火、不會自動衝，按下後 thrustT 秒內槍尖撞到敵機，傷害照自己當下沿正前方的速度（推進撞進去才痛）
-export const BAL = { staggerAccum: false, staggerDecay: 0.6, enemyMissileK: 1, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
+//   clearAheadK：避牆 / 路線檢查的兩側射線離中心多遠（× 機體半徑；0.8 會擦到轉角）；lanceWallK：騎槍撞牆的自傷倍率
+export const BAL = { staggerAccum: false, staggerDecay: 0.6, enemyMissileK: 1, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4, clearAheadK: 0.8, lanceWallK: 1 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
 export const HP_MUL = 1.35;
 
 // ---------- 敵人的主題（派系） ----------

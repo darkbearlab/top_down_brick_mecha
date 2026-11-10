@@ -6,7 +6,7 @@ import { join } from 'node:path';
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, all) => { if (v.startsWith('--')) a.push([v.slice(2), all[i + 1]]); return a; }, []));
 const N = +(args.n ?? 10), SEED = +(args.seed ?? 1);
 const T = readdirSync('tools/sim/teams').filter(f => f.endsWith('.json')).map(f => ({ id: f.slice(0, -5), ...JSON.parse(readFileSync(join('tools/sim/teams', f), 'utf8')) }));
-const out = join('tools', 'sim', 'out', `teamrr-${Date.now()}`); mkdirSync(out, { recursive: true });
+const out = args.out ?? join('tools', 'sim', 'out', `teamrr-${Date.now()}`); mkdirSync(out, { recursive: true });
 const wins = Object.fromEntries(T.map(t => [t.id, 0])), games = Object.fromEntries(T.map(t => [t.id, 0])), cell = {};
 const run = (a, b, dir) => { execFileSync(process.execPath, ['--import', './tools/sim/register.mjs', 'tools/sim/duel.mjs', '--teamA', a.members.join(','), '--teamB', b.members.join(','), '--n', String(N), '--seed', String(SEED), ...(args.patch ? ['--patch', args.patch] : []), '--quiet', '--out', dir], { stdio: ['ignore', 'ignore', 'inherit'] }); const S = JSON.parse(readFileSync(join(dir, 'summary.json'), 'utf8')); return { A: S.battles.filter(x => x.winner === 'A').length, B: S.battles.filter(x => x.winner === 'B').length }; };
 for (let i = 0; i < T.length; i++) for (let j = i + 1; j < T.length; j++) {
