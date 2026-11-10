@@ -1,0 +1,2 @@
+{ "name": "a-mod-rack", "head": "radar", "core": "heavy", "legs": "biped", "armL": "flamer", "armR": "autocannon", "backL": "vmissile", "backR": "ammorack",
+  "armor": { "head": "ceramic", "torso": "ceramic", "arms": "ceramic", "legs": "ceramic" } }
