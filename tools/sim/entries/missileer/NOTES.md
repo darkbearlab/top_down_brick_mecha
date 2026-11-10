@@ -31,3 +31,19 @@
   - 閃避門檻（tti ≤ 0.45 秒）看的是剩幾秒，飛彈變慢自動適用 → 不動
 - gauntlet 種子 1–4：調整前 84 / 92 / 94 / 92 = **90.5%** → 調整後 82 / 90 / 94 / 92 = **89.5%**（雜訊內；沒有低於 80% 的種子）；b-missileer 單打一樣
 - 2v2（種子 61，各 20 場，新 vs 舊飛彈大腦）：護衛騎士 / 獵犬與鷹 vs a-bait-ambush / a-hammer-anvil 合計 55-21 vs 54-23 → 持平
+
+## 實驗：逐發鎖定 BAL.relock（df26b00，--patch，變體在 tools/sim/out/beta/relock/）
+- gauntlet（種子 1–4、各 10 場）：
+  - b-missileer（= missileer 單打）：off 89.5% → during 68.0%（36/33/34/33）→ after 67.5%（30/34/33/38）→ 四個種子全部低於 80%
+  - knight：off 92.5% → during 91.0% → after 96.5%；arsonist：off 85.0% → during 90.5% → after 89.5%（雜魚的飛彈也被削弱）
+- 1v1 missileer vs sample 大腦（種子 1–3、兩邊各 10 場）：
+  - vs 突擊型：off 57/60 → during 8/60 → after 0/60
+  - vs 狙擊型：off 57/60 → during 56/60 → after 53/60
+- 調整試看（不動正式檔）：
+  - m-sync.js：兩具飛彈都冷卻好才一起打，一次鎖定打一輪
+  - missileer-array.json：換多重鎖定頭（鎖定 0.55 秒，但只鎖 20 格內、不能隔牆鎖定）
+  - gauntlet 結果：
+    - during：同步 + 長距鎖定頭 69.0%、原大腦 + 多重鎖定頭 83.5%、同步 + 多重鎖定頭 83.0%
+    - after：68.5%、76.0%、76.5%
+  - 同步 + 多重鎖定頭 vs 突擊型：during 15/60、after 4/60
+  - 結論：大腦怎麼調都救不了；換頭救得回雜魚關卡，救不回 1v1
