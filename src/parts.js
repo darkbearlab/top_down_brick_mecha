@@ -83,12 +83,12 @@ export const WEAPONS = {
     model: [[-4, -7, 3, 9, 13, 2, 'f'], [-3, -6, 5, 7, 11, 1, 'w']], muzzle: [0, 0, 4] },
   cannon: { name: '加農砲', type: 'kinetic', mount: 'back', weight: 8, kind: 'bullet', interval: 2.4, ammo: 8, dmg: 85, speed: 40, spread: 0, kb: 7, recoil: 4, life: 0.9, size: 0.24, heavy: true, splash: 2.2,
     model: [[-2, -2, -4, 5, 5, 8, 'f'], [-1, -1, 4, 3, 3, 12, 'f'], [-2, -2, 15, 5, 5, 1, 'w']], muzzle: [0.5, 0.5, 17] },
-  missile: { name: '直射飛彈', type: 'chemical', mount: 'back', weight: 6, kind: 'missile', interval: 1.2, ammo: 64, dmg: 30, salvo: 2, speed: 18, accel: 26, maxSpeed: 32, turn: 1.9, life: 1.6, size: 0.12, splash: 1.3,
+  missile: { name: '直射飛彈', type: 'chemical', mount: 'back', weight: 6, kind: 'missile', interval: 1.2, ammo: 48, dmg: 30, salvo: 2, speed: 18, accel: 26, maxSpeed: 32, turn: 1.6, life: 1.6, size: 0.12, splash: 1.3,
     model: [[-3, -3, -4, 6, 6, 8, 'f'], [-2, -2, 4, 2, 2, 1, 'w'], [0, -2, 4, 2, 2, 1, 'w'], [-2, 0, 4, 2, 2, 1, 'w'], [0, 0, 4, 2, 2, 1, 'w']], muzzle: [0, 0, 5] },
-  // 火箭莢艙：不追蹤、不用鎖定的直射火箭，一次 3 發；每發威力剛好讓雙足失衡
-  rocket: { name: '火箭莢艙', type: 'chemical', mount: 'back', weight: 6, kind: 'rocket', interval: 1.0, ammo: 24, dmg: 52, salvo: 3, speed: 24, accel: 30, maxSpeed: 38, life: 1.1, size: 0.11, splash: 1.0, spread: 0.05,
+  // 火箭莢艙：不追蹤、不用鎖定的直射火箭，一次 3 發；每發 48（2026-11 從 52 調降：單發不再讓雙足失衡，逆關節 / 懸浮照樣會）
+  rocket: { name: '火箭莢艙', type: 'chemical', mount: 'back', weight: 6, kind: 'rocket', interval: 1.0, ammo: 24, dmg: 48, salvo: 3, speed: 24, accel: 30, maxSpeed: 38, life: 1.1, size: 0.11, splash: 1.0, spread: 0.05,
     model: [[-3, -3, -4, 6, 6, 9, 'f'], [-2, -2, 5, 1, 1, 1, 'w'], [0, -2, 5, 1, 1, 1, 'w'], [2, -2, 5, 1, 1, 1, 'w'], [-2, 0, 5, 1, 1, 1, 'w'], [0, 0, 5, 1, 1, 1, 'w'], [2, 0, 5, 1, 1, 1, 'w']], muzzle: [0, -1, 6] },
-  vmissile: { name: '垂直飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'vmissile', interval: 1.6, ammo: 96, dmg: 22, salvo: 4, speed: 9, accel: 30, maxSpeed: 26, turn: 1.8, life: 3.2, size: 0.12, splash: 1.5, needLock: true,
+  vmissile: { name: '垂直飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'vmissile', interval: 1.6, ammo: 64, dmg: 22, salvo: 4, speed: 9, accel: 30, maxSpeed: 26, turn: 1.55, life: 3.2, size: 0.12, splash: 1.5, needLock: true,
     model: [[-3, -3, -4, 6, 5, 8, 'f'], [-2, 2, -3, 2, 1, 2, 'w'], [0, 2, -3, 2, 1, 2, 'w'], [-2, 2, 0, 2, 1, 2, 'w'], [0, 2, 0, 2, 1, 2, 'w']], muzzle: [0, 3, 0] },
   // 火焰噴射器（手臂）：按著一直噴，range 格內、左右 arc 弧度的扇形全部燒到（穿透、被牆擋）；每下 dmg + 打中的部位疊 burn 層燃燒（status.js）
   flamer: { name: '火焰噴射器', type: 'chemical', mount: 'arm', weight: 4, kind: 'flame', interval: 0.1, ammo: 260, dmg: 3, range: 6, arc: 0.4, burn: 0.3, kb: 0.04, recoil: 0, size: 0.1,
@@ -108,8 +108,8 @@ export const WEAPONS = {
     model: [[-2, -3, -1, 5, 6, 6, 'f'], [-2, -2, 5, 5, 4, 2, 'w'], [0, -1, 7, 1, 2, 4, 'f'], [-2, 3, 0, 5, 1, 4, 'w']], muzzle: [0.5, 0, 11] },
   // 衝擊騎槍（手臂）：吃一大口推進能量 → 噴射器點火 ignite 秒（不動）→ 整台往正前方彈出去（speed，最多 dashT 秒）
   //   撞到敵機：傷害 = 撞上去的速度（加上對方迎面過來的速度）× dmgK，自己不受傷；撞到牆 / 建築：同樣的傷害打在自己身上
-  lance: { name: '衝擊騎槍', type: 'kinetic', mount: 'arm', weight: 6, kind: 'lance', interval: 2.0, energy: 45, ignite: 0.3, dashT: 0.38, speed: 21, dmgK: 6.5, dmgMax: 230, kb: 9, size: 0.1,
-    desc: '衝鋒・點火 0.3 秒後整台往前彈出約 8 格・撞上敵機傷害看速度（最高 230）、自己不受傷・撞牆傷害全吃在自己身上', info: '推進能量 45/次',
+  lance: { name: '衝擊騎槍', type: 'kinetic', mount: 'arm', weight: 6, kind: 'lance', interval: 2.0, energy: 35, ignite: 0.15, dashT: 0.38, speed: 21, dmgK: 6.5, dmgMax: 230, kb: 9, size: 0.1,
+    desc: '衝鋒・點火 0.15 秒後整台往前彈出約 8 格・撞上敵機傷害看速度（最高 230）、自己不受傷・撞牆傷害全吃在拿騎槍的手上', info: '推進能量 35/次',
     model: [[-2, -2, -2, 4, 4, 5, 'f'], [-3, -3, 3, 6, 6, 2, 'w'], [-1, -1, 5, 3, 3, 8, 'f'], [0, 0, 13, 2, 2, 6, 'f'], [0, 0, 19, 1, 1, 3, 'w']], muzzle: [0.5, 0.5, 22] },
   split: { name: '分裂飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'split', interval: 1.8, ammo: 8, dmg: 11, salvo: 1, bomblets: 6, speed: 16, accel: 16, maxSpeed: 25, turn: 1.2, life: 1.9, size: 0.18, splash: 1.0,
     model: [[-3, -3, -4, 6, 6, 9, 'f'], [-2, -2, 5, 4, 4, 2, 'w']], muzzle: [0, 0, 7] },
@@ -138,10 +138,10 @@ for (const k in WEAPONS) WEAPONS[k].id = k;
 // ---------- 平衡實驗開關（預設 = 現在的玩法） ----------
 // tools/sim 的 --patch 檔可以改這些、也可以直接改 WEAPONS 的數值，拿來先模擬再決定要不要正式改
 //   staggerAccum：true = 失衡改成累積制（短時間內的威力加總超過腳的門檻才失衡，累積值每秒消退 門檻 × staggerDecay）
-//   enemyMissileK：電腦射的飛彈 / 火箭速度倍率（子彈已經是 ×0.55）
+//   missileK：所有飛彈 / 火箭（敵我、玩家都一樣）的速度倍率；2026-11 平衡調整定為 0.8（數值照武器資料，實際飛行 ×0.8）
 //   lanceMode：'dash' = 現在的（點火 lanceIgnite 秒 → 鎖方向衝刺）；'thrust' = 沒有點火、不會自動衝，按下後 thrustT 秒內槍尖撞到敵機，傷害照自己當下沿正前方的速度（推進撞進去才痛）
 //   clearAheadK：避牆 / 路線檢查的兩側射線離中心多遠（× 機體半徑；0.8 會擦到轉角）；lanceWallK：騎槍撞牆的自傷倍率
-export const BAL = { staggerAccum: false, staggerDecay: 0.6, enemyMissileK: 1, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4, clearAheadK: 0.8, lanceWallK: 1 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
+export const BAL = { staggerAccum: false, staggerDecay: 0.6, missileK: 0.8, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4, clearAheadK: 1, lanceWallK: 1 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
 export const HP_MUL = 1.35;
 
 // ---------- 敵人的主題（派系） ----------

@@ -141,7 +141,7 @@ function spawnMissile(m, d, x, y, z, v, target, point) {
   g.add(body, tip);
   g.position.set(x, y, z);
   scene.add(g);
-  const vk = m.team !== 'player' ? BAL.enemyMissileK : 1;   // 平衡實驗：電腦的飛彈速度倍率
+  const vk = BAL.missileK;   // 飛彈 / 火箭速度倍率（敵我一樣，parts.js BAL）
   shots.push({ kind: d.kind, g, wid: d.id, owner: m, team: m.team, x, y, z, vk, vx: v.vx * vk, vy: v.vy, vz: v.vz * vk, speed: Math.hypot(v.vx, v.vz) || 1, life: d.life, age: 0,
     dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: 1.2, type: d.type, target, point, d, splash: d.splash });
 }

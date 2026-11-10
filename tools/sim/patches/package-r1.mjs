@@ -1,9 +1,4 @@
-// 第三輪平衡提案（兩個代理的建議合併）
-export default ({ WEAPONS, BAL }) => {
-  BAL.enemyMissileK = 0.8;                      // 電腦的飛彈 / 火箭速度 ×0.8
-  WEAPONS.missile.turn = 1.6; WEAPONS.vmissile.turn = 1.55;
-  WEAPONS.missile.ammo = 48; WEAPONS.vmissile.ammo = 64;
-  WEAPONS.rocket.dmg = 48;                      // 單發不再讓雙足失衡（維持單發判定）
-  BAL.lanceIgnite = 0.15; WEAPONS.lance.energy = 35;
-  BAL.clearAheadK = 1;                          // 路線檢查用全寬
-};
+// 第三輪平衡方案（兩個代理的建議合併）——已經套用到遊戲本身（2026-11），這個檔留著當紀錄
+//   所有飛彈 / 火箭速度 ×0.8（BAL.missileK，敵我一樣）、直射 / 垂直飛彈轉向 1.6 / 1.55、彈藥 48 / 64、火箭 48、騎槍點火 0.15 秒 / 能量 35、clearAheadK 1
+// 現在用這個 patch 等於不改（數值已經是這樣）
+export default () => {};
