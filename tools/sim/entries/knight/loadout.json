@@ -1,0 +1,2 @@
+{ "name": "knight", "head": "std", "core": "heavy", "legs": "biped", "armL": "shield", "armR": "lance", "backL": "missile", "backR": null,
+  "armor": { "head": "ceramic", "torso": "composite", "arms": "ceramic", "legs": "ceramic" } }
