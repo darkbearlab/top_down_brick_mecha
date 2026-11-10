@@ -1,0 +1,2 @@
+{ "name": "b-fuel", "head": "std", "core": "std", "legs": "biped", "armL": "fuel", "armR": "fuel", "backL": "missile", "backR": "rocket",
+  "armor": { "head": "ceramic", "torso": "ceramic", "arms": "ceramic", "legs": "ceramic" } }

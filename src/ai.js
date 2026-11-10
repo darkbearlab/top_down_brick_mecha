@@ -52,7 +52,7 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   const has = k => ws.includes(k) || ws.includes(k + '_l');   // 低階版也算
   e.ai = {
     strafe: Math.random() < 0.5 ? -1 : 1, t: 1, burst: 0, rest: 1 + Math.random(), reposition: 3 + Math.random() * 3, lockT: 0, snipeT: 0, hold: { L: Math.random(), R: Math.random() },
-    want: has('saber') || has('shotgun') || has('flamer') || has('pile') ? 3 : has('fuel') ? 6 : has('lance') ? 7 : has('sniper') ? 13 : has('acid') ? 11 : has('pulse') ? 10 : 8,   // 只會拋酸的投擲蟲站遠一點丟
+    want: has('saber') || has('shotgun') || has('flamer') || has('pile') ? 3 : has('fuel') ? 7.5 : has('lance') ? 7 : has('sniper') ? 13 : has('acid') ? 11 : has('pulse') ? 10 : 8,   // 只會拋酸的投擲蟲站遠一點丟
   };
   e.laser = makeLaser(0xff3020);
   // 特殊雜魚
@@ -321,6 +321,8 @@ export function updateEnemy(e, dt, player) {
       t = canShoot && dist > 3.5 && dist < reachOf(d) && Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.1 && rayBlock(e.x, e.z, f.x, f.z, dist) >= dist - 0.3 && Math.random() < dt * 1.5 / DF.rest;
     }
     // 脈衝光束：瞄準了就照（照射中上半身轉得慢 → 玩家橫移躲得掉）
+    // 汽油投射器：打得到就一直噴（不點放），火舌跟著上半身甩
+    else if (d.kind === 'stream') t = canShoot && inRange && Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.35;
     else if (d.kind === 'pulse') t = onTarget && inRange && Math.random() < dt * 1.4 / DF.rest;
     else if (d.kind === 'missile' || d.kind === 'split') t = canShoot && clear && locks.length > 0 && Math.random() < dt * 1.6 / DF.rest;
     else if (d.kind === 'vmissile') t = clear && locks.length > 0 && dist > 6 && Math.random() < dt * 1.2 / DF.rest;

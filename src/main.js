@@ -135,7 +135,7 @@ const watchLoadout = () => Math.random() < 0.5 ? ENEMY_PRESETS[Math.floor(Math.r
 // AI 對打觀戰（第三階段的代理作品）：tools/sim/entries/<名字>/loadout.json 的機體 + src/brains/<名字>.js 的大腦
 // 每場交換左右（場地有一點點不對稱）；打完自動下一場
 // 參賽作品：名字 → 顯示名稱；前六台是第二輪的個性機體（禁用脈衝、盾只有騎士）
-const ENTRY_INFO = { 'a-knight': '騎士（團隊版 a）', 'a-missileer': '飛彈指揮官（團隊版 a）', 'a-artillery': '重砲手（團隊版 a）', 'a-decoy': '誘餌（團隊版 a）', 'b-knight': '騎士（團隊版 b）', 'b-missileer': '飛彈指揮官（團隊版 b）', 'b-berserker': '狂戰士（團隊版 b）', berserker: '狂戰士', sniper: '狙擊手', artillery: '重砲手', knight: '騎士', arsonist: '縱火犯', missileer: '飛彈指揮官', alpha: 'alpha（盾 + 脈衝）', beta: 'beta（盾 + 脈衝）' };
+const ENTRY_INFO = { 'a-fuel': '油龍（a，汽油投射器）', 'b-fuel': '油龍（b，雙汽油投射器）', 'a-knight': '騎士（團隊版 a）', 'a-missileer': '飛彈指揮官（團隊版 a）', 'a-artillery': '重砲手（團隊版 a）', 'a-decoy': '誘餌（團隊版 a）', 'b-knight': '騎士（團隊版 b）', 'b-missileer': '飛彈指揮官（團隊版 b）', 'b-berserker': '狂戰士（團隊版 b）', berserker: '狂戰士', sniper: '狙擊手', artillery: '重砲手', knight: '騎士', arsonist: '縱火犯', missileer: '飛彈指揮官', alpha: 'alpha（盾 + 脈衝）', beta: 'beta（盾 + 脈衝）' };
 const PERSONAS = ['berserker', 'sniper', 'artillery', 'knight', 'arsonist', 'missileer'];
 const entryName = n => ENTRY_INFO[n] ?? n;
 // pair：[藍, 紅] 固定配對；'random' = 每場從個性機體隨機挑兩台
