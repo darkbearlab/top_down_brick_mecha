@@ -21,9 +21,10 @@ const T = {
   COVER: 1,        // 掩體分數：每台看得到那個點的遠程敵人扣分
   STRAFE: 0.6,     // 等待 / 對準時橫移的力道
   FULL: 1,         // 路線一律檢查滿 8 格
+  OUT: 5,          // 撞完 OUT 格內還有敵人 → 推進脫離（0 = 不用）
+  SHM: 0,          // 盾朝飛彈兵
   ADV: 4,          // 準備好、但 ADV 秒都沒人走進槍尖距離 → 主動前進
 };
-if (typeof process !== 'undefined' && process.env?.KT) Object.assign(T, JSON.parse(process.env.KT));   // 測試用
 
 const KIND_NAME = { ranged: '射手', melee: '近戰', rammer: '衝鋒機', bomber: '自爆機' };
 const hasMissile = e => Object.values(e.weapons ?? {}).some(w => w && !w.broken && (w.kind === 'missile' || w.kind === 'rocket' || w.kind === 'vmissile'));
@@ -43,7 +44,8 @@ export default {
     if ((mem.flip = (mem.flip ?? 1) - dt) <= 0) { mem.flip = 0.6 + Math.random() * 0.8; mem.strafe *= -1; }
     if (api.clearAhead(-(o.dir.z) * mem.strafe, o.dir.x * mem.strafe, 2) < 1.5) mem.strafe *= -1;
     // ---- 衝刺中：方向鎖死 ----
-    if (me.charge === 'dash') return { move: { x: 0, z: 0 }, aimYaw: me.yaw, fire: {}, note: '衝鋒！' };
+    if (me.charge === 'dash') { mem.dashed = 0.5; return { move: { x: 0, z: 0 }, aimYaw: me.yaw, fire: {}, note: '衝鋒！' }; }
+    mem.dashed = Math.max(0, (mem.dashed ?? 0) - dt);
 
     // 衝刺路線：機體整個寬度（中心 + 兩側各 1.1 倍半徑）沿 (ux, uz) 過得去幾格（api.clearAhead 只看 0.8 倍半徑，會擦到牆角）
     const lane = (ux, uz, len) => {
@@ -87,7 +89,7 @@ export default {
         const s = scoreOf(e, p);
         if (s > bs) { bs = s; pick = p; }
       }
-      if (pick && pick.e.id !== mem.tgt) { mem.tgt = pick.e.id; notes.push('挑戰：' + KIND_NAME[foeKind(pick.e)]); }
+      if (pick && pick.e.id !== mem.tgt) { mem.tgt = pick.e.id; if (lanceReady) notes.push('挑戰：' + KIND_NAME[foeKind(pick.e)]); }
     }
 
     // ---- 瞄準 / 開火 ----
@@ -110,7 +112,9 @@ export default {
     } else {
       // 沒有可以衝的：盾朝最近的敵人（盾在左前方 → 往右偏讓盾正對）
       const sd = me.shield?.slot === 'armL' ? 1 : -1;
-      yaw = Math.atan2(nearest.x - me.x, nearest.z - me.z) - (me.shield ? 0.55 * sd : 0);
+      // 盾朝最危險的：看得到我的飛彈兵（20 格內），沒有就最近的
+      const th = (T.SHM && o.enemies.find(e => e.dist < 20 && hasMissile(e) && losTo(api, me, e.x, e.z))) || nearest;
+      yaw = Math.atan2(th.x - me.x, th.z - me.z) - (me.shield ? 0.55 * sd : 0);
       if (lanceReady && nearest.dist < 12) yaw = Math.atan2(nearest.x - me.x, nearest.z - me.z);   // 準備好了 → 槍尖對著最近的
     }
 
@@ -177,6 +181,15 @@ export default {
     if (me.charge !== 'ignite') {
       boost = dodge(o, api, mem, { minE: lanceReady ? T.EMIN + 30 : 30, shieldOk: (ux, uz) => shieldCovers(me, ux, uz) });
       if (boost) notes.push('閃');
+      // 撞完：落點在敵群裡 → 立刻往外推進脫離（能量 55 → 25，騎槍冷卻 2 秒內就回得來）
+      if (!boost && T.OUT && mem.dashed > 0 && me.canBoost && me.boostCd <= 0 && me.energy >= 30) {
+        const near = o.enemies.filter(e => e.dist < T.OUT).length;
+        if (near >= 1) {
+          const C2 = crowd(o, 10);
+          const b = bestDir(api, (ux, uz, c) => -(ux * C2.ux + uz * C2.uz) * 2 + c * 0.4, 5, 3);
+          if (b) { boost = { x: b.x, z: b.z }; notes.push('脫離'); mem.dashed = 0; }
+        }
+      }
     }
 
     // ---- 背部飛彈（盾那一側永遠架著）：鎖上就打 ----
