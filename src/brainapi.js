@@ -56,7 +56,7 @@ function view(m, self) {
 function incoming(e) {
   const out = [];
   for (const s of shots) {
-    if (s.team === e.team) continue;
+    if (s.team === e.team || s.kind === 'fuel') continue;   // 汽油投射器的燃料一串幾十顆，不算「飛過來的東西」
     const ox = e.x - s.x, oz = e.z - s.z, d = Math.hypot(ox, oz);
     if (d > 15) continue;
     const vx = s.dx != null ? s.dx * s.speed : s.vx, vz = s.dz != null ? s.dz * s.speed : s.vz, v = Math.hypot(vx, vz) || 1;

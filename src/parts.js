@@ -93,6 +93,12 @@ export const WEAPONS = {
   // 火焰噴射器（手臂）：按著一直噴，range 格內、左右 arc 弧度的扇形全部燒到（穿透、被牆擋）；每下 dmg + 打中的部位疊 burn 層燃燒（status.js）
   flamer: { name: '火焰噴射器', type: 'chemical', mount: 'arm', weight: 4, kind: 'flame', interval: 0.1, ammo: 260, dmg: 3, range: 6, arc: 0.4, burn: 0.3, kb: 0.04, recoil: 0, size: 0.1,
     model: [[-2, -2, 0, 4, 4, 5, 'f'], [-1, -1, 5, 2, 2, 7, 'f'], [-2, -2, 12, 4, 4, 1, 'w'], [-1, 2, 0, 3, 2, 4, 'w']], muzzle: [0, 0, 13] },
+  // 汽油投射器（手臂）：按著一直噴，噴出一串會飛的燃料（speed、約 range 格落地）→ 上半身一轉整條火舌就甩出弧線
+  //   打中第一台機體：dmg + 打中的部位疊 burn 層燃燒（不穿透、盾擋得住）；落到地上 / 射程盡頭：留下一小灘燒著的油（puddle 半徑、puddleT 秒、站在上面每秒疊 puddleBurn 層）
+  fuel: { name: '汽油投射器', type: 'chemical', mount: 'arm', weight: 5, kind: 'stream', interval: 0.06, ammo: 300, dmg: 2.4, speed: 24, range: 10, burn: 0.22, kb: 0.03,
+    puddle: 0.85, puddleMax: 1.5, puddleT: 3.2, puddleBurn: 1.1, size: 0.12,
+    desc: '火舌・噴出一整條燃料、約 10 格落地、甩槍就甩出一道弧・打中第一台：每下 2.4＋燃燒 0.22 層（盾擋得住）・落地留下燒著的油灘', info: '17 下/秒・燃料 300（連噴 18 秒）',
+    model: [[-2, -2, -1, 4, 4, 7, 'f'], [-1, -1, 6, 2, 2, 6, 'f'], [-2, -2, 11, 4, 3, 1, 'w'], [-3, 2, -2, 6, 3, 5, 'a'], [-2, 5, -1, 4, 1, 3, 'w']], muzzle: [0, 0, 12] },
   // 燒夷彈（背部）：拋到瞄準點（最遠 range 格），落地小爆炸 + 半徑 zone 的火海燒 zoneT 秒，站在裡面每秒疊 burn 層（燒腳 → 變慢）
   napalm: { name: '燒夷彈', type: 'chemical', mount: 'back', weight: 6, kind: 'napalm', interval: 2.2, ammo: 10, dmg: 24, splash: 1.6, range: 16, zone: 2.4, zoneT: 5, burn: 1.4, size: 0.2,
     model: [[-3, -3, -4, 6, 6, 8, 'f'], [-2, -2, 4, 4, 4, 2, 'f'], [-1, -1, 6, 2, 2, 1, 'w'], [-3, 3, -3, 6, 1, 5, 'w']], muzzle: [0, 0, 7] },
@@ -311,6 +317,9 @@ export const ENEMY_PRESETS = [
     armor: { head: 'mirror', torso: 'mirror', arms: 'mirror', legs: 'mirror' } },
   { name: '騎槍型', faction: 'base', head: 'dome', core: 'std', legs: 'reverse', armL: 'lance', armR: 'shotgun', backL: 'rocket', backR: null,
     armor: { head: 'ceramic', torso: 'ceramic', arms: 'ceramic', legs: 'composite' } },
+  // 汽油投射器的使用者：中近距離甩火舌、地上鋪油灘；背上燒夷彈先封路
+  { name: '汽油型', faction: 'base', head: 'std', core: 'std', legs: 'biped', armL: 'fuel', armR: 'autocannon', backL: 'napalm', backR: null,
+    armor: { head: 'composite', torso: 'ceramic', arms: 'ceramic', legs: 'composite' } },
 ];
 
 // ---------- 菁英機 ----------

@@ -9,7 +9,7 @@ import { join } from 'node:path';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, all) => { if (v.startsWith('--')) a.push([v.slice(2), all[i + 1]?.startsWith('--') || all[i + 1] == null ? true : all[i + 1]]); return a; }, []));
 const X = args.x ?? 'default', Y = args.y ?? 'default', N = +(args.n ?? 10), SEED = +(args.seed ?? 1);
-const PRESETS = ['突擊型', '狙擊型', '光束型', '支援型', '重砲型', '打樁型', '脈衝型', '騎槍型'];
+const PRESETS = ['突擊型', '狙擊型', '光束型', '支援型', '重砲型', '打樁型', '脈衝型', '騎槍型', '汽油型'];
 let pairs;
 const mode = args.pairs ?? 'mirror';
 if (mode === 'mirror') pairs = PRESETS.map(p => [p, p]);

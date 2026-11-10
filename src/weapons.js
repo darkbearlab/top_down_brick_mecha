@@ -13,6 +13,7 @@
 //   split   分裂飛彈：飛一段後分裂成好幾顆小飛彈
 //   rocket  火箭莢艙：不追蹤的直射火箭，一次好幾發
 //   flame   火焰噴射器：按著一直噴，短距離扇形、穿透、被牆擋；打中的部位疊燃燒（status.js）
+//   stream  汽油投射器：按著一直噴一串會飛的燃料（每顆自己飛，轉身時火舌甩出弧線），打中第一台疊燃燒，落地留油灘
 //   napalm  燒夷彈：拋到瞄準點，落地小爆炸 + 一片燒好幾秒的火海（站在裡面腳會一直被點燃）
 //           d.status = 'corrode' 就是酸液彈（投擲蟲）：落地不爆炸、濺開一灘酸，站在裡面腳被腐蝕
 // 敵人的子彈和光束比較慢，看得到、閃得掉
@@ -83,6 +84,7 @@ function fire(m, slot, d, locks, aim, salvoN = d.salvo ?? 1) {
   if (d.kind === 'pile') { startPunch(m, slot, d); return; }
   if (d.kind === 'lance') { m.charge = BAL.lanceMode === 'thrust' ? { slot, d, phase: 'thrust', t: BAL.thrustT } : { slot, d, phase: 'ignite', t: BAL.lanceIgnite ?? d.ignite }; sfx.stow(); return; }   // 衝刺本身在 mech.js
   if (d.kind === 'flame') { flameCone(m, d, mz, base, spreadK); return; }
+  if (d.kind === 'stream') { sprayFuel(m, d, mz, base, spreadK); return; }
   if (d.kind === 'napalm') { lobNapalm(m, d, mz, aim, f); return; }
   if (d.kind === 'bullet' || d.kind === 'beam') {
     const n = d.pellets ?? 1;
@@ -180,6 +182,82 @@ function flameCone(m, d, mz, base, spreadK) {
   }
 }
 
+// ---------- 汽油投射器 ----------
+// 每一下（interval）：射出一顆燃料（拉長的發光方塊，前後幾顆接成一條火舌），自己沿拋物線飛、約 range 格落地
+//   上半身轉 → 新的往新方向、舊的照舊飛 → 整條火舌甩出弧線；射手的速度帶一部分進去（邊跑邊噴會拖出去）
+const FUEL_G = 14;
+const FUEL_RAMP = rampOf(0xff8a2a);
+function sprayFuel(m, d, mz, base, spreadK) {
+  const a = base + R(-1, 1) * 0.04 * spreadK, T = d.range / d.speed * R(0.92, 1.05), y0 = Math.max(0.3, mz.y - 0.05);
+  const vx = Math.sin(a) * d.speed + (m.vx ?? 0) * 0.4, vz = Math.cos(a) * d.speed + (m.vz ?? 0) * 0.4;
+  const g = new THREE.Mesh(UNIT_BOX, glowMat(m.team === 'player' ? 0xffa040 : 0xff6a28));
+  g.position.set(mz.x, mz.y, mz.z); scene.add(g);
+  shots.push({ kind: 'fuel', g, wid: d.id, owner: m, team: m.team, x: mz.x, y: mz.y, z: mz.z, vx, vy: (0.5 * FUEL_G * T * T - y0) / T, vz, age: 0, T, d, wob: R(0.8, 1.25),
+    dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: d.kb, type: 'chemical' });
+  if (Math.random() < 0.5) spawnGlow({ x: mz.x, y: mz.y, z: mz.z, vx: vx * 0.25, vy: R(0, 0.6), vz: vz * 0.25, life: R(0.08, 0.14), s0: R(0.14, 0.2), s1: 0.05, ramp: RAMP.fire });
+  m._flameN = (m._flameN ?? 0) + 1;
+  if (m._flameN % 4 === 0) sfx.flame();
+}
+function stepFuel(s, i, dt) {
+  const D = s.d;
+  s.age += dt;
+  s.vy -= FUEL_G * dt;
+  const sp = Math.hypot(s.vx, s.vz) || 1, dx = s.vx / sp, dz = s.vz / sp, step = sp * dt;
+  // 第一台被這一段路線碰到的敵機（2D，跟子彈一樣）
+  let hit = null, ht = step;
+  for (const o of mechs) {
+    if (!o.alive || o.drop || o.team === s.team) continue;
+    const ox = o.x - s.x, oz = o.z - s.z, t = ox * dx + oz * dz;
+    if (t < -o.r || t > step + o.r) continue;
+    const px = ox - dx * t, pz = oz - dz * t;
+    if (px * px + pz * pz > o.r * o.r) continue;
+    const tt = Math.max(0, t - Math.sqrt(o.r * o.r - px * px - pz * pz));
+    if (tt < ht) { ht = tt; hit = o; }
+  }
+  const wall = rayBlock(s.x, s.z, dx, dz, ht);
+  const splash = (x, y, z, n, nx, nz) => { for (let k = 0; k < n; k++) spawnGlow({ x, y, z, vx: -nx * R(0.5, 2) + R(-1.5, 1.5), vy: R(0.5, 2.5), vz: -nz * R(0.5, 2) + R(-1.5, 1.5), life: R(0.2, 0.4), s0: R(0.12, 0.22), s1: 0.02, ramp: RAMP.fire, drag: 1 }); };
+  if (wall < ht) {
+    s.x += dx * wall; s.z += dz * wall;
+    splash(s.x, s.y, s.z, 3, dx, dz);
+    damageBuilding(s.x, s.y, s.z, s.dmg * 0.6, dx, dz);
+    if (Math.random() < 0.3) addPuddle(s.x - dx * 0.5, s.z - dz * 0.5, D, s.team);   // 沿著牆流下來
+    kill(i); return;
+  }
+  s.x += dx * ht; s.z += dz * ht; s.y += s.vy * dt;
+  if (hit) {
+    const r = att(s.owner, s.wid, () => hitMech(hit, s.dmg, dx, dz, s.kb, 'chemical', null, s.power));
+    if (r && hit.alive) applyStatus(hit, 'burn', { part: r.part, stacks: D.burn });
+    splash(s.x, Math.max(0.4, s.y), s.z, 2, dx, dz);
+    if (Math.random() < 0.12 && !hit.fly) addPuddle(hit.x + R(-0.4, 0.4), hit.z + R(-0.4, 0.4), D, s.team);   // 滴到腳下
+    kill(i); return;
+  }
+  if (s.y <= 0.06) { splash(s.x, 0.1, s.z, 2, dx, dz); addPuddle(s.x, s.z, D, s.team); kill(i); return; }
+  // 火舌的樣子：沿著速度拉長，越飛越粗（一顆接一顆連成一條）
+  const k = Math.min(1, s.age / s.T), w = D.size * (1 + 2.6 * k) * s.wob;
+  s.g.position.set(s.x, s.y, s.z);
+  s.g.rotation.set(0, Math.atan2(dx, dz), 0);
+  s.g.rotateX(Math.atan2(-s.vy, sp));
+  s.g.scale.set(w, w * 0.8, Math.max(0.5, sp * D.interval * 1.4));
+  // 外面一圈翻滾的火（越遠越散、越大），讓火舌不像雷射
+  for (let n = 0; n < (k > 0.35 ? 2 : 1); n++) {
+    const off = 0.08 + 0.35 * k;
+    spawnGlow({ x: s.x + R(-off, off), y: s.y + R(-off, off) * 0.6, z: s.z + R(-off, off), vx: s.vx * 0.2 + R(-0.8, 0.8), vy: R(0.4, 1.6), vz: s.vz * 0.2 + R(-0.8, 0.8),
+      life: R(0.12, 0.28), s0: w * R(1.1, 1.8), s1: 0, ramp: k > 0.45 ? RAMP.fire : FUEL_RAMP, drag: 1.5 });
+  }
+  if (k > 0.5 && Math.random() < 0.08) spawnPuff({ x: s.x, y: s.y + 0.3, z: s.z, vx: 0, vy: R(0.8, 1.4), vz: 0, life: R(0.5, 0.8), s: R(0.18, 0.3), c0: 0x2a2a2e, c1: 0x4a4c52, drag: 0.6 });
+}
+// 油灘：附近已經有自己這邊的油灘 → 續燒、稍微變大；沒有 → 開一小灘新的
+function addPuddle(x, z, D, team) {
+  if (isBlock(x, z)) return;
+  for (const p of fireZones) {
+    if (!p.puddle || p.team !== team || Math.hypot(p.x - x, p.z - z) > p.r * 0.8) continue;
+    p.t = Math.max(p.t, D.puddleT);
+    p.r = Math.min(D.puddleMax, p.r + 0.03); p.ring.scale.setScalar(p.r);
+    return;
+  }
+  spawnZone(x, z, D.puddle, D.puddleT, 'burn', D.puddleBurn, team, { puddle: true, fires: 1 });
+}
+
 // ---------- 燒夷彈 ----------
 // 拋物線 0.75 秒落到瞄準點（最遠 d.range），落地：小爆炸 + 火海（d.zone 半徑、燒 d.zoneT 秒）
 const NAPALM_T = 0.75, LOB_G = 22;
@@ -230,13 +308,13 @@ function acidSplash(s) {
 // 地上一片會持續上狀態的區域：status = 'burn'（火海）/ 'corrode'（酸液）；每秒對裡面的敵機（team 以外）的腳疊 stacks 層
 const ZONE_LOOK = { burn: { color: 0xff5a18, ramp: 'fire' }, corrode: { color: 0x6ac828, ramp: 'acid' } };
 const ACID_STAIN = [0x0c2004, 0x102808];   // 酸蝕過的地：偏綠的壓暗
-export function spawnZone(x, z, r, t, status, stacks, team) {
+export function spawnZone(x, z, r, t, status, stacks, team, opt = {}) {
   const L = ZONE_LOOK[status] ?? ZONE_LOOK.burn;
   const ring = new THREE.Mesh(ZONE_GEO, addMat(L.color, 0.3));
   ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.06, z); ring.scale.setScalar(r); scene.add(ring);
   // 火海的火：幾個點分散在圓裡（酸液沒有火，靠下面冒泡）
-  if (status === 'burn') for (let k = 0; k < 6; k++) { const a = Math.random() * 6.28, rr = Math.sqrt(Math.random()) * r * 0.85; burnAt(x + Math.cos(a) * rr, 0.15, z + Math.sin(a) * rr, t * R(0.8, 1), 0.8); }
-  fireZones.push({ x, z, r, t, burn: stacks, status, ramp: RAMP[L.ramp], team, ring, acc: 0 });
+  if (status === 'burn') for (let k = 0; k < (opt.fires ?? 6); k++) { const a = Math.random() * 6.28, rr = Math.sqrt(Math.random()) * r * 0.85; burnAt(x + Math.cos(a) * rr, 0.15, z + Math.sin(a) * rr, t * R(0.8, 1), 0.8); }
+  fireZones.push({ x, z, r, t, burn: stacks, status, ramp: RAMP[L.ramp], team, ring, acc: 0, puddle: !!opt.puddle });
   scorch(x, z, r * 0.85, status === 'corrode' ? ACID_STAIN : undefined, false);   // 地上留下燒過 / 被酸蝕過的痕跡
 }
 // 火海：每 0.2 秒點燃裡面的敵機的腳（雜魚整台算一個部位；會飛的燒不到）
@@ -452,6 +530,7 @@ export function updateShots(dt) {
     const s = shots[i];
     if (s.kind === 'bullet') stepBullet(s, i, dt);
     else if (s.kind === 'napalm') stepNapalm(s, i, dt);
+    else if (s.kind === 'fuel') stepFuel(s, i, dt);
     else stepMissile(s, i, dt);
   }
   updateFireZones(dt);

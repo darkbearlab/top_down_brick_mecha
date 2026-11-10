@@ -52,7 +52,7 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   const has = k => ws.includes(k) || ws.includes(k + '_l');   // 低階版也算
   e.ai = {
     strafe: Math.random() < 0.5 ? -1 : 1, t: 1, burst: 0, rest: 1 + Math.random(), reposition: 3 + Math.random() * 3, lockT: 0, snipeT: 0, hold: { L: Math.random(), R: Math.random() },
-    want: has('saber') || has('shotgun') || has('flamer') || has('pile') ? 3 : has('lance') ? 7 : has('sniper') ? 13 : has('acid') ? 11 : has('pulse') ? 10 : 8,   // 只會拋酸的投擲蟲站遠一點丟
+    want: has('saber') || has('shotgun') || has('flamer') || has('pile') ? 3 : has('fuel') ? 6 : has('lance') ? 7 : has('sniper') ? 13 : has('acid') ? 11 : has('pulse') ? 10 : 8,   // 只會拋酸的投擲蟲站遠一點丟
   };
   e.laser = makeLaser(0xff3020);
   // 特殊雜魚
@@ -147,7 +147,7 @@ function updateDrop(e, dt, player) {
 }
 
 // 這把武器打得到多遠
-const reachOf = d => d.kind === 'pulse' ? d.range : d.kind === 'pile' ? d.reach + 1.9 : d.kind === 'lance' ? d.speed * d.dashT + 1.6 : d.kind === 'flame' ? d.range + 0.3 : d.kind === 'napalm' ? d.range : d.kind === 'saber' ? d.reach + 1.2 : d.kind === 'bullet' || d.kind === 'beam' ? d.speed * d.life : d.kind === 'rocket' ? 26 : 18;   // 敵人子彈慢，但飛得一樣久 → 射程一樣
+const reachOf = d => d.kind === 'pulse' ? d.range : d.kind === 'pile' ? d.reach + 1.9 : d.kind === 'lance' ? d.speed * d.dashT + 1.6 : d.kind === 'flame' ? d.range + 0.3 : d.kind === 'stream' ? d.range - 0.5 : d.kind === 'napalm' ? d.range : d.kind === 'saber' ? d.reach + 1.2 : d.kind === 'bullet' || d.kind === 'beam' ? d.speed * d.life : d.kind === 'rocket' ? 26 : 18;   // 敵人子彈慢，但飛得一樣久 → 射程一樣
 
 // 外掛的 AI 大腦（src/brainapi.js 掛上來）：有 e.brain 的機體，移動 / 瞄準 / 開火都交給大腦，下面這套內建 AI 不跑
 export const brainHook = { run: null };
@@ -255,7 +255,7 @@ export function updateEnemy(e, dt, player) {
   A.reposition -= dt;
   let boost = false, bx = mx, bz = mz;
   if (DF.dodge) for (const s of shots) {
-    if (s.team === e.team || !(s.heavy || s.kind !== 'bullet' || s.dmg > 20)) continue;
+    if (s.team === e.team || s.kind === 'fuel' || !(s.heavy || s.kind !== 'bullet' || s.dmg > 20)) continue;
     const sdx = s.dx ?? s.vx / s.speed, sdz = s.dz ?? s.vz / s.speed;
     const ox = e.x - s.x, oz = e.z - s.z, t = ox * sdx + oz * sdz;
     if (t < 0 || t > 6) continue;
