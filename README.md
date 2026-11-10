@@ -285,6 +285,7 @@
 - `src/wreck.js` 擊墜演出與殘骸
 - `src/input.js` 鍵盤滑鼠與手把；`src/padnav.js` 手把操作選單
 - 觀戰「AI vs 雜魚…」：選一台代理作品（六台個性機體：狂戰士、狙擊手、重砲手、騎士、縱火犯、飛彈指揮官；第一輪的 alpha / beta），打三個雜魚小隊一起（內建 AI、難度 hard），每場換一組（main.js BRAIN_PACKS，最後一組是精英包），右下顯示剩幾台
+- 觀戰「AI 2v2…」：代理設計的 2v2 組合（tools/sim/teams/*.json：name、idea、members），隨機配對或固定一隊；大腦用 act.target 自己選目標（2v2 循環賽：tools/sim/teamrr.mjs）
 - 觀戰「AI 對打…」：個性機體隨機配對 / alpha vs beta；機體 = tools/sim/entries/<名字>/loadout.json、大腦 = src/brains/<名字>.js，每場交換左右、打完自動下一場（main.js ENTRY_INFO 加參賽者）
 - `src/brainapi.js` AI 大腦介面（attachBrain 掛上去就取代內建 AI；觀察 / 動作格式見 tools/sim/BRAINS.md）；`src/brains/` 大腦（sample = 範例）
 - `src/combatlog.js` 戰鬥紀錄（平常關著；`tools/sim` 無頭對戰模擬開著跑，見 tools/sim/README.md）
