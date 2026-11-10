@@ -21,3 +21,7 @@
 | 護衛騎士 b-knight+b-missileer | 5-15 | 9-9-2 | 10-10 | 4-13-3 | 13-7 | 10-10 | 15-5 |
 | 獵犬與鷹 b-berserker+b-missileer | 16-4 | 16-4 | 15-5 | 12-8 | 17-3 | 17-3 | 20-0 |
 | 雙狼鉗形 b-berserker×2 | 20-0 | 15-5 | 18-2 | 14-6 | 18-2 | 20-0 | 17-3 |
+
+## 平衡調整後重調（beta）
+- 包的原大腦（missileer.js）重調過，見 tools/sim/entries/missileer/NOTES.md；團隊層沒改
+- gauntlet 種子 1–4：82 / 90 / 94 / 92 = 89.5%

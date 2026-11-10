@@ -31,3 +31,7 @@
 - 騎槍：現行 324 發 301 中、平均相對速度 21.2（原始 ~138）、撞牆 1 次；刺擊：平均相對速度 9.3（原始 ~60），每場騎槍輸出 321 → 122（佔 44% → 23%），沒有撞牆
 - 2v2 b-knight+b-missileer vs berserker+missileer（20 場）：現行 5-14、點火 0 2-17、刺擊 8-10、刺擊 dmgK 11 5-13 → 雜訊內
 - 1v1 knight vs berserker / missileer：三種模式都 0–1 勝 /20 → 騎士 1v1 弱不是點火的問題
+
+## 平衡調整後重調（beta）
+- 包的原大腦（knight.js）重調過，見 tools/sim/entries/knight/NOTES.md；團隊層沒改
+- gauntlet 種子 1–4：88 / 92 / 92 / 98 = 92.5%

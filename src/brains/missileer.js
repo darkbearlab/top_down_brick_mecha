@@ -13,6 +13,7 @@ const T = {
   CLOSE: 6,        // 最近的敵人比這近 → 換手臂武器
   COVER: 1,        // 掩體分數：每台看得到那個點的遠程敵人扣分
   LIGHT: 1,        // 小飛彈也閃
+  LOW: 0.3,        // 彈藥剩不到 3 成 → 省彈模式
 };
 
 const MSL = new Set(['missile', 'vmissile', 'split', 'rocket']);
@@ -50,18 +51,23 @@ export default {
 
     // ---- 開火 ----
     const fire = {};
-    let salvo = 0;
+    let salvo = 0, saving = false;
     for (const side of ['L', 'R']) {
       const s = slotOf(me, side), w = W[s];
       if (!ok(W, s) || !w.live || me.deploying[side]) continue;
+      // 省彈（平衡調整後彈藥 48 / 64）：剩不到 LOW 成時，看不到目標就不打（垂直飛彈越牆的命中率差）、直射飛彈要鎖上
+      const low = w.max > 0 && w.ammo < w.max * T.LOW;
+      if (low && !o.los && !o.foe.staggered) { saving = true; continue; }
       if (w.kind === 'vmissile') { if (o.lock.locked && o.dist > 4) { fire[side] = true; salvo++; } continue; }
-      if (w.kind === 'missile' || w.kind === 'split') { if ((o.lock.locked || o.dist < 8) && o.lineClear[s] !== false && nlos) { fire[side] = true; salvo++; } continue; }
+      // 直射飛彈：要看得到「鎖定的目標」（之前看的是最近的那台；團隊版選的目標不一定是最近的）
+      if (w.kind === 'missile' || w.kind === 'split') { if ((o.lock.locked || (o.dist < 8 && !low)) && o.lineClear[s] !== false && o.los) { fire[side] = true; salvo++; } continue; }
       if (w.kind === 'rocket') { if (nlos && o.dist < 14 && aligned < 0.1 && (o.foe.staggered || o.dist < 8)) fire[side] = true; continue; }
       const tol = w.id === 'shotgun' ? 0.2 : 0.12;
       if (nlos && o.lineClear[s] && o.dist < w.range && aligned < tol) fire[side] = true;
     }
     if (salvo >= 2) notes.push(nlos ? '齊射' : '掩體後垂直發射');
     else if (salvo === 1 && !nlos) notes.push('掩體後垂直發射');
+    else if (saving) notes.push('省彈');
     else if (!o.lock.locked && o.lock.wants && o.lock.progress > 0.05) notes.push('鎖定中');
 
     // ---- 移動：找掩體邊的點（少數遠程看得到、跟最近的敵人 KEEP 格、在鎖定距離內） ----

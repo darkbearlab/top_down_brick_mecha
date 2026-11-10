@@ -1,7 +1,7 @@
 // ---------- 騎士 knight（beta 個性機體 1） ----------
 // 衝擊騎槍 + 盾牌：躲在掩體邊「守關」，誰走進騎槍距離就「挑戰」誰 → 點火、整台衝過去撞；
 // 撞完「回馬」：盾朝著敵群退回掩體邊，等能量 / 騎槍冷卻，再挑下一個
-//   - 騎槍：點火 0.3 秒（站住）→ 以 21 格/秒彈出最多 0.38 秒（約 8 格）；撞到第一台敵機：傷害 ≈ 相對速度 × 6.5（約 136，最多 230）、擊退 + 失衡
+//   - 騎槍：點火 0.15 秒（站住；平衡調整前 0.3）→ 以 21 格/秒彈出最多 0.38 秒（約 8 格）；撞到第一台敵機：傷害 ≈ 相對速度 × 6.5（約 136，最多 230）、擊退 + 失衡
 //     撞牆傷害全吃在騎槍手上 → 衝之前檢查路線（目標後面也要留空間，沒撞到人會一路滑下去）
 //   - 雜魚的射擊型會自己走到 6–10 格（ai.js want 8）→ 不用追，站在掩體邊等牠們走進槍尖距離；只讓少數幾台看得到我
 //   - 盾在左手：左前方 ±78° 擋直擊（不失衡）；左背掛直射飛彈，盾那一側永遠架著背部武器 → 等待時用飛彈點人
@@ -12,7 +12,9 @@ import { ok, slotOf, unit, crowd, bestDir, dodge, shieldCovers, seekLos, foeKind
 const T = {
   REACH: 7.2,      // 點火結束時預測的距離 < REACH 才衝（衝刺約 8 格）
   ALIGN: 0.07,     // 上半身對準誤差（弧度）
-  EMIN: 45,        // 騎槍能量
+  EMIN: 35,        // 騎槍能量（實際用武器的 energy；平衡調整後 35，之前 45）
+  IGN: 0.15,       // 點火時間（平衡調整後 0.15，之前 0.3）
+  RES: 30,         // 騎槍準備好時，閃避要多留的能量（= 一次推進）
   WALL: 2.0,       // 目標後面至少要留幾格空地
   PATH: 8.2,       // 路線最多檢查幾格
   CROWD_PEN: 1.0,  // 目標旁邊每多一台敵人扣分（衝進去之後會被圍）
@@ -53,8 +55,9 @@ export default {
       return Math.min(api.clearAhead(ux, uz, len), api.rayBlock(me.x - uz * w, me.z + ux * w, ux, uz, len), api.rayBlock(me.x + uz * w, me.z - ux * w, ux, uz, len));
     };
     // ---- 每台敵人：點火結束時的預測位置、路線通不通 ----
-    const lanceReady = lance && lance.live && !me.deploying[lanceSide] && (lance.cd ?? 0) <= 0 && me.energy >= T.EMIN;
-    const igLeft = me.charge === 'ignite' ? 0.3 : 0.35;
+    const EMIN = lance?.energy || T.EMIN;
+    const lanceReady = lance && lance.live && !me.deploying[lanceSide] && (lance.cd ?? 0) <= 0 && me.energy >= EMIN;
+    const igLeft = me.charge === 'ignite' ? T.IGN : T.IGN + 0.05;
     const plan = e => {
       const tf = igLeft + Math.max(0, e.dist - 1.5) / 21;
       const px = e.x + e.vx * tf, pz = e.z + e.vz * tf, pu = unit(px - me.x, pz - me.z);
@@ -137,7 +140,7 @@ export default {
       if (T.STRAFE) { mx = -pick.pu.z * mem.strafe * T.STRAFE; mz = pick.pu.x * mem.strafe * T.STRAFE; }
     }
     else {
-      const ready = lance && me.energy >= T.EMIN - 10 && (lance.cd ?? 0) < 0.7;
+      const ready = lance && me.energy >= EMIN - 10 && (lance.cd ?? 0) < 0.7;
       mem.idle = ready ? mem.idle + dt : 0;
       if (ready && (mem.idle > T.ADV || C.n === 0)) {
         // 等太久沒人上門 → 主動前進，找最近的
@@ -179,7 +182,7 @@ export default {
     // ---- 閃：重彈 / 衝鋒機 / 自爆機；盾擋得住的直擊不閃；點火中不能動 ----
     let boost = null;
     if (me.charge !== 'ignite') {
-      boost = dodge(o, api, mem, { minE: lanceReady ? T.EMIN + 30 : 30, shieldOk: (ux, uz) => shieldCovers(me, ux, uz) });
+      boost = dodge(o, api, mem, { minE: lanceReady ? EMIN + T.RES : 30, shieldOk: (ux, uz) => shieldCovers(me, ux, uz) });
       if (boost) notes.push('閃');
       // 撞完：落點在敵群裡 → 立刻往外推進脫離（能量 55 → 25，騎槍冷卻 2 秒內就回得來）
       if (!boost && T.OUT && mem.dashed > 0 && me.canBoost && me.boostCd <= 0 && me.energy >= 30) {
