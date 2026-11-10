@@ -367,7 +367,7 @@ function updateReadyChoice(e, dt, dist, canShoot, tgt) {
   const A = e.ai;
   for (const side of ['L', 'R']) {
     const back = e.guns['back' + side], arm = e.guns['arm' + side];
-    if (!back || slotBroken(e, 'back' + side) || !arm || slotBroken(e, 'arm' + side)) continue;   // 沒得選（沒手臂武器的會自動架著）
+    if (!back || back.def.kind === 'module' || slotBroken(e, 'back' + side) || !arm || slotBroken(e, 'arm' + side)) continue;   // 沒得選（沒手臂武器的會自動架著）
     if (e.deployT[side] > 0) continue;
     const melee = (arm.def.kind === 'saber' || arm.def.kind === 'pile') && dist < 5 || arm.def.kind === 'lance' && dist < 9;
     if (e.ready[side] && melee) { toggleReady(e, side); A.hold[side] = 1.5; continue; }

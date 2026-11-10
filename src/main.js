@@ -1371,6 +1371,7 @@ function gunState(m, slot) {
   const g = m.guns[slot];
   if (!g) return '—';
   if (m.parts[slot]?.broken) return '<span class="bad">損毀</span>';
+  if (g.def.kind === 'module') return m.parts[slot]?.broken ? '<span class="bad">損毀</span>' : '作用中';
   if (g.def.kind === 'shield') return m.shield ? `${Math.ceil(m.shield.hp)}/${Math.round(m.shield.max)}` : '—';
   if (g.ammo <= 0) return '<span class="bad">彈盡</span>';
   if (m.deployT[slot.slice(-1)] > 0 && activeSlot(m, slot.slice(-1)) === slot) return '展開中';

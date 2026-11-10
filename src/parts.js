@@ -111,6 +111,15 @@ export const WEAPONS = {
   lance: { name: '衝擊騎槍', type: 'kinetic', mount: 'arm', weight: 6, kind: 'lance', interval: 2.0, energy: 35, ignite: 0.15, dashT: 0.38, speed: 21, dmgK: 6.5, dmgMax: 230, kb: 9, size: 0.1,
     desc: '衝鋒・點火 0.15 秒後整台往前彈出約 8 格・撞上敵機傷害看速度（最高 230）、自己不受傷・撞牆傷害全吃在拿騎槍的手上', info: '推進能量 35/次',
     model: [[-2, -2, -2, 4, 4, 5, 'f'], [-3, -3, 3, 6, 6, 2, 'w'], [-1, -1, 5, 3, 3, 8, 'f'], [0, 0, 13, 2, 2, 6, 'f'], [0, 0, 19, 1, 1, 3, 'w']], muzzle: [0.5, 0.5, 22] },
+  // 背部模組（被動，不能開火；那個背部被打壞就失效；不疊加）——兩個代理討論出的數值
+  //   供能模組：整台的能量武器耗能 ×0.7（騎槍也算）；光束步槍、光束劍傷害 ×1.15（脈衝、騎槍不加傷害）
+  //   彈藥架：整台吃彈藥的武器彈藥 ×1.5；被打壞：彈藥壓回原本的上限、殉爆打軀幹 35
+  power: { name: '供能模組', type: 'energy', mount: 'back', weight: 5, kind: 'module', module: 'power', costK: 0.7, dmgK: 1.15,
+    desc: '背部模組・整台的能量武器耗能 ×0.7（騎槍也算）、光束步槍 / 光束劍傷害 ×1.15', info: '被動・耐久為一般背部的 7 成・不疊加',
+    model: [[-3, -3, -3, 6, 6, 6, 'f'], [-2, -2, 3, 4, 4, 1, 'g'], [-3, 3, -2, 6, 1, 4, 'w'], [-1, -1, -4, 2, 2, 1, 'g']], muzzle: [0, 0, 4] },
+  ammorack: { name: '彈藥架', type: 'kinetic', mount: 'back', weight: 4, kind: 'module', module: 'ammo', ammoK: 1.5, cookoff: 35,
+    desc: '背部模組・整台吃彈藥的武器彈藥 ×1.5・被打壞時彈藥壓回原本上限、殉爆打軀幹 35', info: '被動・耐久為一般背部的 7 成・不疊加',
+    model: [[-3, -3, -4, 6, 6, 7, 'f'], [-3, 3, -4, 6, 1, 7, 'w'], [-2, -2, 3, 1, 4, 1, 'w'], [1, -2, 3, 1, 4, 1, 'w']], muzzle: [0, 0, 4] },
   split: { name: '分裂飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'split', interval: 1.8, ammo: 8, dmg: 11, salvo: 1, bomblets: 6, speed: 16, accel: 16, maxSpeed: 25, turn: 1.2, life: 1.9, size: 0.18, splash: 1.0,
     model: [[-3, -3, -4, 6, 6, 9, 'f'], [-2, -2, 5, 4, 4, 2, 'w']], muzzle: [0, 0, 7] },
 };
@@ -413,7 +422,7 @@ export function computeSpec(lo) {
     turn: core.turn * (armOver ? 0.7 : 1) * [lo.armL, lo.armR].reduce((k, id) => k * (id ? WEAPONS[id].turnMul ?? 1 : 1), 1), spreadMul: armOver ? 1.6 : 1,
     regen: backOver ? 0.6 : 1, boost: legs.boost * (loadK > 1 ? 0.8 : 1),
     // 整體耐久 ×HP_MUL（節奏放慢、多打幾輪）；背部武器的掛架也有自己的耐久
-    hp: { head: head.hp * HP_MUL, torso: core.hp * HP_MUL, armL: Math.round(core.hp * 0.38 * HP_MUL), armR: Math.round(core.hp * 0.38 * HP_MUL), backL: 70 * HP_MUL, backR: 70 * HP_MUL, legs: legs.hp * HP_MUL },
+    hp: { head: head.hp * HP_MUL, torso: core.hp * HP_MUL, armL: Math.round(core.hp * 0.38 * HP_MUL), armR: Math.round(core.hp * 0.38 * HP_MUL), backL: 70 * HP_MUL * (WEAPONS[lo.backL]?.kind === 'module' ? 0.7 : 1), backR: 70 * HP_MUL * (WEAPONS[lo.backR]?.kind === 'module' ? 0.7 : 1), legs: legs.hp * HP_MUL },
   };
 }
 

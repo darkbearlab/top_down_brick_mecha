@@ -20,7 +20,7 @@ import * as THREE from 'three';
 import { G, UNIT_BOX, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { isBlock, rayBlock, wallFace } from './arena.js';
 import { blastBuildings, damageBuilding, isBuilding } from './buildings.js';
-import { facing, hitMech, mechs, muzzleOf, slotBroken, slotLive, updateReady, useEnergy } from './mech.js';
+import { facing, hasModule, hitMech, mechs, muzzleOf, slotBroken, slotLive, updateReady, useEnergy } from './mech.js';
 import { RAMP, burnAt, explosion, flame, hitSparks, makeLaser, muzzleFlash, rampOf, scorch, setLaser, smoke, wallMark, sparks, spawnGlow, spawnPuff } from './fx.js';
 import { BAL, DMG_TYPES, SLOTS, WEAPONS } from './parts.js';
 import { sfx } from './audio.js';
@@ -31,11 +31,14 @@ import { att, log } from './combatlog.js';
 export const ENEMY_SPEED = 0.55;
 export function makeGuns(lo) {
   const g = {};
+  const rack = ['backL', 'backR'].some(s => WEAPONS[lo[s]]?.module === 'ammo') ? WEAPONS.ammorack.ammoK : 1;   // 彈藥架：彈藥 ×1.5
   // ammo：總彈藥，打完就沒了；能量武器 Infinity
-  for (const s of SLOTS) if (lo[s]) g[s] = { def: WEAPONS[lo[s]], cd: 0, ammo: WEAPONS[lo[s]].ammo ?? Infinity, max: WEAPONS[lo[s]].ammo ?? Infinity };
+  for (const s of SLOTS) if (lo[s]) g[s] = { def: WEAPONS[lo[s]], cd: 0, ammo: WEAPONS[lo[s]].ammo ? Math.ceil(WEAPONS[lo[s]].ammo * rack) : Infinity, max: WEAPONS[lo[s]].ammo ? Math.ceil(WEAPONS[lo[s]].ammo * rack) : Infinity, base: WEAPONS[lo[s]].ammo ?? Infinity };
   return g;
 }
 
+// 供能模組：光束步槍、光束劍傷害 ×1.15
+const powerDmgK = (m, d) => (d.kind === 'beam' || d.kind === 'saber') && hasModule(m, 'power') ? WEAPONS.power.dmgK : 1;
 export const shots = [];
 const mats = new Map();
 const glowMat = c => { if (!mats.has(c)) mats.set(c, addMat(c)); return mats.get(c); };
@@ -53,12 +56,12 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
   if (m.punch) updatePunch(m, dt);
   for (const slot in m.guns) {
     const gun = m.guns[slot], d = gun.def;
-    if (d.kind === 'shield') continue;   // 盾牌：純被動
+    if (d.kind === 'shield' || d.kind === 'module') continue;   // 盾牌、背部模組：純被動
     gun.cd -= dt;
     if (!triggers[slot.slice(-1)] || !slotLive(m, slot) || gun.cd > 0 || !m.alive || slotBroken(m, slot) || m.swing || m.punch || m.charge || m.staggerT > 0 || empOff(m)) continue;
     if (gun.ammo <= 0) { gun.cd = 0.3; if (m.team === 'player') sfx.click(); continue; }   // 彈盡
     if (d.needLock && !locks.length && m.team === 'player') { gun.cd = 0.3; sfx.click(); continue; }
-    if (d.energy && !useEnergy(m, d.energy)) continue;
+    if (d.energy && !useEnergy(m, d.energy * (hasModule(m, 'power') ? WEAPONS.power.costK : 1))) continue;   // 供能模組：耗能 ×0.7
     gun.cd = d.interval * (m.rateMul ?? 1) * chipRateK(m);   // rateMul：無盡模式的射速強化
     // 飛彈 / 火箭一次好幾發，剩不夠就只射剩下的
     const n = Math.min(d.salvo ?? 1, gun.ammo);
@@ -132,7 +135,7 @@ function spawnShot(m, d, x, y, z, dx, dz, speed) {
   const len = beam ? 1.1 : d === WEAPONS.sniper ? 1.6 : (d.size ?? 0.1) * (enemy ? 2.5 : 6);
   const g = shotMesh(color, d.size ?? 0.1, len);
   g.position.set(x, y, z); g.rotation.y = Math.atan2(dx, dz);
-  shots.push({ kind: 'bullet', g, wid: d.id, owner: m, team: m.team, x, y, z, dx, dz, speed, life: d.life * d.speed / speed, dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: d.kb, type: d.type, trail: d.trail, heavy: d.heavy, splash: d.splash });
+  shots.push({ kind: 'bullet', g, wid: d.id, owner: m, team: m.team, x, y, z, dx, dz, speed, life: d.life * d.speed / speed, dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m) * powerDmgK(m, d), power: d.dmg, kb: d.kb, type: d.type, trail: d.trail, heavy: d.heavy, splash: d.splash });
 }
 function spawnMissile(m, d, x, y, z, v, target, point) {
   const g = new THREE.Group();
@@ -289,7 +292,7 @@ function updateSwing(m, dt) {
       if (dist > d.reach + o.r || Math.abs(da) > d.arc / 2 + 0.2) continue;
       s.done.add(o);
       const nx = ox / dist, nz = oz / dist;
-      const r = att(m, d.id, () => hitMech(o, d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), nx, nz, d.kb, 'energy', null, d.dmg));
+      const r = att(m, d.id, () => hitMech(o, d.dmg * (m.dmgMul ?? 1) * chipDmgK(m) * powerDmgK(m, d), nx, nz, d.kb, 'energy', null, d.dmg));
       hitSparks(o.x - nx * o.r, 1.2, o.z - nz * o.r, -nx, -nz, 2.2, r && r.eff < 1);
       sparks(o.x - nx * o.r, 1.2, o.z - nz * o.r, 0x60e0ff, 14, nx, nz);
       sfx.saberHit();

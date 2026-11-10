@@ -106,9 +106,11 @@ export function muzzleOf(m, slot) {
 export const DEPLOY_T = 0.3;
 const LOCK_KINDS = new Set(['missile', 'split', 'vmissile']);
 export const activeSlot = (m, side) => (m.ready[side] ? 'back' : 'arm') + side;
+// 背部模組有沒有在作用（裝著、那個背部沒壞）
+export const hasModule = (m, kind) => ['backL', 'backR'].some(s => m.guns?.[s]?.def.module === kind && !slotBroken(m, s));
 export function canReady(m, side) {
   const g = m.guns?.['back' + side];
-  return !!g && !slotBroken(m, 'back' + side) && g.ammo > 0;
+  return !!g && g.def.kind !== 'module' && !slotBroken(m, 'back' + side) && g.ammo > 0;
 }
 const deployT = m => hasChip(m, 'quickSwap') ? 0.05 : DEPLOY_T;   // 快速換裝
 // 盾牌那一邊：盾一直舉著、不能被選成使用中，那一側的滑鼠鍵固定打背部武器
@@ -604,6 +606,13 @@ function breakShield(m, dx, dz) {
   } else if (!p.broken) { p.hp = 0; p.broken = true; breakPart(m, m.shield.slot, dx, dz); }
 }
 function breakPart(m, name, dx, dz) {
+  // 彈藥架被打壞：彈藥壓回原本的上限、殉爆打軀幹
+  const mod = m.guns?.[name]?.def;
+  if (mod?.module === 'ammo' && !hasModule(m, 'ammo')) {
+    for (const g of Object.values(m.guns)) if (g.base !== Infinity && g.base != null) { g.max = g.base; g.ammo = Math.min(g.ammo, g.base); }
+    explosion(m.x, m.model.hipY + 0.8, m.z, 0.4);
+    att(null, 'cookoff', () => damagePart(m, 'torso', mod.cookoff, dx, dz));
+  }
   const p = m.parts[name];
   voxelBurst(p.g, name === 'legs' ? 30 : 45, 5, m.x, m.z, dx * 3, dz * 3);
   p.g.getWorldPosition(tmpV);
