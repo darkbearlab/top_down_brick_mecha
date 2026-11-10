@@ -284,8 +284,8 @@
 - `src/buildings.js` 可破壞建築
 - `src/wreck.js` 擊墜演出與殘骸
 - `src/input.js` 鍵盤滑鼠與手把；`src/padnav.js` 手把操作選單
-- 觀戰「AI vs 雜魚（alpha / beta）」：代理機體 + 大腦打三個雜魚小隊一起（內建 AI、難度 hard），每場換一組（main.js BRAIN_PACKS，最後一組是精英包），右下顯示剩幾台
-- 觀戰「AI 對打（alpha vs beta）」：代理設計的機體（tools/sim/entries/<名字>/loadout.json）+ 大腦（src/brains/<名字>.js）在遊戲裡對打，每場交換左右、打完自動下一場（main.js BRAIN_ENTRIES 換參賽者）
+- 觀戰「AI vs 雜魚…」：選一台代理作品（六台個性機體：狂戰士、狙擊手、重砲手、騎士、縱火犯、飛彈指揮官；第一輪的 alpha / beta），打三個雜魚小隊一起（內建 AI、難度 hard），每場換一組（main.js BRAIN_PACKS，最後一組是精英包），右下顯示剩幾台
+- 觀戰「AI 對打…」：個性機體隨機配對 / alpha vs beta；機體 = tools/sim/entries/<名字>/loadout.json、大腦 = src/brains/<名字>.js，每場交換左右、打完自動下一場（main.js ENTRY_INFO 加參賽者）
 - `src/brainapi.js` AI 大腦介面（attachBrain 掛上去就取代內建 AI；觀察 / 動作格式見 tools/sim/BRAINS.md）；`src/brains/` 大腦（sample = 範例）
 - `src/combatlog.js` 戰鬥紀錄（平常關著；`tools/sim` 無頭對戰模擬開著跑，見 tools/sim/README.md）
 - `src/gruntbodies.js` 雜魚的專屬外型（五種底盤共用腳 / 腰 / 手臂，只換軀幹一兩塊；沒有獨立的頭）；`src/fx.js` 粒子；`src/post.js` 後製（泛光、模型桌效果）；`src/lights.js` 短命點光源；`src/haze.js` 地面風沙；`src/settings.js` 設定畫面；`src/camview.js` 鏡頭模式；`src/showroom.js` 主選單 / 整備的展示空間；`src/workshop.js` 零件工坊；`src/shapes.js` 編輯過的零件外型；`src/perf.js` 效能面板；`src/voxel.js` 建築的方塊；`src/voxbody.js` 機體的方塊（只畫看得到的面）；`src/audio.js` 合成音效

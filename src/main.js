@@ -133,13 +133,18 @@ function startDuel(preset, diffKey) {
 const watchLoadout = () => Math.random() < 0.5 ? ENEMY_PRESETS[Math.floor(Math.random() * ENEMY_PRESETS.length)] : randomLoadout();
 // AI 對打觀戰（第三階段的代理作品）：tools/sim/entries/<名字>/loadout.json 的機體 + src/brains/<名字>.js 的大腦
 // 每場交換左右（場地有一點點不對稱）；打完自動下一場
-const BRAIN_ENTRIES = ['alpha', 'beta'];
-async function startBrainWatch(fresh = false) {
+// 參賽作品：名字 → 顯示名稱；前六台是第二輪的個性機體（禁用脈衝、盾只有騎士）
+const ENTRY_INFO = { berserker: '狂戰士', sniper: '狙擊手', artillery: '重砲手', knight: '騎士', arsonist: '縱火犯', missileer: '飛彈指揮官', alpha: 'alpha（盾 + 脈衝）', beta: 'beta（盾 + 脈衝）' };
+const PERSONAS = ['berserker', 'sniper', 'artillery', 'knight', 'arsonist', 'missileer'];
+const entryName = n => ENTRY_INFO[n] ?? n;
+// pair：[藍, 紅] 固定配對；'random' = 每場從個性機體隨機挑兩台
+async function startBrainWatch(fresh = false, pair = MODE.bw?.pair ?? ['alpha', 'beta']) {
+  const names = pair === 'random' ? (() => { const a = PERSONAS[Math.floor(Math.random() * PERSONAS.length)]; let b; do b = PERSONAS[Math.floor(Math.random() * PERSONAS.length)]; while (b === a); return [a, b]; })() : pair;
   let BA, E;
   try {
     BA = await import('./brainapi.js');
     const load = async n => ({ name: n, lo: await (await fetch(`tools/sim/entries/${n}/loadout.json`, { cache: 'no-cache' })).json(), brain: (await import(`./brains/${n}.js`)).default });
-    E = await Promise.all(BRAIN_ENTRIES.map(load));
+    E = await Promise.all(names.map(load));
   } catch (err) {
     // 載入失敗（多半是瀏覽器快取了舊的 JS：Ctrl+Shift+R 強制重新整理）：講清楚，不要默默回到選單
     console.error('AI 對打載入失敗', err);
@@ -150,12 +155,13 @@ async function startBrainWatch(fresh = false) {
   MODE.name = 'watch';
   if (fresh || MODE.kind !== 'brains') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
   MODE.kind = 'brains';
+  MODE.bw = { pair };
   MODE.round++;
   AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.hard;
   if (player) { removeMech(player); player.alive = false; }
   // 藍方固定是 alpha、紅方是 beta；單數場 alpha 在左、雙數場在右
   const swap = MODE.round % 2 === 0, [LA, LB] = swap ? [SIDE_B, SIDE_A] : [SIDE_A, SIDE_B];
-  const mk = (e, at, foeAt, team, colors) => spawnEnemy(foeAt, { ...e.lo, name: `${e.name}`, chips: [], device: null }, at, { team, colors });
+  const mk = (e, at, foeAt, team, colors) => spawnEnemy(foeAt, { ...e.lo, name: entryName(e.name), chips: [], device: null }, at, { team, colors });
   const blue = mk(E[0], LA, LB, 'blue', BLUE_COLORS), red = mk(E[1], LB, LA, 'red', ENEMY_COLORS);
   blue.foe = red; red.foe = blue;
   BA.attachBrain(blue, E[0].brain); BA.attachBrain(red, E[1].brain);
@@ -163,11 +169,11 @@ async function startBrainWatch(fresh = false) {
   $('watch').classList.remove('hidden');
   setSensorsVisible(false);
   for (const [side, m] of [['B', blue], ['R', red]]) {
-    $('w' + side + 'Name').textContent = `${m.preset.name}（${m.brain.name} 大腦）`;
+    $('w' + side + 'Name').textContent = m.preset.name;
     $('w' + side + 'Guns').innerHTML = SLOTS.map(s => m.preset[s]).filter(Boolean).map(id => `<span class="wt" style="--c:${DMG_TYPES[WEAPONS[id].type].css}">${WEAPONS[id].name}</span>`).join('') +
       `<span class="wt" style="--c:#8a96a6">${LEGS[m.preset.legs].name}</span>`;
   }
-  toast(`AI 對打・第 ${MODE.round} 場（alpha 在${swap ? '右' : '左'}）`);
+  toast(`第 ${MODE.round} 場・${entryName(names[0])} vs ${entryName(names[1])}`);
 }
 // AI vs 雜魚（第三階段的代理作品打狼群）：一台代理機體 + 大腦 vs 一群雜魚小隊（內建 AI），每場換一組小隊
 const BRAIN_PACKS = [
@@ -195,7 +201,7 @@ async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
   AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.hard;
   if (player) { removeMech(player); player.alive = false; }
   const pack = BRAIN_PACKS[(MODE.round - 1) % BRAIN_PACKS.length], units = pack.squads.flatMap(k => SQUADS[k].units);
-  const ace = spawnEnemy(SIDE_B, { ...E.lo, name: who, chips: [], device: null }, SIDE_A, { team: 'blue', colors: BLUE_COLORS });
+  const ace = spawnEnemy(SIDE_B, { ...E.lo, name: entryName(who), chips: [], device: null }, SIDE_A, { team: 'blue', colors: BLUE_COLORS });
   BA.attachBrain(ace, E.brain);
   const reds = units.map((k, j) => { const g = spawnEnemy(SIDE_A, gruntOf(k), { x: SIDE_B.x - 2 + (j % 2) * 3, z: (j - (units.length - 1) / 2) * 2.6 }, { team: 'red', colors: GRUNT_COLORS, diff: DIFFS.hard, grunt: true }); g.foe = ace; return g; });
   ace.foe = reds[0];
@@ -203,7 +209,7 @@ async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
   $('menu').classList.add('hidden'); $('duel').classList.add('hidden'); $('hud').classList.add('hidden');
   $('watch').classList.remove('hidden');
   setSensorsVisible(false);
-  $('wBName').textContent = `${who}（${E.brain.name} 大腦）`;
+  $('wBName').textContent = entryName(who);
   $('wBGuns').innerHTML = SLOTS.map(s => E.lo[s]).filter(Boolean).map(id => `<span class="wt" style="--c:${DMG_TYPES[WEAPONS[id].type].css}">${WEAPONS[id].name}</span>`).join('') + `<span class="wt" style="--c:#8a96a6">${LEGS[E.lo.legs].name}</span>`;
   $('wRName').textContent = pack.name;
   toast(`第 ${MODE.round} 場・雜魚 ${reds.length} 台`);   // 小隊名字在右下的面板
@@ -1200,9 +1206,11 @@ $('mWatchMenu').onclick = () => {
     { label: '電腦對電腦', desc: '隨機配裝・打完自動換下一場', primary: true, run: () => startWatch(true) },
     { label: '王牌 vs 雜魚', desc: '一台王牌機對上一批批空投的雜魚機（共 18 台）', run: () => startHorde(true) },
     { label: '雜魚 vs 雜魚', desc: '藍紅兩隊雜魚各 12 台，從兩側空投，先全滅的輸', run: () => startSkirmish(true) },
-    { label: 'AI vs 雜魚（alpha）', desc: 'alpha 的機體 + 大腦打一群雜魚（三個小隊一起），每場換一組，最後一組是精英包', run: () => startBrainPack(true, 'alpha') },
-    { label: 'AI vs 雜魚（beta）', desc: 'beta 的機體 + 大腦打一群雜魚，同上', run: () => startBrainPack(true, 'beta') },
-    { label: 'AI 對打（alpha vs beta）', desc: '代理設計的兩台機體和大腦（tools/sim/entries）・每場交換左右・打完自動下一場', run: () => startBrainWatch(true) },
+    { label: 'AI vs 雜魚…', desc: '代理設計的機體 + 大腦打一群雜魚（三個小隊一起），每場換一組，最後一組是精英包', run: () => showSub('AI vs 雜魚：選一台', Object.keys(ENTRY_INFO).map((n, i) => ({ label: entryName(n), desc: PERSONAS.includes(n) ? '個性機體' : '第一輪作品', primary: i === 0, run: () => startBrainPack(true, n) }))) },
+    { label: 'AI 對打…', desc: '代理設計的機體和大腦互打・每場交換左右・打完自動下一場', run: () => showSub('AI 對打', [
+      { label: '個性機體隨機配對', desc: '每場從六台個性機體裡隨機挑兩台', primary: true, run: () => startBrainWatch(true, 'random') },
+      { label: 'alpha vs beta', desc: '第一輪的兩台（盾 + 脈衝）', run: () => startBrainWatch(true, ['alpha', 'beta']) },
+    ]) },
   ]);
 };
 $('mGarage').onclick = () => { unlockAudio(); sfx.click(); openGarageFrom('menu'); };
