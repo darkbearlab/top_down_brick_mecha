@@ -114,8 +114,8 @@ export const WEAPONS = {
   // 背部模組（被動，不能開火；那個背部被打壞就失效；不疊加）——兩個代理討論出的數值
   //   供能模組：整台的能量武器耗能 ×0.7（騎槍也算）；光束步槍、光束劍傷害 ×1.15（脈衝、騎槍不加傷害）
   //   彈藥架：整台吃彈藥的武器彈藥 ×1.5；被打壞：彈藥壓回原本的上限、殉爆打軀幹 35
-  power: { name: '供能模組', type: 'energy', mount: 'back', weight: 5, kind: 'module', module: 'power', costK: 0.7, dmgK: 1.15,
-    desc: '背部模組・整台的能量武器耗能 ×0.7（騎槍也算）、光束步槍 / 光束劍傷害 ×1.15', info: '被動・耐久為一般背部的 7 成・不疊加',
+  power: { name: '供能模組', type: 'energy', mount: 'back', weight: 5, kind: 'module', module: 'power', costK: 0.7, dmgK: 1.15, boostK: 0.75, regenK: 1.3,
+    desc: '背部模組・整台的能量武器耗能 ×0.7（騎槍也算）、光束步槍 / 光束劍傷害 ×1.15、推進耗能 ×0.75、能量回復 ×1.3', info: '被動・耐久為一般背部的 7 成・不疊加',
     model: [[-3, -3, -3, 6, 6, 6, 'f'], [-2, -2, 3, 4, 4, 1, 'g'], [-3, 3, -2, 6, 1, 4, 'w'], [-1, -1, -4, 2, 2, 1, 'g']], muzzle: [0, 0, 4] },
   ammorack: { name: '彈藥架', type: 'kinetic', mount: 'back', weight: 4, kind: 'module', module: 'ammo', ammoK: 1.5, cookoff: 35,
     desc: '背部模組・整台吃彈藥的武器彈藥 ×1.5・被打壞時彈藥壓回原本上限、殉爆打軀幹 35', info: '被動・耐久為一般背部的 7 成・不疊加',

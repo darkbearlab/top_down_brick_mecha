@@ -156,15 +156,17 @@ export function boostDirOf(m, mx, mz) {
   return d;
 }
 export const boostKOf = m => m.spec.boost * (m.parts.legs.broken ? 0.75 : 1) * (hasChip(m, 'lowCG') ? 0.6 : 1);   // 低重心：推進短
+// 推進耗能（供能模組 ×0.75）
+export const boostCost = m => BOOST_COST * (hasModule(m, 'power') ? WEAPONS.power.boostK : 1);
 export function tryBoost(m, mx, mz) {
-  if (!m.alive || m.grunt || !m.spec.boost || m.staggerT > 0 || m.boostCd > 0 || m.energy < BOOST_COST || m.charge) return false;
+  if (!m.alive || m.grunt || !m.spec.boost || m.staggerT > 0 || m.boostCd > 0 || m.energy < boostCost(m) || m.charge) return false;
   const d = boostDirOf(m, mx, mz), k = boostKOf(m);
   // 噴射只往一個方向：原本的速度只留沿著噴射方向的分量（往反方向跑的會被抵銷），橫向的全部吃掉
   const along = Math.max(0, m.vx * d.x + m.vz * d.z);
   m.vx = d.x * (along + BOOST_DV * k); m.vz = d.z * (along + BOOST_DV * k);
   m.stuckT = 0;
   m.boostDir = d; m.boostK = k; m.boostT = BOOST_TIME; m.boostCd = BOOST_TIME + (hasChip(m, 'doubleBoost') ? 0.02 : BOOST_CD);
-  m.energy -= BOOST_COST; m.energyT = ENERGY_DELAY;
+  m.energy -= boostCost(m); m.energyT = ENERGY_DELAY;
   log('boost', { m: m.id, dx: Math.round(d.x * 100) / 100, dz: Math.round(d.z * 100) / 100 });
   reduceStatus(m, 'burn', 1.5);   // 推進甩掉一些火
   sfx.boost();
@@ -185,7 +187,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   const vmax = S.vmax * lk * (L.noMud ? 1 : (s.speed ?? 1)) * burnLegK(m);   // 腳燒起來會變慢（status.js）
   m.boostCd -= dt;
   m.energyT -= dt;
-  if (m.energyT <= 0) m.energy = Math.min(100, m.energy + ENERGY_REGEN * S.regen * (hasChip(m, 'doubleBoost') ? 0.75 : 1) * dt);
+  if (m.energyT <= 0) m.energy = Math.min(100, m.energy + ENERGY_REGEN * S.regen * (hasChip(m, 'doubleBoost') ? 0.75 : 1) * (hasModule(m, 'power') ? WEAPONS.power.regenK : 1) * dt);   // 供能模組：回復 ×1.3
   // 失衡：腳不出力、轉不太動
   if (m.staggerT > 0) { if ((m.staggerT -= dt) <= 0) m.staggerImm = STAGGER_IMM; mx = 0; mz = 0; m.charge = null; }
   else if (m.staggerImm > 0) m.staggerImm -= dt;
