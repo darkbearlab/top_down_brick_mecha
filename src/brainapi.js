@@ -9,7 +9,7 @@ import { activeSlot, facing, mechs, muzzleOf, slotBroken, slotLive, toggleReady,
 import { shots, updateGuns, fireZones } from './weapons.js';
 import { headStats } from './sensors.js';
 import { burnLockK } from './status.js';
-import { SLOTS } from './parts.js';
+import { BAL, SLOTS } from './parts.js';
 import { AI, aiTools, brainHook } from './ai.js';
 import { note } from './combatlog.js';
 
@@ -137,7 +137,7 @@ function apply(e, act, dt, foe) {
   const los = rayBlock(e.x, e.z, (foe.x - e.x) / (dist || 1), (foe.z - e.z) / (dist || 1), dist) >= dist - 0.9;
   const lockable = foe.alive && !AI.passive && (los || H.radarLock);
   if (e.lockBreak) { e.block = 0; e.lockBreak = false; }   // 失衡 / 逐發鎖定：鎖定歸零
-  e.block = lockable && wantsLock(e) && dist < H.lockRange && !(G.now < (e.relockUntil ?? 0)) ? e.block + dt / (H.lockTime * (e.diff?.lock ?? 1) * burnLockK(e)) : Math.max(0, e.block - dt * 2);
+  e.block = lockable && wantsLock(e) && dist < H.lockRange && !(G.now < (e.relockUntil ?? 0)) ? e.block + dt / (H.lockTime * (e.diff?.lock ?? 1) * burnLockK(e) * (los ? 1 : BAL.wallLockK)) : Math.max(0, e.block - dt * 2);
   const locks = e.block >= 1 ? [foe] : [];
   e.lockOn = e.block > 0 && foe.alive ? { tgt: foe, k: Math.min(1, e.block) } : null;   // 給玩家的被鎖定警示（lockwarn.js）
   const aim = act.aimAt ?? { x: foe.x, z: foe.z };

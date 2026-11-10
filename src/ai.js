@@ -294,7 +294,7 @@ export function updateEnemy(e, dt, player) {
   updateReadyChoice(e, dt, dist, canShoot, player);
   // 長距鎖定頭：隔著牆也能鎖；頭被打掉還是能鎖（距離短、慢）
   const lockable = player.alive && !AI.passive && (los || (H.radarLock && !smokeBlocks(e.x, e.z, player.x, player.z)));
-  A.lockT = lockable && wantsLock(e) && dist < H.lockRange && !(G.now < (e.relockUntil ?? 0)) ? A.lockT + dt : Math.max(0, A.lockT - dt * 2);
+  A.lockT = lockable && wantsLock(e) && dist < H.lockRange && !(G.now < (e.relockUntil ?? 0)) ? A.lockT + dt / (los ? 1 : BAL.wallLockK) : Math.max(0, A.lockT - dt * 2);   // 隔牆鎖得慢（BAL.wallLockK）
   const lockNeed = H.lockTime * DF.lock * burnLockK(e), locks = A.lockT >= lockNeed ? [player] : [];
   e.lockOn = A.lockT > 0 && player.alive ? { tgt: player, k: Math.min(1, A.lockT / lockNeed) } : null;   // 給玩家的被鎖定警示（lockwarn.js）
 

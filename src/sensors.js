@@ -10,6 +10,7 @@ import { G, addMat, angleDiff, scene } from './core.js';
 import { rayBlock } from './arena.js';
 import { wantsLock } from './mech.js';
 import { burnLockK } from './status.js';
+import { BAL } from './parts.js';
 
 export const sensors = { locks: [], progress: new Map(), head: null };
 
@@ -103,10 +104,10 @@ export function updateSensors(p, enemies, aim, dt) {
     if (dist > H.lockRange + 4 && !sensors.progress.has(e)) continue;   // 遠的不用算
     const aimA = Math.abs(angleDiff(p.torsoYaw, Math.atan2(dx, dz)));
     const nearAim = aim && Math.hypot(e.x - aim.x, e.z - aim.z) < 2.5;
-    const can = p.alive && armed && dist <= H.lockRange && (aimA < half || nearAim) &&
-      (H.radarLock || rayBlock(p.x, p.z, dx / (dist || 1), dz / (dist || 1), dist) >= dist - e.r);
+    const seen = rayBlock(p.x, p.z, dx / (dist || 1), dz / (dist || 1), dist) >= dist - e.r;
+    const can = p.alive && armed && dist <= H.lockRange && (aimA < half || nearAim) && (H.radarLock || seen);
     let prog = sensors.progress.get(e) ?? 0;
-    prog = can && !(G.now < (p.relockUntil ?? 0)) ? Math.min(1, prog + dt / lockTime) : Math.max(0, prog - dt * 1.5);   // 逐發鎖定 'after'：冷卻中不鎖
+    prog = can && !(G.now < (p.relockUntil ?? 0)) ? Math.min(1, prog + dt / (lockTime * (seen ? 1 : BAL.wallLockK))) : Math.max(0, prog - dt * 1.5);   // 逐發鎖定 'after'：冷卻中不鎖；隔牆鎖得慢（BAL.wallLockK）
     if (prog > 0) { sensors.progress.set(e, prog); live.add(e); } else sensors.progress.delete(e);
   }
   // 鎖上的：進度滿的，依進度排序取前 lockCount 台
