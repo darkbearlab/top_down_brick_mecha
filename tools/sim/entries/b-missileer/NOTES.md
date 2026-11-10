@@ -25,3 +25,7 @@
 ## 平衡調整後重調（beta）
 - 包的原大腦（missileer.js）重調過，見 tools/sim/entries/missileer/NOTES.md；團隊層沒改
 - gauntlet 種子 1–4：82 / 90 / 94 / 92 = 89.5%
+
+## 隔牆鎖定兩倍久之後重調（beta）
+- 包的 missileer 改成先選看得到的目標、探頭鎖定（見 missileer/NOTES.md）；集火（pickFocus）加「看不到 +24」
+- gauntlet 種子 1–4：44/45/47/44 → 90.0%（改之前 77.5%）

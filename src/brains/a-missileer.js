@@ -20,6 +20,7 @@ const T0 = {
   COVER: 1,        // 掩體分數：每台看得到那個點的遠程敵人扣分
   LIGHT: 1,        // 小飛彈也閃
   HOLD: +(globalThis.process?.env?.A_HOLD ?? 0),   // 趁破綻：直射飛彈最多壓幾秒（0 = 關；1.5 秒 28/80、0.8 秒 41/80、關 46/80 → 火力量比等破綻重要）
+  PEEK: +(globalThis.process?.env?.A_PEEK ?? 1),   // 探頭鎖定：還沒鎖上時，看不到目標的點扣分
   B2B: 7,          // 背靠背：跟隊友最多隔幾格
   TOALLY: 1.2,     // 被貼身時往隊友那邊退
   PKEEP: +(globalThis.process?.env?.A_PKEEP ?? 7.5),   // 包夾收尾時的距離
@@ -125,7 +126,9 @@ export function makeMissileer(over = {}) {
         let s = -visCount(qx, qz) * COVER - r * 0.1;
         s -= Math.abs(nd - KEEP) * (nd < KEEP ? 0.6 : 0.25);
         if (nd > lockR - 1) s -= (nd - lockR + 1) * 0.8;                  // 鎖不到
-        if (ne && !me.hp.head?.broken && o.lock.range < 30 && !losTo(api, { x: qx, z: qz }, ne.x, ne.z)) s -= 2;   // 不能隔牆鎖定的頭：要看得到
+        if (ne && !me.hp.head?.broken && o.lock.range < 30 && !losTo(api, { x: qx, z: qz }, ne.x, ne.z)) s -= 2;
+        // 探頭鎖定（2026-11：隔牆鎖定要 2 倍時間）：還沒鎖上 → 偏好看得到鎖定目標（o.foe）的點；鎖上了再躲回去
+        else if (T.PEEK && !o.lock.locked && !losTo(api, { x: qx, z: qz }, o.foe.x, o.foe.z)) s -= T.PEEK;   // 不能隔牆鎖定的頭：要看得到
         if (zoneAt(o, qx, qz)) s -= 3;
         // 牆角 / 退路：周圍空間太小扣分（被逼近會卡住）
         if (api.rayBlock(qx, qz, -C.ux, -C.uz, 4) < 3) s -= 1;

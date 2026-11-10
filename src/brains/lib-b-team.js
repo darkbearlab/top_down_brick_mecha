@@ -5,6 +5,7 @@
 //   沒有隊友（obs.allies 空的，打雜魚關卡）→ 團隊層完全不動，跟原大腦一模一樣
 // 團隊層的記憶放在 mem.tm（不跟原大腦的欄位撞名）
 // 介面見 tools/sim/BRAINS.md
+import { losTo } from './lib-beta.js';
 export const unit = (x, z) => { const l = Math.hypot(x, z) || 1e-6; return { x: x / l, z: z / l, l }; };
 export const hpFrac = e => e.hp?.torso ? e.hp.torso.hp / Math.max(1, e.hp.torso.max) : 1;
 export const dist2 = (a, b) => Math.hypot(a.x - b.x, a.z - b.z);
@@ -66,6 +67,7 @@ export function pickFocus(o, tm, opt = {}) {
     if (tm.focus === e.id) s -= K.stick;
     if (e.staggered) s -= 0.6;
     if (e.dist > K.maxD) s += 4;
+    if (K.seen && !K.seen(e)) s += K.seenPen ?? 0;     // 看不到的（隔牆鎖要兩倍久）
     if (s < bs) { bs = s; best = e; }
   }
   if (!best) return { e: null, why: null };
@@ -108,7 +110,7 @@ export function supportPost(o, api, act, tm, opt = {}) {
   const K = { lure: false, regroupOn: false, lureR: 8, behind: 3, regroup: 14, lureK: 0.6, regK: 0.45, ...opt };
   const { me } = o, ally = o.allies[0];
   let t = null;
-  { const f = pickFocus(o, tm, { maxD: o.lock.range, ...opt.focus }); if (f.e) act.target = f.e.id; t = f.why; }
+  { const f = pickFocus(o, tm, { maxD: o.lock.range, seen: e => losTo(api, me, e.x, e.z), seenPen: 24, ...opt.focus }); if (f.e) act.target = f.e.id; t = f.why; }
   const near = o.enemies[0];
   if (K.lure && near && near.dist < K.lureR && ally.dist > 3.5 && dist2(near, ally) > near.dist + 1) {
     // 追兵比較靠近我：往「隊友身後」退（隊友在我跟追兵之間）

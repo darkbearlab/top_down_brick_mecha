@@ -13,7 +13,9 @@ const T = {
   CLOSE: 6,        // 最近的敵人比這近 → 換手臂武器
   COVER: 1,        // 掩體分數：每台看得到那個點的遠程敵人扣分
   LIGHT: 1,        // 小飛彈也閃
-  LOW: 0.3,        // 彈藥剩不到 3 成 → 省彈模式
+  LOW: 0.3,
+  PEEK: 2.5,       // 還沒鎖上：看得到鎖定目標的位置加分（隔牆鎖要兩倍久 → 先探頭鎖、鎖上再躲回掩體）
+  SEEN: 8,         // 選鎖定目標：看不到的當作遠 SEEN 格        // 彈藥剩不到 3 成 → 省彈模式
 };
 
 const MSL = new Set(['missile', 'vmissile', 'split', 'rocket']);
@@ -28,6 +30,19 @@ export default {
     if ((mem.flip -= dt) <= 0) { mem.flip = 0.8 + Math.random() * 1.2; if (Math.random() < 0.5) mem.strafe *= -1; }
     const C = crowd(o, 16);
     const nlos = losTo(api, me, nearest.x, nearest.z);
+
+    // ---- 鎖定目標（隔牆鎖要兩倍久）：鎖定距離內，看得到的優先；鎖上了就不換 ----
+    const lockR0 = o.lock.range;
+    if (!o.lock.locked || !E.some(e => e.id === mem.tgt)) {
+      let bt = null, bs = 1e9;
+      for (const e of E) {
+        if (e.dist > lockR0) break;
+        const s = e.dist + (losTo(api, me, e.x, e.z) ? 0 : T.SEEN) - (e.id === mem.tgt ? 2 : 0);
+        if (s < bs) { bs = s; bt = e; }
+      }
+      mem.tgt = bt ? bt.id : null;
+    }
+    const tg = E.find(e => e.id === mem.tgt) ?? o.foe;
 
     // ---- 每一邊：背部飛彈還是手臂 ----
     const back = {};
@@ -95,6 +110,8 @@ export default {
         if (nd > lockR - 1) s -= (nd - lockR + 1) * 0.8;                  // 鎖不到
         if (ne && !me.hp.head?.broken && o.lock.range < 30 && !losTo(api, { x: qx, z: qz }, ne.x, ne.z)) s -= 2;   // 不能隔牆鎖定的頭：要看得到
         if (zoneAt(o, qx, qz)) s -= 3;
+        // 探頭：還沒鎖上 → 站到看得到鎖定目標的地方（鎖上了就照原本躲掩體）
+        if (!o.lock.locked && o.lock.wants && tg && Math.hypot(tg.x - qx, tg.z - qz) < lockR && losTo(api, { x: qx, z: qz }, tg.x, tg.z)) s += T.PEEK;
         // 牆角 / 退路：周圍空間太小扣分（被逼近會卡住）
         if (api.rayBlock(qx, qz, -C.ux, -C.uz, 4) < 3) s -= 1;
         if (mem.spot && Math.hypot(qx - mem.spot.x, qz - mem.spot.z) < 1.5) s += 0.4;
@@ -123,6 +140,7 @@ export default {
     const boost = dodge(o, api, mem, { minE: 30, light: !!T.LIGHT });
     if (boost) notes.push('閃');
 
-    return { move: { x: mx, z: mz }, aimYaw, fire, back, boost, note: notes.length ? notes.join('・') : state };
+    if (!o.lock.locked && o.lock.wants && !o.los && state === '換位置') state = '探頭鎖定';
+    return { move: { x: mx, z: mz }, aimYaw, fire, back, boost, target: mem.tgt ?? undefined, note: notes.length ? notes.join('・') : state };
   },
 };
