@@ -14,18 +14,21 @@
 import { ok, slotOf, unit, crowd, bestDir, dodge, seekLos, foeKind, losTo, zoneAt, TAU } from './lib-a-beta.js';
 import { focusPick, crossAngle, teamNote } from './lib-a-team.js';
 
-const T = {
+const T0 = {
   KEEP: 11,        // 跟最近敵人想保持的距離
   CLOSE: 6,        // 最近的敵人比這近 → 換手臂武器
   COVER: 1,        // 掩體分數：每台看得到那個點的遠程敵人扣分
   LIGHT: 1,        // 小飛彈也閃
+  PKEEP: +(globalThis.process?.env?.A_PKEEP ?? 7.5),   // 包夾收尾時的距離
   CROSS: +(globalThis.process?.env?.A_CROSS ?? 0.8),// 交叉火網：跟隊友對目標的夾角（弧度，最多算到 1.6）× 這個
 };
 
 const MSL = new Set(['missile', 'vmissile', 'split', 'rocket']);
 
-export default {
-  name: 'a-missileer',
+export function makeMissileer(over = {}) {
+  const T = { ...T0, ...over };
+  return {
+  name: over.name ?? 'a-missileer',
   init(mem) { mem.spot = null; mem.spotT = 0; mem.strafe = Math.random() < 0.5 ? 1 : -1; mem.flip = 1; },
   think(o, mem, api) {
     const { me } = o, W = me.weapons, dt = o.dt;
@@ -36,6 +39,10 @@ export default {
     const ally = o.allies?.[0];
     const tgt = F ? F.e : null;
     let tag = '';
+    // 包夾收尾：只剩一台敵人、隊友還活著 → 縮短距離、跟隊友從兩邊夾（對手躲不了兩個方向）
+    const pincer = !!(tgt && ally && o.enemies.length === 1);
+    const KEEP = pincer ? T.PKEEP : (ally && T.TKEEP) || T.KEEP;
+    const COVER = (ally && T.TCOVER != null) ? T.TCOVER : T.COVER;
     if ((mem.flip -= dt) <= 0) { mem.flip = 0.8 + Math.random() * 1.2; if (Math.random() < 0.5) mem.strafe *= -1; }
     const C = crowd(o, 16);
     const nlos = losTo(api, me, nearest.x, nearest.z);
@@ -72,7 +79,8 @@ export default {
       const tol = w.id === 'shotgun' ? 0.2 : 0.12;
       if (nlos && o.lineClear[s] && o.dist < w.range && aligned < tol) fire[side] = true;
     }
-    if (tgt && salvo && o.foe.id === tgt.id) tag = o.foe.staggered ? '趁失衡齊射' : F.why;
+    if (tgt && salvo && o.foe.id === tgt.id) tag = o.foe.staggered ? '趁失衡齊射' : pincer ? '包夾' : F.why;
+    if (T.FRONT && tgt && !pincer && !tag) tag = '誘敵';
     if (salvo >= 2) notes.push(nlos ? '齊射' : '掩體後垂直發射');
     else if (salvo === 1 && !nlos) notes.push('掩體後垂直發射');
     else if (!o.lock.locked && o.lock.wants && o.lock.progress > 0.05) notes.push('鎖定中');
@@ -97,8 +105,8 @@ export default {
         if (r && api.clearAhead(ux, uz, r + 0.8) < r + 0.5) continue;
         const qx = me.x + ux * r, qz = me.z + uz * r;
         let nd = 99, ne = null; for (const e of E) { const d = Math.hypot(e.x - qx, e.z - qz); if (d < nd) { nd = d; ne = e; } }
-        let s = -visCount(qx, qz) * T.COVER - r * 0.1;
-        s -= Math.abs(nd - T.KEEP) * (nd < T.KEEP ? 0.6 : 0.25);
+        let s = -visCount(qx, qz) * COVER - r * 0.1;
+        s -= Math.abs(nd - KEEP) * (nd < KEEP ? 0.6 : 0.25);
         if (nd > lockR - 1) s -= (nd - lockR + 1) * 0.8;                  // 鎖不到
         if (ne && !me.hp.head?.broken && o.lock.range < 30 && !losTo(api, { x: qx, z: qz }, ne.x, ne.z)) s -= 2;   // 不能隔牆鎖定的頭：要看得到
         if (zoneAt(o, qx, qz)) s -= 3;
@@ -109,9 +117,11 @@ export default {
           // 鎖定距離算到集火目標；跟隊友拉夾角、別擠在一起
           const td = Math.hypot(tgt.x - qx, tgt.z - qz);
           if (td > lockR - 1) s -= (td - lockR + 1) * 0.8;
-          s += Math.min(crossAngle(qx, qz, ally, tgt), 1.6) * T.CROSS;
+          if (pincer) { s += Math.min(crossAngle(qx, qz, ally, tgt), 1.6) * T.CROSS; if (!losTo(api, { x: qx, z: qz }, tgt.x, tgt.z)) s -= 1; }
           const ad = Math.hypot(ally.x - qx, ally.z - qz);
           if (ad < 5) s -= (5 - ad) * 0.4;
+          // 誘餌：站得比隊友靠前（離目標比隊友近），讓對手先看到我
+          if (T.FRONT && !pincer) s += Math.max(-3, Math.min(3, Math.hypot(ally.x - tgt.x, ally.z - tgt.z) - td)) * T.FRONT;
         }
         if (s > bs) { bs = s; best = { x: qx, z: qz }; }
       }
@@ -141,3 +151,5 @@ export default {
     return { move: { x: mx, z: mz }, aimYaw, fire, back, boost, target: tgt ? tgt.id : null, note: teamNote(tag, notes.length ? notes.join('・') : state) };
   },
 };
+}
+export default makeMissileer();

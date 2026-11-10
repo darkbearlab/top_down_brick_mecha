@@ -1,0 +1,2 @@
+{ "name": "a-decoy", "head": "radar", "core": "heavy", "legs": "biped", "armL": "mg", "armR": "autocannon", "backL": "vmissile", "backR": "missile",
+  "armor": { "head": "ceramic", "torso": "ceramic", "arms": "ceramic", "legs": "ceramic" } }

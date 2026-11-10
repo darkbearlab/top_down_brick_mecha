@@ -38,14 +38,15 @@ export function dpsOf(e) {
 export function focusPick(o, mem, opt = {}) {
   const A = o.allies ?? [];
   const E = o.enemies ?? [];
-  if (!A.length || !E.length) return null;
+  if (!A.length || !E.length || globalThis.process?.env?.A_NOFOCUS) return null;
   const me = o.me;
   const type = opt.type ?? 'chemical';
   let best = null, bs = -1e9, why = '';
   for (const e of E) {
     if (e.grunt) continue;
-    let s = -ehpOf(e, type) / 120 + dpsOf(e) / 120;
-    s -= e.dist * (opt.near ?? 0.06);
+    const M = globalThis.process?.env?.A_FMODE;
+    let s = -ehpOf(e, type) / 120 + dpsOf(e) / (M === 'dps' ? 40 : 120);
+    s -= e.dist * (M === 'near' ? 0.5 : opt.near ?? 0.06);
     let w = '集火';
     for (const a of A) {
       if (a.foeId === e.id) s += opt.follow ?? 2.5;

@@ -10,7 +10,7 @@
 import { MELEE, ok, activeOf, leadPoint, clearLine, dangerOf, dangerAt, dodge, navToSee, pickDir, centroid } from './lib-alpha.js';
 import { focusPick, crossAngle, teamNote } from './lib-a-team.js';
 
-export const P = { keep: 16, close: 8, cover: 1.2, napT: 0.75, cross: +(globalThis.process?.env?.A_CROSS ?? 0.8) };
+export const P = { keep: 16, close: 8, cover: 1.2, napT: 0.75, pkeep: +(globalThis.process?.env?.A_APKEEP ?? 10), cross: +(globalThis.process?.env?.A_CROSS ?? 0.8) };
 
 export default {
   name: 'a-artillery',
@@ -26,6 +26,9 @@ export default {
     const F = focusPick(o, mem, { type: 'chemical' });
     const tgt = F ? F.e : null, ally = o.allies?.[0];
     let tag = '';
+    // 包夾收尾：只剩一台敵人、隊友還活著 → 出掩體、縮到機砲距離、跟隊友從兩邊夾
+    const pincer = !!(tgt && ally && E.length === 1);
+    const keep = pincer ? P.pkeep : P.keep;
     const rushers = E.filter(e => ['bug', 'blade', 'brawler', 'bomber', 'charger'].includes(e._D.kind) && e.dist < 12);
 
     // ---- 燒夷彈的落點：敵人最多的地方（照 0.75 秒後的位置）；衝過來的近戰 → 丟在牠前面封路 ----
@@ -76,17 +79,17 @@ export default {
     const score = (px, pz, ux, uz) => {
       let sc = 0, dmin = 99;
       for (const e of E) dmin = Math.min(dmin, Math.hypot(e.x - px, e.z - pz));
-      sc -= Math.abs(dmin - P.keep) * (dmin < P.keep ? 0.8 : 0.2);
+      sc -= Math.abs(dmin - keep) * (dmin < keep ? 0.8 : 0.2);
       if (Math.hypot(near.x - px, near.z - pz) > lockR - 3) sc -= 3;
       sc -= dangerAt(o, api, px, pz, { meleeR: 7 }) / 18;
       // 掩體：看不到我的敵人越多越好（隔著牆）
       let hid = 0;
       for (const e of E) if (e.dist < 30 && !clearLine(api, px, pz, e.x, e.z)) hid++;
-      sc += hid / Math.max(1, E.length) * P.cover;
+      sc += hid / Math.max(1, E.length) * (pincer ? -1 : P.cover);
       sc += Math.min(api.rayBlock(px, pz, ux, uz, 6), 6) * 0.15;
       if (tgt && ally) {
         if (Math.hypot(tgt.x - px, tgt.z - pz) > lockR - 3) sc -= 3;
-        sc += Math.min(crossAngle(px, pz, ally, tgt), 1.6) * P.cross;
+        if (pincer) sc += Math.min(crossAngle(px, pz, ally, tgt), 1.6) * P.cross;
         const ad = Math.hypot(ally.x - px, ally.z - pz);
         if (ad < 5) sc -= (5 - ad) * 0.4;
       }
@@ -129,7 +132,7 @@ export default {
       if (w.kind === 'vmissile' || w.kind === 'missile') {
         const fd = tgt ? o.dist : nd;
         fire[side] = o.lock.locked && fd < w.range + (w.kind === 'vmissile' ? 16 : 0);
-        if (fire[side] && (w.cd ?? 0) <= 0.05) { shot = hidden ? '隔牆飛彈' : '垂直飛彈齊射'; if (tgt && o.foe.id === tgt.id) tag = F.why; }
+        if (fire[side] && (w.cd ?? 0) <= 0.05) { shot = hidden ? '隔牆飛彈' : '垂直飛彈齊射'; if (tgt && o.foe.id === tgt.id) tag = pincer ? '包夾' : F.why; }
         continue;
       }
       if (w.kind === 'napalm') {

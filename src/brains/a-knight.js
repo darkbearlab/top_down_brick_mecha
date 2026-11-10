@@ -15,7 +15,7 @@
 import { ok, slotOf, unit, crowd, bestDir, dodge, shieldCovers, seekLos, foeKind, hpOf, losTo, zoneAt, TAU } from './lib-a-beta.js';
 import { focusPick, teamNote } from './lib-a-team.js';
 
-const T = {
+const T0 = {
   REACH: 7.2,      // 點火結束時預測的距離 < REACH 才衝（衝刺約 8 格）
   ALIGN: 0.07,     // 上半身對準誤差（弧度）
   EMIN: 45,        // 騎槍能量
@@ -38,8 +38,10 @@ const T = {
 const KIND_NAME = { ranged: '射手', melee: '近戰', rammer: '衝鋒機', bomber: '自爆機' };
 const hasMissile = e => Object.values(e.weapons ?? {}).some(w => w && !w.broken && (w.kind === 'missile' || w.kind === 'rocket' || w.kind === 'vmissile'));
 
-export default {
-  name: 'a-knight',
+export function makeKnight(over = {}) {
+  const T = { ...T0, ...over };
+  return {
+  name: over.name ?? 'a-knight',
   init(mem) { mem.tgt = null; mem.spot = null; mem.spotT = 0; mem.idle = 0; mem.strafe = Math.random() < 0.5 ? 1 : -1; },
   think(o, mem, api) {
     const { me } = o, W = me.weapons, dt = o.dt;
@@ -155,7 +157,7 @@ export default {
     else {
       const ready = lance && me.energy >= T.EMIN - 10 && (lance.cd ?? 0) < 0.7;
       mem.idle = ready ? mem.idle + dt : 0;
-      if (ready && (mem.idle > T.ADV || C.n === 0)) {
+      if (ready && (mem.idle > T.ADV || C.n === 0 || (ftgt && o.enemies.length === 1))) {
         // 等太久沒人上門 → 主動前進，找最近的
         state = '前進';
         const tg = ftgt ?? nearest, tu = unit(tg.x - me.x, tg.z - me.z);
@@ -223,3 +225,5 @@ export default {
     return { move: { x: mx, z: mz }, aimYaw: yaw, fire, back, boost, target: ftgt ? ftgt.id : null, note: teamNote(tag, notes.length ? notes.join('・') : state) };
   },
 };
+}
+export default makeKnight();
