@@ -18,6 +18,8 @@ node --import ./tools/sim/register.mjs tools/sim/duel.mjs --a 突擊型 --b 狙�
 node tools/sim/report.mjs <輸出資料夾> [場次]
 ```
 - 沒給 `--brainA/--brainB` = 遊戲內建的 AI（`default`）
+- 一對多：`--b squad:rush+ambush`（B 方換成雜魚小隊）；多對多：`--teamA berserker,sniper --teamB knight,missileer`（參賽作品名字，見 tools/sim/entries/）
+- 雜魚關卡：`node --import ./tools/sim/register.mjs tools/sim/gauntlet.mjs --entry <名字>`（5 組雜魚包，第三階段門檻 80%）
 - 場地是對戰模式的 64×48 對稱場地，A 從左邊 (-26, 0)、B 從右邊 (26, 0) 出發；兩邊有一點點不對稱（內建 vs 內建同機體 B 大約 6 成勝），比較強弱時兩邊都要跑（交換 `--a/--b` 和 `--brainA/--brainB`）
 - `think` 丟出例外：那一幀什麼都不做，console 印前三次
 
@@ -35,6 +37,8 @@ node tools/sim/report.mjs <輸出資料夾> [場次]
 | `los` | 中心點之間看不看得到（有沒有牆 / 建築擋） |
 | `lineClear[slot]` | 自己那個掛點現在開火，彈道會不會馬上撞牆 |
 | `lock` | `{ locked, progress 0..1, range, wants }`：鎖定（飛彈用；有需要鎖定的武器在準備、看得到、在 range 內就會自己慢慢鎖上） |
+| `enemies[]` | 所有活著的敵人（機體欄位同下，多 `dist`、`grunt`），照距離排 |
+| `allies[]` | 活著的隊友（2v2 之類；機體欄位同下，多 `dist`、`foeId` = 它現在打誰） |
 | `incoming[]` | 15 格內敵人的子彈 / 飛彈 / 拋射物：`kind, w 武器 id, x, z, y, ux, uz 方向, speed, dmg, heavy, splash, tti 幾秒後最接近（null = 在遠離）, miss 最接近時離自己多遠, target 是不是追蹤自己, point 落點（拋射物）`，照 tti 排序 |
 | `zones[]` | 附近的火海 / 酸池：`x, z, r, t 剩幾秒, status, mine` |
 
@@ -54,6 +58,7 @@ node tools/sim/report.mjs <輸出資料夾> [場次]
 | `fire: { L, R }` | 按著左 / 右鍵：打那一邊現在準備的武器（冷卻、彈藥、能量不夠就不會發） |
 | `back: { L, R }` | true = 那一邊架起背部武器、false = 換回手臂（切換要 0.3 秒，期間不能開火） |
 | `boost: { x, z }` 或 `true` | 推進（true = 照 move 的方向）；要 30 能量、有冷卻 |
+| `target: id` | 選目標（`obs.enemies[].id`）：下一幀起 `obs.foe`、`dist`、`dir`、鎖定、預設瞄準點都換成它；`null` = 交回預設（最近的）；目標死了自動退回最近的 |
 | `note: '文字'` | 意圖，會記進戰鬥紀錄（`intent` 事件），報告裡看得到；同樣的字連續只記一次 |
 
 ## api（工具，都綁好這台機體）

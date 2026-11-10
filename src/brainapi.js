@@ -19,6 +19,12 @@ export function attachBrain(e, brain) {
   brain.init?.(e.bmem, e);
 }
 
+// 大腦自己選的目標（act.target）還活著就用它，不然用 fallback（最近的那台）
+export function brainFoe(e, fallback) {
+  if (e.btarget != null) { const t = mechs.find(o => o.id === e.btarget && o.alive && !o.drop && o.team !== e.team); if (t) return t; e.btarget = null; }
+  return fallback;
+}
+
 // 一台機體看得到的樣子（自己的會多一點細節）
 function view(m, self) {
   const weapons = {};
@@ -70,6 +76,8 @@ function observe(e, foe, dt) {
   return {
     t: r2(G.now), dt, me: view(e, true), foe: view(foe, false), dist: r2(dist), dir: { x: dx / dist, z: dz / dist }, los, lineClear: lineOf,
     lock: { locked: e.block >= 1, progress: r2(Math.min(1, e.block)), range: headStats(e).lockRange, wants: wantsLock(e) },
+    // 隊友（2v2 之類）：活著的同隊機體，照距離排、多一個 dist
+    allies: mechs.filter(o => o !== e && o.alive && !o.drop && o.team === e.team).map(o => ({ ...view(o, false), dist: r2(Math.hypot(o.x - e.x, o.z - e.z)), foeId: o.foe?.id ?? null })).sort((a, b) => a.dist - b.dist),
     // 所有活著的敵人（一對多時用；foe = 其中一台，對戰模擬裡是最近的那台），照距離排、多一個 dist
     enemies: mechs.filter(o => o.alive && !o.drop && o.team !== e.team && o.team !== 'none').map(o => ({ ...view(o, false), grunt: !!o.grunt, dist: r2(Math.hypot(o.x - e.x, o.z - e.z)) })).sort((a, b) => a.dist - b.dist),
     incoming: incoming(e), zones: fireZones.filter(z => Math.hypot(z.x - e.x, z.z - e.z) < z.r + 8).map(z => ({ x: r2(z.x), z: r2(z.z), r: z.r, t: r2(z.t), status: z.status, mine: z.team === e.team })),
@@ -122,6 +130,8 @@ function apply(e, act, dt, foe) {
   }
   if (act.boost) { const b = act.boost === true ? { x: mx, z: mz } : act.boost; tryBoost(e, b.x, b.z); }
   if (act.note) note(e, act.note);
+  // 選目標：act.target = 敵人的 id（obs.enemies[].id）；下一幀起 obs.foe、鎖定、預設的 aimAt 都換成它；null = 交回預設（最近的）
+  if (act.target !== undefined) e.btarget = act.target;
   // 鎖定：跟內建 AI 一樣（範圍內、看得到、有需要鎖定的武器在準備 → 慢慢鎖上）
   const H = headStats(e), dist = Math.hypot(foe.x - e.x, foe.z - e.z);
   const los = rayBlock(e.x, e.z, (foe.x - e.x) / (dist || 1), (foe.z - e.z) / (dist || 1), dist) >= dist - 0.9;

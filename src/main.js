@@ -203,6 +203,7 @@ async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
   const pack = BRAIN_PACKS[(MODE.round - 1) % BRAIN_PACKS.length], units = pack.squads.flatMap(k => SQUADS[k].units);
   const ace = spawnEnemy(SIDE_B, { ...E.lo, name: entryName(who), chips: [], device: null }, SIDE_A, { team: 'blue', colors: BLUE_COLORS });
   BA.attachBrain(ace, E.brain);
+  MODE.bpTools = BA;
   const reds = units.map((k, j) => { const g = spawnEnemy(SIDE_A, gruntOf(k), { x: SIDE_B.x - 2 + (j % 2) * 3, z: (j - (units.length - 1) / 2) * 2.6 }, { team: 'red', colors: GRUNT_COLORS, diff: DIFFS.hard, grunt: true }); g.foe = ace; return g; });
   ace.foe = reds[0];
   MODE.bp = { who, ace, reds, total: reds.length, pack };
@@ -1500,7 +1501,9 @@ function step(t) {
     // AI vs 雜魚：代理機體每幀打最近的那台（跟無頭模擬一樣）
     if (watching && MODE.kind === 'brainpack' && MODE.bp?.ace.alive) {
       const A = MODE.bp.ace; let bd = Infinity;
-      for (const g of MODE.bp.reds) if (g.alive && !g.drop) { const d = Math.hypot(g.x - A.x, g.z - A.z); if (d < bd) { bd = d; A.foe = g; } }
+      let near = null;
+      for (const g of MODE.bp.reds) if (g.alive && !g.drop) { const d = Math.hypot(g.x - A.x, g.z - A.z); if (d < bd) { bd = d; near = g; } }
+      if (near) A.foe = MODE.bpTools?.brainFoe(A, near) ?? near;   // 大腦自己選的目標優先
     }
     for (const e of enemies.slice()) {
       updateEnemy(e, dt, e.foe ?? player);
