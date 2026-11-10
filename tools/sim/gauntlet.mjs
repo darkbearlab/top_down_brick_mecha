@@ -22,7 +22,7 @@ mkdirSync(out, { recursive: true });
 let wins = 0, total = 0;
 for (const [name, sq] of PACKS) {
   const dir = join(out, sq.replace(/\+/g, '_'));
-  execFileSync(process.execPath, ['--import', './tools/sim/register.mjs', 'tools/sim/duel.mjs', '--a', A, '--brainA', BRAIN, '--b', `squad:${sq}`, '--n', String(N), '--seed', String(SEED), '--quiet', '--out', dir], { stdio: ['ignore', 'ignore', 'inherit'] });
+  execFileSync(process.execPath, ['--import', './tools/sim/register.mjs', 'tools/sim/duel.mjs', '--a', A, '--brainA', BRAIN, '--b', `squad:${sq}`, '--n', String(N), '--seed', String(SEED), ...(args.patch ? ['--patch', args.patch] : []), '--quiet', '--out', dir], { stdio: ['ignore', 'ignore', 'inherit'] });
   const S = JSON.parse(readFileSync(join(dir, 'summary.json'), 'utf8')), me = S.aggregate.find(x => x.side === 'A');
   wins += me.wins; total += me.n;
   console.log(`${name.padEnd(14)} ${me.wins}/${me.n}・場均承受 ${me.taken}・平均擊殺 ${me.avgKillT ?? '-'}s   （${dir}）`);

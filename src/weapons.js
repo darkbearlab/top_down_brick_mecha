@@ -22,7 +22,7 @@ import { isBlock, rayBlock, wallFace } from './arena.js';
 import { blastBuildings, damageBuilding, isBuilding } from './buildings.js';
 import { facing, hitMech, mechs, muzzleOf, slotBroken, slotLive, updateReady, useEnergy } from './mech.js';
 import { RAMP, burnAt, explosion, flame, hitSparks, makeLaser, muzzleFlash, rampOf, scorch, setLaser, smoke, wallMark, sparks, spawnGlow, spawnPuff } from './fx.js';
-import { DMG_TYPES, SLOTS, WEAPONS } from './parts.js';
+import { BAL, DMG_TYPES, SLOTS, WEAPONS } from './parts.js';
 import { sfx } from './audio.js';
 import { chipDmgK, chipRateK, chipSpreadK, empOff } from './tech.js';
 import { applyStatus, burnSpreadK } from './status.js';
@@ -76,7 +76,7 @@ function fire(m, slot, d, locks, aim, salvoN = d.salvo ?? 1) {
   if (d.kind === 'saber') { startSwing(m, slot, d); return; }
   if (d.kind === 'pulse') { startPulse(m, slot, d); return; }
   if (d.kind === 'pile') { startPunch(m, slot, d); return; }
-  if (d.kind === 'lance') { m.charge = { slot, d, phase: 'ignite', t: d.ignite }; sfx.stow(); return; }   // 衝刺本身在 mech.js
+  if (d.kind === 'lance') { m.charge = BAL.lanceMode === 'thrust' ? { slot, d, phase: 'thrust', t: BAL.thrustT } : { slot, d, phase: 'ignite', t: BAL.lanceIgnite ?? d.ignite }; sfx.stow(); return; }   // 衝刺本身在 mech.js
   if (d.kind === 'flame') { flameCone(m, d, mz, base, spreadK); return; }
   if (d.kind === 'napalm') { lobNapalm(m, d, mz, aim, f); return; }
   if (d.kind === 'bullet' || d.kind === 'beam') {
@@ -141,7 +141,8 @@ function spawnMissile(m, d, x, y, z, v, target, point) {
   g.add(body, tip);
   g.position.set(x, y, z);
   scene.add(g);
-  shots.push({ kind: d.kind, g, wid: d.id, owner: m, team: m.team, x, y, z, vx: v.vx, vy: v.vy, vz: v.vz, speed: Math.hypot(v.vx, v.vz) || 1, life: d.life, age: 0,
+  const vk = m.team !== 'player' ? BAL.enemyMissileK : 1;   // 平衡實驗：電腦的飛彈速度倍率
+  shots.push({ kind: d.kind, g, wid: d.id, owner: m, team: m.team, x, y, z, vk, vx: v.vx * vk, vy: v.vy, vz: v.vz * vk, speed: Math.hypot(v.vx, v.vz) || 1, life: d.life, age: 0,
     dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: 1.2, type: d.type, target, point, d, splash: d.splash });
 }
 
@@ -495,7 +496,7 @@ function stepMissile(s, i, dt) {
     // 先往上飛，到頂後轉向目標（或目標點）砸下來
     const tp = tgt ?? s.point;
     // 三段：爬升（往上衝、很快慢下來，頂點約 5～6 格高）→ 平飛（水平方向每秒最多轉 d.turn，轉彎半徑大）→ 接近目標俯衝
-    const v = Math.hypot(s.vx, s.vy, s.vz) || 1, sp = Math.min(d.maxSpeed, v + d.accel * dt);
+    const v = Math.hypot(s.vx, s.vy, s.vz) || 1, sp = Math.min(d.maxSpeed * (s.vk ?? 1), v + d.accel * (s.vk ?? 1) * dt);
     if (s.age < 0.35) s.vy -= 30 * dt;
     else {
       const hx = tp.x - s.x, hz = tp.z - s.z, hd = Math.hypot(hx, hz) || 1;
@@ -546,7 +547,7 @@ function stepMissile(s, i, dt) {
       const diff = Math.atan2(Math.sin(want - dir), Math.cos(want - dir));
       dir += Math.max(-d.turn * dt, Math.min(d.turn * dt, diff));
     }
-    s.speed = Math.min(d.maxSpeed ?? 20, s.speed + (d.accel ?? 10) * dt);
+    s.speed = Math.min((d.maxSpeed ?? 20) * (s.vk ?? 1), s.speed + (d.accel ?? 10) * (s.vk ?? 1) * dt);
     s.vx = Math.sin(dir) * s.speed; s.vz = Math.cos(dir) * s.speed;
     // 分裂：飛 0.45 秒或接近目標時裂成好幾顆
     if (s.kind === 'split' && (s.age > 0.45 || (tgt && Math.hypot(tgt.x - s.x, tgt.z - s.z) < 4.5))) {

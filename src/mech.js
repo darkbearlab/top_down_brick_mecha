@@ -12,7 +12,7 @@ import { G, addMat, addTrauma, angleDiff, approachAngle, scene } from './core.js
 import { collideBlocks, surfaceAt } from './arena.js';
 import { RAMP, burnAt, burst, chipDebris, explosion, fire, flame, hitSparks, smoke, sparks, spawnGlow, spawnPuff, voxelBurst } from './fx.js';
 import { sfx } from './audio.js';
-import { EFFECT, WEAPONS, computeSpec } from './parts.js';
+import { BAL, EFFECT, WEAPONS, computeSpec } from './parts.js';
 import { buildMechModel } from './model.js';
 import { CHIPS, DEVICES, hasChip } from './tech.js';
 import { collideWrecks, isWreck, startDying, startWreck } from './wreck.js';
@@ -189,7 +189,8 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   else if (m.staggerImm > 0) m.staggerImm -= dt;
   // 騎槍衝鋒（weapons.js 開的頭）：點火時站住不動、衝刺時整台鎖在一個方向；兩段都不吃移動指令
   const C = m.charge;
-  if (C) {
+  if (C && C.phase === 'thrust') { if ((C.t -= dt) <= 0) m.charge = null; }   // 刺擊（平衡實驗）：照常走路 / 推進，下面撞到才算
+  else if (C) {
     mx = mz = 0;
     if ((C.t -= dt) <= 0) {
       if (C.phase === 'ignite') {
@@ -216,7 +217,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
     tx = lf.x * sp; tz = lf.z * sp;
   } else if (ml > 0.1 && m.boostT <= 0) m.legYaw = approachAngle(m.legYaw, Math.atan2(mx, mz), S.legTurn * lk * dt);
 
-  if (C && m.charge) {
+  if (C && m.charge && C.phase !== 'thrust') {
     const f = facing(m);
     if (C.phase === 'dash') {
       m.vx = C.dx * C.v; m.vz = C.dz * C.v;
@@ -256,6 +257,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   m.x += m.vx * dt; m.z += m.vz * dt;
   const dashing = m.charge?.phase === 'dash';
   if (dashing) lanceHit(m);
+  else if (m.charge?.phase === 'thrust') { const f = facing(m); Object.assign(m.charge, { dx: f.x, dz: f.z, v: Math.max(0, m.vx * f.x + m.vz * f.z) }); lanceHit(m); }
   const hit = collideBlocks(m, m.r, 0, !!m.fly);
   // 騎槍衝刺撞牆 / 建築：撞敵機會給的那一下，全部吃在拿騎槍的那隻手上
   if (dashing && m.charge && hit.hit > 2) {
@@ -417,7 +419,12 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null,
   if (hasChip(m, 'reactive') && (m.parts[part].reactT ?? 0) <= G.now) { rk = 0.5; m.parts[part].reactT = G.now + 8; }
   if (CL.on) log('hit', { tgt: m.id, ...srcOf(), part, raw: Math.round(dmg * 10) / 10, eff, dir });
   damagePart(m, part, dmg * mul * eff * rk * corrodeK(m, part), dx, dz);   // 被腐蝕的部位吃更多傷害（status.js）
-  if (m.alive && power >= (m.spec.legs.stagger ?? Infinity)) stagger(m, power, dx, dz);
+  const th = m.spec.legs.stagger ?? Infinity;
+  if (m.alive && BAL.staggerAccum && th !== Infinity) {
+    // 累積制（平衡實驗）：上次被打到現在消退一些，再加上這一下的威力
+    m.stagBuild = Math.max(0, (m.stagBuild ?? 0) - (G.now - (m.stagAt ?? G.now)) * th * BAL.staggerDecay) + power; m.stagAt = G.now;
+    if (m.stagBuild >= th) { stagger(m, m.stagBuild, dx, dz); if (m.staggerT > 0) m.stagBuild = 0; }
+  } else if (m.alive && power >= th) stagger(m, power, dx, dz);
   return { part, eff };
 }
 

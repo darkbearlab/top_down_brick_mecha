@@ -134,7 +134,13 @@ WEAPONS.howitzer = { name: '榴彈砲', type: 'chemical', mount: 'back', weight:
 // 手臂火箭莢艙（菁英專用）：火箭莢艙裝在手上，一次 3 發、彈藥很多，但散布很大（亂灑一片）
 WEAPONS.rocket_arm = { ...WEAPONS.rocket, name: '火箭莢艙', mount: 'arm', low: true, weight: 6, interval: 1.15, ammo: 210, dmg: 40, spread: 0.24,
   model: [[-3, -3, -2, 7, 7, 9, 'f'], [-2, -2, 7, 1, 1, 1, 'w'], [0, -2, 7, 1, 1, 1, 'w'], [2, -2, 7, 1, 1, 1, 'w'], [-2, 0, 7, 1, 1, 1, 'w'], [0, 0, 7, 1, 1, 1, 'w'], [2, 0, 7, 1, 1, 1, 'w'], [-2, 2, 7, 1, 1, 1, 'w'], [0, 2, 7, 1, 1, 1, 'w'], [2, 2, 7, 1, 1, 1, 'w'], [-3, 4, 0, 7, 1, 5, 'a']], muzzle: [0.5, 0.5, 8] };
-for (const k in WEAPONS) WEAPONS[k].id = k;   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
+for (const k in WEAPONS) WEAPONS[k].id = k;
+// ---------- 平衡實驗開關（預設 = 現在的玩法） ----------
+// tools/sim 的 --patch 檔可以改這些、也可以直接改 WEAPONS 的數值，拿來先模擬再決定要不要正式改
+//   staggerAccum：true = 失衡改成累積制（短時間內的威力加總超過腳的門檻才失衡，累積值每秒消退 門檻 × staggerDecay）
+//   enemyMissileK：電腦射的飛彈 / 火箭速度倍率（子彈已經是 ×0.55）
+//   lanceMode：'dash' = 現在的（點火 lanceIgnite 秒 → 鎖方向衝刺）；'thrust' = 沒有點火、不會自動衝，按下後 thrustT 秒內槍尖撞到敵機，傷害照自己當下沿正前方的速度（推進撞進去才痛）
+export const BAL = { staggerAccum: false, staggerDecay: 0.6, enemyMissileK: 1, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
 export const HP_MUL = 1.35;
 
 // ---------- 敵人的主題（派系） ----------

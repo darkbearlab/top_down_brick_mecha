@@ -22,7 +22,7 @@ const out = args.out ?? join('tools', 'sim', 'out', `tourney-${X}-vs-${Y}-${Date
 mkdirSync(out, { recursive: true });
 
 const run = (a, b, ba, bb, dir) => {
-  execFileSync(process.execPath, ['--import', './tools/sim/register.mjs', 'tools/sim/duel.mjs', '--a', a, '--b', b, '--brainA', ba, '--brainB', bb, '--n', String(N), '--seed', String(SEED), '--quiet', '--out', dir], { stdio: ['ignore', 'ignore', 'inherit'] });
+  execFileSync(process.execPath, ['--import', './tools/sim/register.mjs', 'tools/sim/duel.mjs', '--a', a, '--b', b, '--brainA', ba, '--brainB', bb, '--n', String(N), '--seed', String(SEED), ...(args.patch ? ['--patch', args.patch] : []), '--quiet', '--out', dir], { stdio: ['ignore', 'ignore', 'inherit'] });
   return JSON.parse(readFileSync(join(dir, 'summary.json'), 'utf8')).aggregate;
 };
 const rows = [];

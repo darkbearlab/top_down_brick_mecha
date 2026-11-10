@@ -6,6 +6,7 @@
 //   --b squad:<小隊>[+<小隊>…]：B 方換成一群雜魚（parts.js 的 SQUADS，例如 squad:rush、squad:rush+ambush），用內建 AI；A 一對多，foe = 最近的那台
 //   --diff：雙方的電腦難度（easy / normal / hard；大腦也吃它的傷害 / 鎖定倍率）
 //   --teamA / --teamB：一邊多台（2v2 之類），參賽作品名字逗號分隔，例如 --teamA berserker,sniper --teamB knight,missileer；內建 AI 打最近的敵人，大腦可以用 act.target 自己選
+//   --patch <檔.mjs>：平衡實驗（改 WEAPONS 數值、parts.js 的 BAL 開關），只影響這次模擬
 //   --brainA / --brainB：大腦（src/brains/ 裡的名字，或 .js 檔路徑）；沒給 = 遊戲內建的 AI（default）
 //   結果：每場一個 battle-N.jsonl（所有事件 + 每 0.25 秒的狀態）、summary.json（每場的整理 + 總結）
 // 場地：對戰模式那張 64×48 對稱場地，A 在左（-26, 0）、B 在右（26, 0）
@@ -34,6 +35,8 @@ const loadBrain = async b => {
   const p = existsSync(b) ? resolve(b) : resolve('src', 'brains', b.endsWith('.js') ? b : b + '.js');
   return (await import(pathToFileURL(p).href)).default;
 };
+// --patch <檔.mjs>：平衡實驗，export default ({ WEAPONS, BAL, LEGS }) => { 直接改數值 / 開關 }（只影響這次模擬，不動遊戲檔）
+if (args.patch) { const P = await import('../../src/parts.js'); (await import(pathToFileURL(resolve(args.patch)).href)).default({ WEAPONS: P.WEAPONS, BAL: P.BAL, LEGS: P.LEGS, CORES: P.CORES }); }
 const BA = await loadBrain(args.brainA), BB = await loadBrain(args.brainB);
 const brainName = B => B?.name ?? 'default';
 
