@@ -18,7 +18,7 @@ import { focusPick, teamNote } from './lib-a-team.js';
 const T0 = {
   REACH: 7.2,      // 點火結束時預測的距離 < REACH 才衝（衝刺約 8 格）
   ALIGN: 0.07,     // 上半身對準誤差（弧度）
-  EMIN: 45,        // 騎槍能量
+  EMIN: 35,        // 騎槍能量（2026-11 平衡：45 → 35）
   WALL: 2.0,       // 目標後面至少要留幾格空地
   PATH: 8.2,       // 路線最多檢查幾格
   CROWD_PEN: 1.0,  // 目標旁邊每多一台敵人扣分（衝進去之後會被圍）
@@ -69,7 +69,7 @@ export function makeKnight(over = {}) {
     };
     // ---- 每台敵人：點火結束時的預測位置、路線通不通 ----
     const lanceReady = lance && lance.live && !me.deploying[lanceSide] && (lance.cd ?? 0) <= 0 && me.energy >= T.EMIN;
-    const igLeft = me.charge === 'ignite' ? 0.3 : 0.35;
+    const igLeft = me.charge === 'ignite' ? 0.15 : 0.2;   // 點火 0.15 秒（2026-11 平衡：0.3 → 0.15）＋ 對準 / 反應約 0.05
     const plan = e => {
       const tf = igLeft + Math.max(0, e.dist - 1.5) / 21;
       const px = e.x + e.vx * tf, pz = e.z + e.vz * tf, pu = unit(px - me.x, pz - me.z);

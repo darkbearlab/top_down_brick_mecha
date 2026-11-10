@@ -4,11 +4,13 @@
 // 介面見 tools/sim/BRAINS.md；共用工具 lib-alpha.js
 import { MELEE, ok, activeOf, leadPoint, clearLine, dangerOf, hpOf, buddies, dangerAt, dodge, navToSee, pickDir } from './lib-alpha.js';
 
-// 火箭飛到 d 格要幾秒（初速 24、加速 30、最快 38；電腦方子彈減速不吃在火箭上）
+// 火箭飛到 d 格要幾秒（資料：初速 24、加速 30、最快 38；2026-11 平衡後所有飛彈 / 火箭實際 ×BAL.missileK 0.8
+//   → 初速 19.2、加速 24、最快 30.4）
+const RK = 0.8, R0 = 24 * RK, RA = 30 * RK, RM = 38 * RK;
 function rocketT(d) {
-  const tA = (38 - 24) / 30, dA = 24 * tA + 15 * tA * tA;
-  if (d <= dA) return (-24 + Math.sqrt(576 + 60 * d)) / 30;
-  return tA + (d - dA) / 38;
+  const tA = (RM - R0) / RA, dA = R0 * tA + RA / 2 * tA * tA;
+  if (d <= dA) return (-R0 + Math.sqrt(R0 * R0 + 2 * RA * d)) / RA;
+  return tA + (d - dA) / RM;
 }
 export const P = { melee: 5.5, gap: 12, rocketMax: 9, keep: 3.0, bud: 1.6, dpsK: 15 };
 
