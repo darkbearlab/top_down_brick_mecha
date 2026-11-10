@@ -14,7 +14,6 @@ const T = {
   COVER: 1,        // 掩體分數：每台看得到那個點的遠程敵人扣分
   LIGHT: 1,        // 小飛彈也閃
 };
-if (typeof process !== 'undefined' && process.env?.KT) Object.assign(T, JSON.parse(process.env.KT));   // 測試用
 
 const MSL = new Set(['missile', 'vmissile', 'split', 'rocket']);
 
