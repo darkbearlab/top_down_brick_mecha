@@ -20,6 +20,7 @@ const T0 = {
   COVER: 1,        // 掩體分數：每台看得到那個點的遠程敵人扣分
   LIGHT: 1,        // 小飛彈也閃
   HOLD: +(globalThis.process?.env?.A_HOLD ?? 0),   // 趁破綻：直射飛彈最多壓幾秒（0 = 關；1.5 秒 28/80、0.8 秒 41/80、關 46/80 → 火力量比等破綻重要）
+  VIS: +(globalThis.process?.env?.A_VIS ?? 1),     // 沒集火目標時先鎖看得到的
   PEEK: +(globalThis.process?.env?.A_PEEK ?? 1),   // 探頭鎖定：還沒鎖上時，看不到目標的點扣分
   B2B: 7,          // 背靠背：跟隊友最多隔幾格
   TOALLY: 1.2,     // 被貼身時往隊友那邊退
@@ -172,7 +173,13 @@ export function makeMissileer(over = {}) {
     const boost = dodge(o, api, mem, { minE: 30, light: !!T.LIGHT });
     if (boost) notes.push('閃');
 
-    return { move: { x: mx, z: mz }, aimYaw, fire, back, boost, target: tgt ? tgt.id : null, note: teamNote(tag, notes.length ? notes.join('・') : state) };
+    // 先鎖看得到的（2026-11：隔牆鎖定要 2 倍時間）：沒有集火目標、最近的那台在牆後 → 改鎖鎖定距離內看得到的最近一台
+    let solo = null;
+    if (!tgt && T.VIS && !nlos) {
+      const v = E.find(e => e.dist < lockR - 1 && losTo(api, me, e.x, e.z));
+      if (v) { solo = v.id; if (!notes.length) notes.push('先鎖看得到的'); }
+    }
+    return { move: { x: mx, z: mz }, aimYaw, fire, back, boost, target: tgt ? tgt.id : solo, note: teamNote(tag, notes.length ? notes.join('・') : state) };
   },
 };
 }
