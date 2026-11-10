@@ -136,8 +136,10 @@ function apply(e, act, dt, foe) {
   const H = headStats(e), dist = Math.hypot(foe.x - e.x, foe.z - e.z);
   const los = rayBlock(e.x, e.z, (foe.x - e.x) / (dist || 1), (foe.z - e.z) / (dist || 1), dist) >= dist - 0.9;
   const lockable = foe.alive && !AI.passive && (los || H.radarLock);
-  e.block = lockable && wantsLock(e) && dist < H.lockRange ? e.block + dt / (H.lockTime * (e.diff?.lock ?? 1) * burnLockK(e)) : Math.max(0, e.block - dt * 2);
+  if (e.lockBreak) { e.block = 0; e.lockBreak = false; }   // 失衡 / 逐發鎖定：鎖定歸零
+  e.block = lockable && wantsLock(e) && dist < H.lockRange && !(G.now < (e.relockUntil ?? 0)) ? e.block + dt / (H.lockTime * (e.diff?.lock ?? 1) * burnLockK(e)) : Math.max(0, e.block - dt * 2);
   const locks = e.block >= 1 ? [foe] : [];
+  e.lockOn = e.block > 0 && foe.alive ? { tgt: foe, k: Math.min(1, e.block) } : null;   // 給玩家的被鎖定警示（lockwarn.js）
   const aim = act.aimAt ?? { x: foe.x, z: foe.z };
   updateGuns(e, { L: !!act.fire?.L && !AI.passive, R: !!act.fire?.R && !AI.passive }, dt, locks, aim);
   if (e.laser) e.laser.g.visible = false;

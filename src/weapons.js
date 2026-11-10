@@ -17,7 +17,7 @@
 //           d.status = 'corrode' 就是酸液彈（投擲蟲）：落地不爆炸、濺開一灘酸，站在裡面腳被腐蝕
 // 敵人的子彈和光束比較慢，看得到、閃得掉
 import * as THREE from 'three';
-import { UNIT_BOX, addMat, addTrauma, angleDiff, scene } from './core.js';
+import { G, UNIT_BOX, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { isBlock, rayBlock, wallFace } from './arena.js';
 import { blastBuildings, damageBuilding, isBuilding } from './buildings.js';
 import { facing, hitMech, mechs, muzzleOf, slotBroken, slotLive, updateReady, useEnergy } from './mech.js';
@@ -64,6 +64,8 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
     const n = Math.min(d.salvo ?? 1, gun.ammo);
     fire(m, slot, d, locks, aim, n);
     log('fire', { m: m.id, slot, w: d.id, n });
+    // 飛彈逐發鎖定（BAL.relock）：要鎖定的飛彈射出去就把鎖定清掉，下一發要重新鎖
+    if (BAL.relock !== 'off' && (d.kind === 'missile' || d.kind === 'vmissile' || d.kind === 'split')) { m.lockBreak = true; if (BAL.relock === 'after') m.relockUntil = G.now + gun.cd; }
     gun.ammo -= n;
     if (gun.ammo <= 0 && m.team === 'player') sfx.reload();
   }

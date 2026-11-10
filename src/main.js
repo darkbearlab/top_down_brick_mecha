@@ -32,6 +32,7 @@ import { sensors, setSensorsVisible, updateSensors } from './sensors.js';
 import { closeGarage, garage, openGarage } from './garage.js';
 import { forward, s2w, turning, view, w2s } from './camview.js';
 import { updatePadNav } from './padnav.js';
+import { updateLockWarn } from './lockwarn.js';
 
 const $ = id => document.getElementById(id);
 
@@ -1694,6 +1695,7 @@ function step(t) {
   sun.target.position.set(camTarget.x, 0, camTarget.z);
 
   if (playing && !watching) updateHud();
+  updateLockWarn(raw, player, playing && !watching && !garage.open && !G.paused && !panelOpen() && MODE.name !== 'menu');   // 被鎖定警示
   updateReticle(playing && !watching && player.alive && !garage.open && !G.paused && !panelOpen() && input.source === 'mouse' && MODE.name !== 'menu');
   if (MODE.name === 'endless') updateEndlessHud();
   if (MODE.name === 'explore' && EX) { updateFog(raw, player.x, player.z); fogVisibility(dt); updateExploreHud(); updateMinimap(raw, player, enemies, EX.squads.filter(S => S.layer === EX.layer), EX); }

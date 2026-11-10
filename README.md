@@ -290,5 +290,6 @@
 - 觀戰「AI 2v2…」：代理設計的 2v2 組合（tools/sim/teams/*.json：name、idea、members），隨機配對或固定一隊；大腦用 act.target 自己選目標（2v2 循環賽：tools/sim/teamrr.mjs）
 - 觀戰「AI 對打…」：個性機體隨機配對 / alpha vs beta；機體 = tools/sim/entries/<名字>/loadout.json、大腦 = src/brains/<名字>.js，每場交換左右、打完自動下一場（main.js ENTRY_INFO 加參賽者）
 - `src/brainapi.js` AI 大腦介面（attachBrain 掛上去就取代內建 AI；觀察 / 動作格式見 tools/sim/BRAINS.md）；`src/brains/` 大腦（sample = 範例）
+- `src/lockwarn.js` 被鎖定警示：上方一條（黃「鎖定警告」+ 進度、紅閃「已被鎖定」、快閃「飛彈接近 ×N」）+ 玩家周圍指向鎖定者 / 追蹤飛彈的箭頭 + 嗶聲（越鎖越快）；來源是 ai.js / brainapi.js 每幀的 e.lockOn
 - `src/combatlog.js` 戰鬥紀錄（平常關著；`tools/sim` 無頭對戰模擬開著跑，見 tools/sim/README.md）
 - `src/gruntbodies.js` 雜魚的專屬外型（五種底盤共用腳 / 腰 / 手臂，只換軀幹一兩塊；沒有獨立的頭）；`src/fx.js` 粒子；`src/post.js` 後製（泛光、模型桌效果）；`src/lights.js` 短命點光源；`src/haze.js` 地面風沙；`src/settings.js` 設定畫面；`src/camview.js` 鏡頭模式；`src/showroom.js` 主選單 / 整備的展示空間；`src/workshop.js` 零件工坊；`src/shapes.js` 編輯過的零件外型；`src/perf.js` 效能面板；`src/voxel.js` 建築的方塊；`src/voxbody.js` 機體的方塊（只畫看得到的面）；`src/audio.js` 合成音效

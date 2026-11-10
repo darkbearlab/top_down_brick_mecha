@@ -6,7 +6,7 @@
 //   長距鎖定頭（radarLock）：隔著牆也能鎖，配垂直飛彈越過掩體打
 //   頭被打掉：還是能鎖，只是鎖定距離剩 45%、時間 ×2.2、只能鎖 1 台、不能隔牆鎖
 import * as THREE from 'three';
-import { addMat, angleDiff, scene } from './core.js';
+import { G, addMat, angleDiff, scene } from './core.js';
 import { rayBlock } from './arena.js';
 import { wantsLock } from './mech.js';
 import { burnLockK } from './status.js';
@@ -106,7 +106,7 @@ export function updateSensors(p, enemies, aim, dt) {
     const can = p.alive && armed && dist <= H.lockRange && (aimA < half || nearAim) &&
       (H.radarLock || rayBlock(p.x, p.z, dx / (dist || 1), dz / (dist || 1), dist) >= dist - e.r);
     let prog = sensors.progress.get(e) ?? 0;
-    prog = can ? Math.min(1, prog + dt / lockTime) : Math.max(0, prog - dt * 1.5);
+    prog = can && !(G.now < (p.relockUntil ?? 0)) ? Math.min(1, prog + dt / lockTime) : Math.max(0, prog - dt * 1.5);   // 逐發鎖定 'after'：冷卻中不鎖
     if (prog > 0) { sensors.progress.set(e, prog); live.add(e); } else sensors.progress.delete(e);
   }
   // 鎖上的：進度滿的，依進度排序取前 lockCount 台
