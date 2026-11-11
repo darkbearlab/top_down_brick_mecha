@@ -194,6 +194,7 @@ function frame(now) {
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
+window.__av = { get units() { return units; }, state, cam };   // 除錯用
 setUnits(state.set); setView('three'); resize();
 document.getElementById('boot').hidden = true;
 requestAnimationFrame(frame);

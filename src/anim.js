@@ -8,7 +8,10 @@
 //   A. 身體彈簧：上下（y）和傾斜（lean，世界座標的向量 = 頭頂往哪邊倒）各是一個有阻尼的彈簧。
 //      彈簧多硬、阻尼多少由重量決定（heft）：輕 = 硬、回得快；重 / 超載 = 軟、沉得深、停下來會多晃一下。
 //      加減速、腳落地、開火的後座力都是「推彈簧一下」，所以會自然疊在一起，恢復的手感跟著重量走。
-//   B. 步態：腳掌有目標點（支撐時貼著地往後、擺動時抬起來往前），用兩節 IK 解出髖、膝、踝的角度。相位只讀 m.walk（腳步聲跟它走）。
+//   B. 步態：腳掌有目標點（支撐時貼著地往後、擺動時抬起來往前），用兩節 IK 解出髖、膝、踝的角度。
+//      不滑步：支撐中的腳掌相對身體往後走的速度 = 機體實際的速度。腿就這麼長，所以跑得快時著地的時間很短、中間是騰空（像短跑）。
+//      步頻照實際速度自己算（A.ph），不直接用 m.walk：m.walk 的步頻跟速度對不上（半速時一步要跨 2 格以上），照它走腳一定滑。
+//      m.walk 只拿來判斷「有沒有在出力走」。（腳步聲還是跟 m.walk，所以聲音和畫面的腳步不會完全同拍。）
 //   C. 手臂：走路時擺臂、放鬆時前臂垂低一點；一開火（武器冷卻跳起來的那一幀）前臂立刻打直朝前，畫面上的槍口才對得上子彈。
 import { G } from './core.js';
 
@@ -37,6 +40,9 @@ function legGeo(R, type) {
   };
 }
 
+// 步頻（每秒幾個循環 = 兩步）：跟著實際速度
+const cadence = (A, sp) => (0.5 + 0.17 * sp) * (1 - 0.12 * A.h) * (A.type === 'reverse' ? 1.1 : 1);
+
 function init(m) {
   const S = m.spec, R = m.model.rig;
   // 重量感 0..1：總重和負載比各佔一半；超載另外算（over 0..1）
@@ -47,7 +53,7 @@ function init(m) {
     w: lerp(15, 7.5, h) * (1 - 0.2 * over) * (type === 'tread' ? 1.3 : 1),   // 身體彈簧的頻率
     z: lerp(0.8, 0.46, h) - 0.1 * over,                                       // 阻尼比
     y: S0(), lx: S0(), lz: S0(),
-    pvx: 0, pvz: 0, ax: 0, az: 0, pwalk: m.walk, rate: 0, gait: 0, step: Math.floor(m.walk / Math.PI),
+    pvx: 0, pvz: 0, ax: 0, az: 0, pwalk: m.walk, rate: 0, gait: 0, step: 0, ph: 0,
     last: G.now, seed: hash(m.id ?? 1),
     legs: R.legs.map(L => legGeo(L, type)),
     arms: { armL: { aim: 1, hold: 0, pcd: 0, kick: S0() }, armR: { aim: 1, hold: 0, pcd: 0, kick: S0() } },
@@ -78,7 +84,9 @@ export function animMech(m, dt) {
     A.pwalk = m.walk;
     const walking = A.legged && A.rate > 0.5;
     A.gait += ((walking ? 1 : 0) - A.gait) * (1 - Math.exp(-(walking ? 10 : 6) * adt));
-    const st = Math.floor(m.walk / Math.PI);
+    // 步頻（每秒幾個循環）：跟著實際速度；重的慢一點、逆關節快一點
+    if (A.gait > 0.02) A.ph += TAU * cadence(A, sp) * adt;
+    const st = Math.floor(A.ph / Math.PI);
     if (st !== A.step) { A.step = st; stepped = walking; }
   }
   const gait = A.gait, legged = A.legged;
@@ -86,14 +94,14 @@ export function animMech(m, dt) {
   const skid = legged ? clamp(spK * 1.4 - 0.15, 0, 1) * (1 - gait) : 0;
 
   // ---- A. 身體彈簧 ----
+  // 上下：重的坐得低；跑起來要蹲低一點腿才跨得開；急停蹲下去
+  const sag = legged ? 0.01 + 0.03 * h + 0.04 * A.over + skid * 0.09 + gait * (0.035 + 0.055 * Math.min(1, spK)) : 0.01 * h;
   const dirx = sp > 0.2 ? vx / sp : 0, dirz = sp > 0.2 ? vz / sp : 0;
   if (adt > 0) {
     // 傾斜：移動時往前傾一點（步行、懸浮）；加速度把頭頂往反方向甩（慣性），重的甩得多
     const leanV = (A.type === 'tread' ? 0 : A.type === 'hover' ? 0.09 : lerp(0.11, 0.07, h) * gait) * Math.min(1, spK) - skid * 0.12;
     const gain = lerp(0.008, 0.013, h) * (A.type === 'tread' ? 0.6 : 1), w = A.w, w2 = w * w;
-    // 上下：重的坐得低；走路時腿張開髖會降一點；急停蹲下去
     const idle = Math.sin(now * 1.7 + A.seed * 6) * 0.006 * (1 - gait);
-    const sag = legged ? 0.01 + 0.03 * h + 0.04 * A.over + skid * 0.09 + gait * (0.02 + 0.02 * h) : 0.01 * h;
     if (stepped) {
       // 腳落地：身體往下沉一下再彈回來；重的沉得深、回得慢。頭也跟著點一下
       const hit = lerp(0.5, 0.75, h) * (0.4 + 0.6 * Math.min(1, spK)) * (1 + 0.4 * A.over);
@@ -112,13 +120,13 @@ export function animMech(m, dt) {
   }
   const ty = m.torsoYaw, ly = m.legYaw, sT = Math.sin(ty), cT = Math.cos(ty), sL = Math.sin(ly), cL = Math.cos(ly);
   // 走路時重心左右換腳（俯視時最看得出來）：往支撐腳那邊靠
-  const sway = legged ? Math.sin(m.walk - 0.35) * lerp(0.03, 0.075, h) * gait * (1 - 0.4 * Math.min(1, spK)) : 0;
+  const sway = legged ? Math.sin(A.ph - 0.35) * lerp(0.03, 0.075, h) * gait * (1 - 0.4 * Math.min(1, spK)) : 0;
   // 身體的位移（模型根部的座標）：傾斜時整個上半身往那邊挪 + 換腳的左右晃
   const shift = legged ? 0.5 * M.hipY : 0.12 * M.hipY;
   const bx = A.lx.x * shift + cL * sway, bz = A.lz.x * shift - sL * sway, by = A.y.x;
   const pitch = A.lx.x * sT + A.lz.x * cT, roll = -(A.lx.x * cT - A.lz.x * sT);
   M.torsoG.position.set(bx, M.hipY + by, bz);
-  M.torsoG.rotation.set(pitch, ty, roll + (legged ? Math.sin(m.walk - 0.35) * 0.035 * gait * (cL * cT + sL * sT) : 0));
+  M.torsoG.rotation.set(pitch, ty, roll + (legged ? Math.sin(A.ph - 0.35) * 0.035 * gait * (cL * cT + sL * sT) : 0));
 
   // ---- B. 腳 ----
   if (legged) {
@@ -130,13 +138,16 @@ export function animMech(m, dt) {
     const dLx = vx * cL - vz * sL, dLz = vx * sL + vz * cL, dl = Math.hypot(dLx, dLz);
     const ux = dl > 0.2 ? dLx / dl : 0, uz = dl > 0.2 ? dLz / dl : 1;
     // 支撐期佔一步的多少：走得慢 / 重 → 兩腳都在地上的時間長；跑起來 / 輕 → 有騰空
-    const duty = clamp(lerp(0.64, 0.44, Math.min(1, spK)) + 0.08 * h, 0.4, 0.75);
-    const cyc = TAU / Math.max(A.rate, 2);
+    const cyc = 1 / cadence(A, sp);   // 一個循環幾秒
     for (let i = 0; i < 2; i++) {
       const Lg = R.legs[i], g = A.legs[i];
-      const p = frac(m.walk / TAU + i * 0.5);
-      // 步幅：支撐期腳掌相對身體往後走的距離 = 速度 × 支撐時間（太長腿不夠 → 截掉，會滑一點）
-      const stride = Math.min(sp * duty * cyc, g.len * 0.95) * gait;
+      const p = frac(A.ph / TAU + i * 0.5);
+      // 腿伸直時腳掌前後最遠到哪（照現在蹲多低算）→ 一步最多跨多長
+      const H = -(g.ay + sag) , dR = (g.a + g.b) * 0.985, reach = 2 * 0.9 * Math.sqrt(Math.max(0.01, dR * dR - H * H));
+      // 支撐期佔多少：讓「步幅 = 速度 × 支撐時間」剛好不超過腿長 → 腳掌貼著地不滑；慢的時候最多 0.64（兩腳都在地上）+ 重的再長一點
+      // 快到連 0.16 都不夠（推進、被撞飛）才會滑
+      const duty = clamp(reach / Math.max(sp * cyc, 1e-3), 0.16, 0.64 + 0.06 * h);
+      const stride = Math.min(sp * duty * cyc, reach) * gait;
       let s, lift = 0, fp = 0;
       if (p < duty) {
         const u = p / duty;
@@ -144,7 +155,10 @@ export function animMech(m, dt) {
         fp = u < 0.2 ? -0.4 * (1 - u / 0.2) : u > 0.7 ? 0.5 * (u - 0.7) / 0.3 : 0;   // 腳跟先著地 → 平 → 腳跟離地
       } else {
         const q = (p - duty) / (1 - duty);
-        s = -0.5 + smooth(q);
+        // 擺動：離地和落地那一瞬間，腳掌的速度要接上支撐期（相對身體往後 = 相對地面不動），不然一著地就滑一下
+        //   所以腳會先往後多甩一點、落地前先往回收（跑步的腿就是這樣）；甩的量有上限，太快時不硬接
+        const kq = Math.min(2.4, (1 - duty) / duty), q2 = q * q, q3 = q2 * q;
+        s = (2 * q3 - 3 * q2 + 1) * -0.5 + (q3 - 2 * q2 + q) * -kq + (-2 * q3 + 3 * q2) * 0.5 + (q3 - q2) * -kq;
         lift = Math.sin(Math.PI * Math.pow(q, 0.8)) * lerp(0.2, 0.11, h) * g.len * (0.45 + 0.55 * Math.min(1, spK));
         fp = 0.5 * Math.cos(Math.PI * q);   // 腳尖朝下拖著離地 → 腳尖翹起來準備落地
       }
@@ -171,7 +185,7 @@ export function animMech(m, dt) {
   } else if (A.type === 'hover') M.parts.legs.g.rotation.set(pitch * 0.4 * (cL * cT + sL * sT), 0, 0);   // 懸浮：裙甲跟著前後傾一點
 
   // ---- C. 手臂 ----
-  const cw = Math.cos(m.walk);
+  const cw = Math.cos(A.ph);
   for (const slot of ['armL', 'armR']) {
     const p = m.parts[slot], Ar = R.arms[slot];
     if (!p || !Ar) continue;
