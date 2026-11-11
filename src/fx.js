@@ -224,6 +224,7 @@ export const RAMP = {
   fire: ramp([0xfff6d0, 0xffd040, 0xff8a20, 0xd83010, 0x501008, 0x000000]),
   ember: ramp([0xffe080, 0xff7020, 0xa02008, 0x000000]),
   flash: ramp([0xffffff, 0xfff0b0, 0xff9030, 0x000000]),
+  flashCore: ramp([0xc8bc9c, 0xc8a050, 0xb05818, 0x000000]),   // 爆炸閃光：比白暗一點（疊在火球上才不會整片死白）
   acid: ramp([0xf0ffd0, 0xb8ff58, 0x68c820, 0x205808, 0x000000]),
 };
 const rampCache = new Map();
@@ -289,13 +290,20 @@ export function smoke(x, y, z, n = 1, size = 1, color) {
 // 爆炸：閃光 → 往外炸開的火球方塊（很快被空氣擋下來、慢慢上浮）→ 地面一圈塵 → 火星 → 晚一點冒出的黑煙柱
 export function explosion(x, y, z, scale = 1) {
   flashLight(x, y + 0.4, z, 0xffa050, 70 * scale, 5 + 6 * scale, 0.35 + 0.35 * scale);   // 照亮周圍（src/lights.js）
-  spawnGlow({ x, y, z, life: 0.12, s0: 1.4 * scale, s1: 2.2 * scale, ramp: RAMP.flash, vr: 0 });
+  // 閃光：不是一顆大白方塊（加法疊上火球會糊成一團白光），而是一顆小一點的核心 + 幾顆往外彈的斜方塊，亮度壓在白以下 → 看得出一顆一顆
+  spawnGlow({ x, y, z, life: 0.11, s0: 0.8 * scale, s1: 1.25 * scale, ramp: RAMP.flashCore, vr: 0 });
+  for (let i = 0, k = 4 + Math.round(3 * scale); i < k; i++) {
+    const a = i / k * Math.PI * 2 + R(-0.4, 0.4), sp = R(5, 9) * scale;
+    const r0 = 0.55 * scale;   // 從核心外面一點開始，才不會全部疊在中間
+    spawnGlow({ x: x + Math.cos(a) * r0, y: y + R(-0.1, 0.4), z: z + Math.sin(a) * r0, vx: Math.cos(a) * sp, vy: R(0.5, 3), vz: Math.sin(a) * sp, life: R(0.1, 0.17),
+      s0: R(0.4, 0.7) * scale, s1: R(0.2, 0.35) * scale, ramp: RAMP.flashCore, drag: 6, vr: R(-6, 6) });
+  }
   const n = Math.round(46 * scale);
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2, el = R(-0.2, 1), sp = R(2.5, 8) * scale;
     spawnGlow({ x: x + R(-0.2, 0.2), y: y + R(-0.2, 0.2), z: z + R(-0.2, 0.2),
       vx: Math.cos(a) * Math.cos(el) * sp, vy: Math.sin(el) * sp * 0.8 + 1, vz: Math.sin(a) * Math.cos(el) * sp,
-      life: R(0.45, 0.95), s0: 0, s1: R(0.3, 0.65) * scale, puff: true, ramp: RAMP.fire, drag: 4.5, g: -1.5 });
+      life: R(0.45, 0.95), s0: 0, s1: R(0.3, 0.65) * scale, puff: true, ramp: RAMP.fire, drag: 4.5, g: -1.5, delay: R(0.03, 0.07) });   // 閃光先、火球晚一點點才冒（不疊成一團白）
   }
   const ring = Math.round(14 + 12 * scale);
   for (let i = 0; i < ring; i++) {
@@ -461,7 +469,7 @@ export function updateParticles(dt) {
   stepList(glows, dt, glowMesh, (p, t) => {
     sampleRamp(p.ramp, t, tmpC);
     // 剛冒出來最亮（超過白），越燒越暗；爆炸的閃光大方塊、火團不加（方塊的形狀是設計圖騰，不能被光暈吃掉）
-    if (GFX.hdr !== 1 && !p.puff && p.ramp !== RAMP.flash) tmpC.multiplyScalar(1 + (GFX.hdr - 1) * (1 - t) * (1 - t));
+    if (GFX.hdr !== 1 && !p.puff && p.ramp !== RAMP.flash && p.ramp !== RAMP.flashCore) tmpC.multiplyScalar(1 + (GFX.hdr - 1) * (1 - t) * (1 - t));
     return p.puff ? p.s1 * Math.sin(Math.PI * Math.min(1, Math.pow(t, 0.55))) + 0.02 : p.s0 + (p.s1 - p.s0) * t;
   });
   stepList(puffs, dt, puffMesh, (p, t) => {
