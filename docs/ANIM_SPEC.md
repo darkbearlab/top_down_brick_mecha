@@ -34,7 +34,11 @@
     - `legsG`（轉向 = `m.legYaw`）→ 腳部 `parts.legs.g` → 骨盆方塊 + 兩隻腳 `legs[0/1]`（只有雙足、逆關節有；掛在骨盆的 `legL/legR` 點上）
     - `torsoG`（高度 = `hipY`、轉向 = `m.torsoYaw`、`rotation.order = 'YXZ'`）→ 軀幹、頭、`armL/armR`、`backL/backR` 各自一個群組 `parts[slot].g`
   - 每個部位的方塊是 `voxbody.js` 的 `VoxBody`（只畫外露面、被打會掉方塊）。**不要重建網格來做動畫**，動 `Group` 的變換就好。
-  - 腳現在是一整隻一塊（沒有膝蓋）。要做膝蓋 / 腳踝，需要把腳的方塊依高度切成大腿、小腿、腳掌好幾個群組。外型資料在 `src/shapes.js`（`legs:biped`、`leg:biped` 等）和 `localStorage` 的 `brickmecha.workshop`（零件工坊，使用者自己做的形狀，只讀不寫）。切法要對任何形狀都成立（用高度比例或在形狀上加關節點；加關節點要先問使用者，因為會動到零件工坊的格式）。
+  - 腳現在是一整隻一塊（沒有膝蓋）。**做膝蓋是這次的正式範圍，使用者已經同意。**
+    - 可以在形狀資料加關節點（例如 `knee`、`ankle`，跟現有的 `hand`、`legL` 這類點同一種格式），並且改零件工坊（`src/workshop.js`）讓使用者能放這些點。
+    - 必須向下相容：沒有關節點的形狀（包括使用者在 `brickmecha.workshop` 裡自己做的）要有合理的預設（例如照腳的高度比例切）。程式只讀那份資料，不要替使用者改寫或遷移它。
+    - 腳的方塊依關節點切成大腿、小腿、腳掌各自的群組（`src/model.js` 的 `buildLegs`），逆關節的膝蓋往後彎。
+    - 外型資料在 `src/shapes.js`（`legs:biped`、`leg:biped` 等）。
 
 ## 可以讀的狀態
 | 想要的 | 從哪裡讀 |
@@ -49,7 +53,8 @@
 | 空投中 | `m.drop`（`poseMech` 目前直接跳過） |
 
 ## 不在範圍內（先不要動）
-- 雜魚（`m.grunt`，外型在 `src/gruntbodies.js`）、蟲（`src/bugs.js`）、旋停機（`m.fly`）、菁英機的自訂身體（`ELITES[].body`）：它們的身體結構不同。先做王牌機（玩家和 AI 的完整機體），有餘力再問使用者要不要延伸。
+- 雜魚（`m.grunt`，外型在 `src/gruntbodies.js`）、旋停機（`m.fly`）、菁英機的自訂身體（`ELITES[].body`）：先做王牌機（玩家和 AI 的完整機體）。王牌機做完、使用者看過之後，**可以延伸到這些**（使用者同意由你接手更多部分），一樣先截圖給使用者看再合併。
+- 蟲（`src/bugs.js`）另有一套方塊蟲的動作，延伸前先問。
 - 殘骸和爆炸（`src/wreck.js`）。
 - 數值平衡、AI。
 
