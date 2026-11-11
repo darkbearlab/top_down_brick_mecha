@@ -54,6 +54,7 @@ function init(m) {
     z: lerp(0.8, 0.46, h) - 0.1 * over,                                       // 阻尼比
     y: S0(), lx: S0(), lz: S0(),
     pvx: 0, pvz: 0, ax: 0, az: 0, pwalk: m.walk, rate: 0, gait: 0, step: 0, ph: 0,
+    bk: 0, bw: 0, bdx: 0, bdz: 1, lead: 0, wasWalk: false,   // 急停：bk 倒數 1 → 0、bw 姿勢的權重、bdx / bdz 煞車前的前進方向、lead 往前踏住的那隻腳
     last: G.now, seed: hash(m.id ?? 1),
     legs: R.legs.map(L => legGeo(L, type)),
     arms: { armL: { aim: 1, hold: 0, pcd: 0, kick: S0() }, armR: { aim: 1, hold: 0, pcd: 0, kick: S0() } },
@@ -80,10 +81,23 @@ export function animMech(m, dt) {
     A.ax += (ax - A.ax) * f; A.az += (az - A.az) * f;
     A.pvx = vx; A.pvz = vz;
     // 步伐相位每秒走多少（平滑過：幀率不穩時不會忽快忽慢）
-    A.rate += ((dt > 0 ? (m.walk - A.pwalk) / dt : 0) - A.rate) * (1 - Math.exp(-14 * adt));
+    const raw = dt > 0 ? (m.walk - A.pwalk) / dt : 0, driving = A.legged && raw > 0.5;   // 這一幀腳有沒有在出力（即時的，急停要馬上知道）
+    A.rate += (raw - A.rate) * (1 - Math.exp(-14 * adt));
     A.pwalk = m.walk;
     const walking = A.legged && A.rate > 0.5;
     A.gait += ((walking ? 1 : 0) - A.gait) * (1 - Math.exp(-(walking ? 10 : 6) * adt));
+    // 急停：還有速度的時候腳不出力了 → 一隻腳（正要落地的那隻）往前猛踏一步撐住、重心往後坐，穩住之後再收回來；重的撐比較久
+    if (sp > 0.2) { A.bdx = vx / sp; A.bdz = vz / sp; }
+    if (A.wasWalk && !driving && sp > 0.3 * vmax) {
+      A.bk = 1; A.lead = frac(A.ph / TAU) > frac(A.ph / TAU + 0.5) ? 0 : 1;
+      A.y.v -= lerp(0.45, 0.9, h);   // 踏下去那一下
+      const jb = lerp(1.6, 1.1, h); A.lx.v -= A.bdx * jb; A.lz.v -= A.bdz * jb;   // 上半身馬上往後收
+    }
+    if (driving) A.bk = 0;
+    A.wasWalk = driving;
+    A.bk = Math.max(0, A.bk - adt / (0.5 + 0.4 * h));
+    const bt = smooth(Math.min(1, A.bk / 0.4));
+    A.bw += (bt - A.bw) * (1 - Math.exp(-(bt > A.bw ? 28 : 9) * adt));
     // 步頻（每秒幾個循環）：跟著實際速度；重的慢一點、逆關節快一點
     if (A.gait > 0.02) A.ph += TAU * cadence(A, sp) * adt;
     const st = Math.floor(A.ph / Math.PI);
@@ -91,16 +105,17 @@ export function animMech(m, dt) {
   }
   const gait = A.gait, legged = A.legged;
   // 急停 / 滑行：有速度但腳沒在走
-  const skid = legged ? clamp(spK * 1.4 - 0.15, 0, 1) * (1 - gait) : 0;
+  const skid = legged ? Math.max(clamp(spK * 1.4 - 0.15, 0, 1) * (1 - gait), A.bw) : 0;
 
   // ---- A. 身體彈簧 ----
   // 上下：重的坐得低；跑起來要蹲低一點腿才跨得開；急停蹲下去
-  const sag = legged ? 0.01 + 0.03 * h + 0.04 * A.over + skid * 0.09 + gait * (0.035 + 0.055 * Math.min(1, spK)) : 0.01 * h;
+  const sag = legged ? 0.01 + 0.03 * h + 0.04 * A.over + skid * 0.07 + gait * (0.035 + 0.055 * Math.min(1, spK)) : 0.01 * h;
   const dirx = sp > 0.2 ? vx / sp : 0, dirz = sp > 0.2 ? vz / sp : 0;
   if (adt > 0) {
     // 傾斜：移動時往前傾一點（步行、懸浮）；加速度把頭頂往反方向甩（慣性），重的甩得多
-    const leanV = (A.type === 'tread' ? 0 : A.type === 'hover' ? 0.09 : lerp(0.11, 0.07, h) * gait) * Math.min(1, spK) - skid * 0.12;
-    const gain = lerp(0.008, 0.013, h) * (A.type === 'tread' ? 0.6 : 1), w = A.w, w2 = w * w;
+    const leanV = (A.type === 'tread' ? 0 : A.type === 'hover' ? 0.09 : lerp(0.11, 0.07, h) * gait) * Math.min(1, spK), back = skid * 0.1;
+    // 加速度：有腳的會主動用重心去配合（起步往前傾、煞車往後坐、轉彎往內傾）；履帶、懸浮是車，被慣性甩（反方向）
+    const gain = legged ? lerp(0.006, 0.009, h) : -lerp(0.008, 0.013, h) * (A.type === 'tread' ? 0.6 : 1), w = A.w, w2 = w * w;
     const idle = Math.sin(now * 1.7 + A.seed * 6) * 0.006 * (1 - gait);
     if (stepped) {
       // 腳落地：身體往下沉一下再彈回來；重的沉得深、回得慢。頭也跟著點一下
@@ -111,8 +126,8 @@ export function animMech(m, dt) {
     const n = adt > 1 / 55 ? 2 : 1, sdt = adt / n;
     for (let i = 0; i < n; i++) {
       spring(A.y, -sag + idle, w * 1.15, A.z, sdt);
-      spring(A.lx, dirx * leanV, w, A.z, sdt, -A.ax * gain * w2);
-      spring(A.lz, dirz * leanV, w, A.z, sdt, -A.az * gain * w2);
+      spring(A.lx, dirx * leanV - A.bdx * back, w, A.z, sdt, A.ax * gain * w2);
+      spring(A.lz, dirz * leanV - A.bdz * back, w, A.z, sdt, A.az * gain * w2);
     }
     const ll = Math.hypot(A.lx.x, A.lz.x);
     if (ll > 0.3) { A.lx.x *= 0.3 / ll; A.lz.x *= 0.3 / ll; }
@@ -139,6 +154,7 @@ export function animMech(m, dt) {
     const ux = dl > 0.2 ? dLx / dl : 0, uz = dl > 0.2 ? dLz / dl : 1;
     // 支撐期佔一步的多少：走得慢 / 重 → 兩腳都在地上的時間長；跑起來 / 輕 → 有騰空
     const cyc = 1 / cadence(A, sp);   // 一個循環幾秒
+    const bLx = A.bdx * cL - A.bdz * sL, bLz = A.bdx * sL + A.bdz * cL;   // 煞車前的前進方向（腳的座標）
     for (let i = 0; i < 2; i++) {
       const Lg = R.legs[i], g = A.legs[i];
       const p = frac(A.ph / TAU + i * 0.5);
@@ -163,11 +179,14 @@ export function animMech(m, dt) {
         fp = 0.5 * Math.cos(Math.PI * q);   // 腳尖朝下拖著離地 → 腳尖翹起來準備落地
       }
       const amp = gait * Math.min(1, stride / (0.35 * g.len));
-      fp *= amp; lift *= gait;
+      fp *= amp * (1 - A.bw); lift *= gait * (1 - A.bw);   // 急停時不再跨步：腳直接踏住
       // 急停：兩腳往前撐（前後錯開一點）
-      const brace = skid * g.len * (0.24 + (i ? 0.08 : -0.02));
-      const X = ux * (s * stride + brace) - oxL;
-      let Z = g.az + uz * (s * stride + brace) - ozL, Y = g.ay - by + lift;
+      // 急停：一隻腳往前踏住（腳跟先頂住、腳尖翹起），另一隻留在身體下面偏後
+      const lead = i === A.lead, brace = skid * g.len * (lead ? 0.42 : -0.07);
+      if (lead) { lift += 0.09 * g.len * 4 * A.bw * (1 - A.bw) * (A.bk > 0.4 ? 1 : 0); fp -= 0.28 * skid; }
+      const sd = s * stride * (1 - A.bw);
+      const X = ux * sd + bLx * brace - oxL;
+      let Z = g.az + uz * sd + bLz * brace - ozL, Y = g.ay - by + lift;
       // 兩節 IK（前後平面）
       let d = Math.hypot(Z, Y);
       const dMax = (g.a + g.b) * 0.999, dMin = Math.abs(g.a - g.b) + 0.03;
