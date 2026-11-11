@@ -4,13 +4,14 @@
 //   細格（1/32）編輯；筆刷 1 = 一顆細格、2 = 一顆舊的粗格（2×2×2，對齊粗格）；X 軸鏡像
 //   顏色用色盤 key（a 裝甲 / f 骨架 / t 隊伍色 / g 發光 / w 武器屬性色），實際顏色照參考配裝的裝甲
 //   功能磚（標記點）：軀幹的頭 / 手臂 / 背部掛點（左邊，右邊自動鏡像）、手臂的手（武器握把）、武器的槍口（子彈 / 飛彈從這裡出來）、腳的髖關節；一顆細格大小，點下去對齊格子
+//   關節（手臂的手肘、單腳的膝蓋 / 腳踝）：功能磚的底面 = 切開的高度、位置 = 轉軸；沒放 = 照外型自動算（model.js 的 autoJoints），畫面上用半透明的磚和一圈線標出來
 // 參考：整台機體半透明疊在旁邊（參考配裝 = 目前的玩家配裝，換成這個零件；菁英用菁英自己的）；武器預覽開關
 // 標示：命中判定（機體中心的圓柱，半徑 = 碰撞半徑，高 2.2）、這個零件的可編輯範圍（框外放不下去）
 // 存檔：草稿自動存在 localStorage（brickmecha.workshop）；「試穿」= 這次開著遊戲時把草稿套到所有機體；「匯出」= 下載 / 複製 JSON（給 Claude 合併進 src/shapes.js）
 import * as THREE from 'three';
 import { renderer } from './core.js';
 import { CORES, ELITES, HEADS, LEGS, WEAPONS, loadLoadout } from './parts.js';
-import { V, buildMechModel, getShape, legacyShape, pal, partMaterial, pointOf, shapeKeys, shapeOverrides } from './model.js';
+import { V, autoJoints, buildMechModel, getShape, legacyShape, pal, partMaterial, pointOf, shapeKeys, shapeOverrides } from './model.js';
 import { SHAPES } from './shapes.js';
 import { voxelBody } from './voxbody.js';
 import { PLAYER_COLORS } from './mech.js';
@@ -23,9 +24,12 @@ const BOUNDS = {
   head: [-7, -3, -7, 7, 10, 7], torso: [-11, -1, -11, 11, 16, 11], arm: [-4, -4, -6, 4, 13, 10],
   weapon: [-6, -6, -8, 6, 6, 24], legs: [-16, 0, -14, 16, 18, 14], leg: [-5, -18, -9, 5, 1, 9],
 };
-const POINTS = { torso: ['head', 'armL', 'backL'], arm: ['hand'], weapon: ['muzzle'], legs: ['legL'] };
-const POINT_NAMES = { head: '頭', armL: '手臂掛點（左）', backL: '背部掛點（左）', hand: '手（武器握把）', muzzle: '槍口', legL: '髖關節（左）' };
-const POINT_C = { head: 0xffe060, armL: 0x60e0ff, backL: 0xff9040, hand: 0x60ff90, muzzle: 0xff5050, legL: 0xc080ff };
+const POINTS = { torso: ['head', 'armL', 'backL'], arm: ['hand', 'elbow'], weapon: ['muzzle'], legs: ['legL'], leg: ['knee', 'ankle'] };
+const POINT_NAMES = { head: '頭', armL: '手臂掛點（左）', backL: '背部掛點（左）', hand: '手（武器握把）', muzzle: '槍口', legL: '髖關節（左）', elbow: '手肘', knee: '膝蓋', ankle: '腳踝' };
+const POINT_C = { head: 0xffe060, armL: 0x60e0ff, backL: 0xff9040, hand: 0x60ff90, muzzle: 0xff5050, legL: 0xc080ff, elbow: 0xff70c0, knee: 0xff70c0, ankle: 0xffb060 };
+// 關節點：可以不放（照外型自動算）
+const JOINTS = new Set(['elbow', 'knee', 'ankle']);
+const autoJ = () => slot === 'arm' || slot === 'leg' ? autoJoints({ boxes: toBoxes(vox), points }, slot) : {};
 const COLOR_KEYS = [['a', '裝甲'], ['f', '骨架'], ['t', '隊伍色'], ['g', '發光'], ['w', '武器色']];
 const TOOLS = [['place', '堆（B）'], ['erase', '刪（E）'], ['paint', '上色（F）'], ['pick', '吸色（I）'], ['point', '功能磚（M）']];
 
@@ -152,10 +156,10 @@ function load(k) {
   vox = fromBoxes(src.boxes); points = structuredClone(src.points ?? {});
   // 沒有的標記點補上原本的
   const o = original(k);
-  for (const n of POINTS[slot] ?? []) if (!points[n] && o.points[n]) points[n] = o.points[n];
+  for (const n of POINTS[slot] ?? []) if (!points[n] && o.points[n] && !(JOINTS.has(n) && drafts[k])) points[n] = o.points[n];   // 關節點：草稿沒放就維持沒放（自動算），不拿原本外型的來補
   if (slot === 'legs' && !legacyShape(k.replace(/^legs:/, 'leg:').replace(/:legs$/, ':leg'))) delete points.legL;
   undo = []; redo = [];
-  curPoint = (POINTS[slot] ?? []).find(n => points[n]) ?? null;
+  curPoint = (POINTS[slot] ?? []).find(n => points[n]) ?? (POINTS[slot] ?? []).find(n => JOINTS.has(n)) ?? null;
   rebuildAll(true);
   renderPanel();
 }
@@ -213,10 +217,19 @@ function rebuildEdit() {
   if (editMesh && hasSide() && show.side) { sideMesh = new THREE.Mesh(editMesh.geometry, editMat); sideG.add(sideMesh); }
   // 標記點
   markers.clear();
+  const AJ = autoJ();
   for (const n of POINTS[slot] ?? []) {
-    const p = points[n];
+    const p = points[n] ?? AJ[n], auto = !points[n];
     if (!p) continue;
-    for (const [q, main] of [[p, true], ...(n.endsWith('L') ? [[[-p[0], p[1], p[2]], false]] : [])]) {
+    // 關節：切開的高度畫一圈線
+    if (JOINTS.has(n)) {
+      const B = BOUNDS[slot], y = Math.round(p[1] * 2) * S;
+      const loop = new THREE.LineLoop(new THREE.BufferGeometry().setFromPoints([[B[0], B[2]], [B[3], B[2]], [B[3], B[5]], [B[0], B[5]]].map(([x, z]) => new THREE.Vector3(x * V, y, z * V))),
+        new THREE.LineBasicMaterial({ color: POINT_C[n], transparent: true, opacity: auto ? 0.35 : 0.8, depthTest: false }));
+      loop.renderOrder = 5;
+      markers.add(loop);
+    }
+    for (const [q, main] of [[p, !auto], ...(n.endsWith('L') ? [[[-p[0], p[1], p[2]], false]] : [])]) {
       // 功能磚：佔一顆細格（點的位置 = 這格的角落），透過其他方塊也看得到
       const m = new THREE.Mesh(new THREE.BoxGeometry(S * 1.02, S * 1.02, S * 1.02), new THREE.MeshBasicMaterial({ color: POINT_C[n], transparent: true, opacity: main ? 0.95 : 0.4, depthTest: false }));
       const e = new THREE.LineSegments(new THREE.EdgesGeometry(m.geometry), new THREE.LineBasicMaterial({ color: 0xffffff, depthTest: false, transparent: true, opacity: main ? 0.9 : 0.3 }));
@@ -435,7 +448,9 @@ function renderPanel() {
   h += seg('X 鏡像', [[1, '開'], [0, '關']], mirror ? 1 : 0, null, 'mirror');
   h += `<div class="wrow col"><span>顯示</span><div class="wchk">${[['ghost', '整台機體（半透明）'], ...(hasSide() ? [['side', '左右鏡像（右邊實心顯示，也能直接在右邊編輯）']] : []), ...(hasW ? [['weapon', '武器預覽']] : []), ['hit', '命中判定'], ['bounds', '可編輯範圍']].map(([k, n]) => `<label><input type="checkbox" data-s="${k}" ${show[k] ? 'checked' : ''}>${n}</label>`).join('')}</div></div>`;
   const pts = (POINTS[slot] ?? []).filter(n => points[n] || slot !== 'legs');
-  if (pts.length) h += `<div class="wrow col"><span>功能磚（選一個，用功能磚工具點在方塊的某一面上；左邊的會自動鏡像到右邊）</span>${pts.map(n => `<div class="wpt ${n === curPoint ? 'on' : ''}" data-p="${n}"><i style="background:#${new THREE.Color(POINT_C[n]).getHexString()}"></i><b>${POINT_NAMES[n]}</b>${['x', 'y', 'z'].map((a, i) => `<input type="number" step="0.5" data-pi="${n},${i}" value="${points[n]?.[i] ?? 0}">`).join('')}</div>`).join('')}</div>`;
+  const AJ = autoJ(), isAuto = n => JOINTS.has(n) && !points[n];
+  if (pts.length) h += `<div class="wrow col"><span>功能磚（選一個，用功能磚工具點在方塊的某一面上；左邊的會自動鏡像到右邊）</span>${pts.map(n => `<div class="wpt ${n === curPoint ? 'on' : ''}" data-p="${n}"><i style="background:#${new THREE.Color(POINT_C[n]).getHexString()}"></i><b>${POINT_NAMES[n]}${isAuto(n) ? '（自動）' : ''}</b>${['x', 'y', 'z'].map((a, i) => `<input type="number" step="0.5" data-pi="${n},${i}" value="${(points[n] ?? AJ[n])?.[i] ?? 0}">`).join('')}${JOINTS.has(n) && points[n] ? `<button class="wbtn" data-pauto="${n}" title="拿掉這個關節點，改成照外型自動算">自動</button>` : ''}</div>`).join('')}</div>`;
+  if (pts.some(n => JOINTS.has(n))) h += `<div class="wnote">關節（${pts.filter(n => JOINTS.has(n)).map(n => POINT_NAMES[n]).join('、')}）：功能磚的底面 = 從哪個高度切開（畫面上那圈線），位置 = 轉軸。沒放就照外型自動算。</div>`;
   if (lo.cores?.[slot]) h += `<div class="wnote">橘色框 = 核心的位置；外面會自動包 1 粗格（2 細格）的殼，不用自己堆</div>`;
   h += `<div class="wrow"><button class="wbtn" id="wsUndo">復原</button><button class="wbtn" id="wsRedo">重做</button><button class="wbtn" id="wsReset">還原這個零件</button></div>`;
   h += `<div class="wrow col"><span id="wsDrafts"></span><div class="wbtns"><label class="wtry"><input type="checkbox" id="wsTry" ${tryOn ? 'checked' : ''}>試穿（這次開著遊戲時套到所有機體）</label>
@@ -449,12 +464,13 @@ function renderPanel() {
   });
   $('wsBody').querySelectorAll('.wsw button').forEach(b => b.onclick = () => { color = b.dataset.c; if (tool === 'erase' || tool === 'pick' || tool === 'point') tool = 'place'; renderPanel(); });
   $('wsBody').querySelectorAll('[data-s]').forEach(c => c.onchange = () => { show[c.dataset.s] = c.checked; rebuildFrame(); rebuildEdit(); rebuildGhost(); });
-  $('wsBody').querySelectorAll('.wpt').forEach(r => r.onclick = e => { if (e.target.tagName === 'INPUT') return; curPoint = r.dataset.p; tool = 'point'; renderPanel(); rebuildEdit(); });
+  $('wsBody').querySelectorAll('.wpt').forEach(r => r.onclick = e => { if (e.target.tagName === 'INPUT' || e.target.tagName === 'BUTTON') return; curPoint = r.dataset.p; tool = 'point'; renderPanel(); rebuildEdit(); });
   $('wsBody').querySelectorAll('[data-pi]').forEach(inp => inp.onchange = () => {
     const [n, i] = inp.dataset.pi.split(','), v = +inp.value;
-    act(() => { points[n] = [...(points[n] ?? [0, 0, 0])]; points[n][+i] = v; });
+    act(() => { points[n] = [...(points[n] ?? autoJ()[n] ?? [0, 0, 0])]; points[n][+i] = v; });
     renderPanel();
   });
+  $('wsBody').querySelectorAll('[data-pauto]').forEach(b => b.onclick = e => { e.stopPropagation(); act(() => { delete points[b.dataset.pauto]; }); renderPanel(); });
   $('wsUndo').onclick = doUndo; $('wsRedo').onclick = doRedo;
   $('wsReset').onclick = () => { if (!drafts[key]) return; act(() => { const o = original(key); vox = fromBoxes(o.boxes); points = o.points; }); rebuildAll(); renderPanel(); };
   $('wsTry').onchange = e => { tryOn = e.target.checked; applyTryOn(); };

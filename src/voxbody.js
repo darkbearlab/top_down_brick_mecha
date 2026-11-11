@@ -10,6 +10,16 @@ export const FINE = 2;
 const AO_K = 0.07, AO_MIN = 0.55, AO_MAX = 1.12, NOISE = 0.13, INNER = 0.6;
 const vhash = (x, y, z) => { let h = (x * 374761393 + y * 668265263 + z * 2147483647) | 0; h = (h ^ (h >> 13)) * 1274126177; return ((h ^ (h >> 16)) >>> 0) / 4294967296; };
 const tC = new THREE.Color();
+// three.js 每建立一個物件（Group、Mesh、BufferGeometry…）都會呼叫 Math.random() 產生 uuid
+// 無頭模擬器（tools/sim）用固定種子的 Math.random 重播戰鬥 → 只為了畫面多建立的物件（關節的群組、各段的網格）不能吃到那串亂數
+// offStream(fn)：fn 裡面的 Math.random 暫時換成自己的，跑完換回來
+let offSeed = 0x2545f491;
+const offRandom = () => { offSeed = Math.imul(offSeed ^ offSeed >>> 15, 0x2c1b3c6d) + 0x9e3779b9 | 0; return (offSeed >>> 0) / 4294967296; };
+export function offStream(fn) {
+  const r = Math.random;
+  Math.random = offRandom;
+  try { return fn(); } finally { Math.random = r; }
+}
 
 // 六個面：法線 + 四個角（相對方塊的最小角，0..1）；索引照 (0,1,2)(2,1,3)
 const FACES = [
@@ -25,6 +35,8 @@ const FACES = [
 const SIDES = FACES.map(f => FACES.map((g, i) => i).filter(i => FACES[i].d[0] * f.d[0] + FACES[i].d[1] * f.d[1] + FACES[i].d[2] * f.d[2] === 0));
 // 倒角高光：凸出去的稜角那一顆方塊的面亮一點（機體方塊只有 1/32 格，一顆寬剛好是一條 1～2 像素的亮邊）；朝上的面最亮、底面不加
 const RIM_UP = 1.2, RIM_SIDE = 1.1;
+// 關節切面（分段的身體）：比外面暗很多，彎起來露出來的地方看起來像關節裡面
+const CUT_OUT = 0.34, CUT_IN = 0.56;
 
 // ---------- 樣板：從方塊清單（設計單位、顏色已經是 hex）蓋出格子 ----------
 // boxes = [[x, y, z, w, h, d, hex], …]（後面的蓋掉前面的）；carve = 挖空的範圍（核心的位置）；cell = 設計單位的大小（1/16）
@@ -90,8 +102,9 @@ export function voxelTemplate(boxes, cell, carve = [], F = FINE, useCache = true
 
 // ---------- 網格：每一顆沒被打掉的，旁邊是空的（或被打掉）的那幾面 ----------
 let P = new Float32Array(0), Nn = new Float32Array(0), C = new Float32Array(0), I = new Uint32Array(0);
-function buildGeo(T, gone, scar, geo = null) {
-  const { list, nb, gx, gy, gz, col, s, x0, y0, z0, nx, ny, nz, grid } = T, L = list.length;
+// view = 只畫其中一段（分段的身體，見下面 segViews）：{ list, nb }，nb 裡 -2 = 隔壁在別段（切面，一定畫、顏色壓暗）
+function buildGeo(T, gone, scar, geo = null, view = T) {
+  const { gx, gy, gz, col, s, x0, y0, z0, nx, ny, nz, grid, depth } = T, { list, nb } = view, L = list.length;
   const empty = (x, y, z) => { if (x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz) return true; const g = grid[(x * ny + y) * nz + z]; return g < 0 || (gone && gone[g]); };
   // 先數面數
   let f = 0;
@@ -112,7 +125,8 @@ function buildGeo(T, gone, scar, geo = null) {
       const F = FACES[k];
       // 這一面有沒有一條邊是凸稜：旁邊那格空、而且旁邊再往外那格也空
       let rim = 1;
-      if (F.d[1] >= 0) for (const k2 of SIDES[k]) {
+      if (nbg === -2) rim = depth[v] === 1 ? CUT_OUT : CUT_IN;
+      else if (F.d[1] >= 0) for (const k2 of SIDES[k]) {
         const t = FACES[k2].d;
         if (empty(gx[v] + t[0], gy[v] + t[1], gz[v] + t[2]) && empty(gx[v] + t[0] + F.d[0], gy[v] + t[1] + F.d[1], gz[v] + t[2] + F.d[2])) { rim = F.d[1] > 0 ? RIM_UP : RIM_SIDE; break; }
       }
@@ -178,9 +192,55 @@ export class VoxBody {
   flush() {
     if (!this.dirty) return;
     this.dirty = false;
+    if (this.segs) {
+      // 第一次改動：各段換成自己的網格。沒分段時這裡只建立一個 BufferGeometry → 第一段照常建立，其他段不吃亂數（offStream）
+      if (!this.own) this.segs.forEach((S, k) => { S.mesh.geometry = k ? offStream(() => new THREE.BufferGeometry()) : new THREE.BufferGeometry(); });
+      for (const S of this.segs) buildGeo(this.T, this.gone, this.scarred, S.mesh.geometry, S.view);
+      this.own = true;
+      return;
+    }
     if (!this.own) { this.own = true; this.mesh.geometry = new THREE.BufferGeometry(); }
     buildGeo(this.T, this.gone, this.scarred, this.mesh.geometry);
   }
+  // 分段（關節）：方塊資料還是這一份（磨損、傳送、爆開看到的都不變，順序和位置跟沒分段時一樣），只是畫的時候照 segOf 分成 n 個網格
+  // segOf(x, y, z)：這顆（細格座標，最小角）屬於第幾段；key = 這種切法的名字（同外型 + 同切法共用網格）
+  // 回傳 n 個網格（本地座標跟原本的網格一樣），呼叫的人自己掛到各段的群組；原本的網格留在原位但不畫（layers 31）
+  segment(key, n, segOf) {
+    return offStream(() => {
+      const views = segViews(this.T, key, n, segOf);
+      this.segs = views.map(view => {
+        const mesh = new THREE.Mesh(view.geo, this.mesh.material);
+        mesh.userData.vbSeg = this;
+        return { view, mesh };
+      });
+      this.mesh.layers.set(31);
+      return this.segs.map(S => S.mesh);
+    });
+  }
+}
+function segViews(T, key, n, segOf) {
+  T.segs ??= new Map();
+  let views = T.segs.get(key);
+  if (views) return views;
+  const { gx, gy, gz, grid, depth, nx, ny, nz, x0, y0, z0 } = T;
+  const seg = new Uint8Array(T.n), g6 = new Int32Array(6);
+  for (let v = 0; v < T.n; v++) seg[v] = segOf(gx[v] + x0, gy[v] + y0, gz[v] + z0);
+  const lists = Array.from({ length: n }, () => []), nbs = Array.from({ length: n }, () => []);
+  for (let v = 0; v < T.n; v++) {
+    let cut = false;
+    for (let k = 0; k < 6; k++) {
+      const d = FACES[k].d, x = gx[v] + d[0], y = gy[v] + d[1], z = gz[v] + d[2];
+      let g = x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz ? -1 : grid[(x * ny + y) * nz + z];
+      if (g >= 0 && seg[g] !== seg[v]) { g = -2; cut = true; }
+      g6[k] = g;
+    }
+    if (!depth[v] && !cut) continue;   // 最裡面的：只有切面上的要畫
+    lists[seg[v]].push(v);
+    for (let k = 0; k < 6; k++) nbs[seg[v]].push(g6[k]);
+  }
+  views = lists.map((l, i) => { const view = { list: Int32Array.from(l), nb: Int32Array.from(nbs[i]), seg, geo: null }; view.geo = buildGeo(T, null, null, null, view); return view; });
+  T.segs.set(key, views);
+  return views;
 }
 const dirtyList = [];
 // 每幀畫之前呼叫一次：重建這一幀被改過的部位

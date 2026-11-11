@@ -3,7 +3,8 @@
 // key：head:<id>、core:<id>、arm、weapon:<id>、legs:<腳型>（骨盆 / 履帶 / 懸浮那塊，不擺動）、leg:<腳型>（一隻腳，原點 = 髖關節）、elite:<名字>:<部位>
 // 值：{ boxes: [[x, y, z, w, h, d, 顏色 key], …]（細格單位 1/32）, points: { 名字: [x, y, z]（設計單位 1/16） } }
 //   顏色 key：a 裝甲、f 骨架、t 隊伍色、g 隊伍發光、w 武器屬性色
-//   points：core → head（頭的位置）、armL、backL（右邊自動鏡像）；arm → hand；weapon → muzzle；legs → legL（左腳髖關節）
+//   points：core → head（頭的位置）、armL、backL（右邊自動鏡像）；arm → hand、elbow（手肘）；weapon → muzzle；legs → legL（左腳髖關節）；leg → knee（膝蓋）、ankle（腳踝）
+//   關節點（elbow、knee、ankle）：y = 從哪個高度切開，x / z = 轉軸；沒放的照外型自動算（model.js 的 autoJoints）
 export const SHAPES = {
   // 標準頭（玩家在工坊編的）
   'head:std': {
@@ -44,7 +45,7 @@ export const SHAPES = {
       [2, 14, 4, 2, 2, 2, 'a'], [0, 16, 4, 4, 2, 2, 't'], [2, 18, 4, 4, 2, 2, 't'],
       [-2, 2, 8, 2, 2, 4, 'a'], [2, 2, 8, 2, 2, 4, 'a'], [-2, 2, 12, 6, 4, 2, 'f'], [0, 2, 14, 4, 4, 2, 'f'],
     ],
-    points: { hand: [0, 2, 7] },
+    points: { hand: [0, 2, 7], elbow: [0.5, 3, 0.5] },
   },
   // 標準軀幹
   'core:std': {
@@ -94,6 +95,6 @@ export const SHAPES = {
       [-6, -18, 4, 10, 2, 2, 'a'],
       [-6, -32, 8, 10, 2, 2, 't'],
     ],
-    points: {},
+    points: { knee: [-0.5, -8, 0], ankle: [-0.5, -14, 0] },
   },
 };
