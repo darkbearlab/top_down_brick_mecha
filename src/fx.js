@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { sampleVoxels } from './voxel.js';
-import { DEBRIS_GEO, FLASH_GEO, UNIT_BOX, WALL_H, addMat, camera, debrisMat, scene } from './core.js';
+import { DEBRIS_GEO, FLASH_GEO, GFX, UNIT_BOX, WALL_H, addMat, camera, debrisMat, scene } from './core.js';
 import { fogMaterial, fogU } from './fog.js';
 import { clearLights, flashLight, updateLights } from './lights.js';
 
@@ -460,6 +460,7 @@ export function updateParticles(dt) {
   }
   stepList(glows, dt, glowMesh, (p, t) => {
     sampleRamp(p.ramp, t, tmpC);
+    if (GFX.hdr !== 1) tmpC.multiplyScalar(1 + (GFX.hdr - 1) * (1 - t) * (1 - t));   // 剛冒出來最亮（超過白），越燒越暗
     return p.puff ? p.s1 * Math.sin(Math.PI * Math.min(1, Math.pow(t, 0.55))) + 0.02 : p.s0 + (p.s1 - p.s0) * t;
   });
   stepList(puffs, dt, puffMesh, (p, t) => {

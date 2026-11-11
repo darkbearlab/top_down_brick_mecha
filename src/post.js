@@ -4,7 +4,7 @@
 //   模型桌效果（O 鍵開關，記在 localStorage；網址 ?flat = 預設關）：
 //     移軸：只有四個角落糊（畫面正上下左右都清楚，不干擾看敵人）　暗角：四個角落稍微壓暗　調色：飽和度稍微拉高、暗部帶一點冷色
 import * as THREE from 'three';
-import { renderer } from './core.js';
+import { GFX, renderer } from './core.js';
 import { flushVoxBodies } from './voxbody.js';
 
 const KEY = 'brickmecha.diorama';
@@ -40,9 +40,30 @@ const blurMat = pass({ tex: { value: null }, dir: { value: new THREE.Vector2() }
     c += (texture2D(tex, vUv + dir * 3.231).rgb + texture2D(tex, vUv - dir * 3.231).rgb) * 0.070;
     gl_FragColor = vec4(c, 1.0);
   }`);
-const mat = pass({ tex: { value: rt.texture }, bloom: { value: bA.texture }, bloomK: { value: BLOOM_K }, px: { value: new THREE.Vector2() }, band: { value: 1.08 }, blur: { value: 3.2 }, dio: { value: 1 } }, `
-  uniform sampler2D tex, bloom; uniform vec2 px; uniform float band, blur, dio, bloomK;
+// 色調映射：ACES（電影感、高光柔和地壓到白）和 AgX（亮的顏色不會偏色、比較自然）混合 3:1
+//   亮度超過 1 的（火、爆炸、能量武器）不再直接截成死白，而是慢慢飽和；exposure 把中間調拉回原本的亮度
+const mat = pass({ tex: { value: rt.texture }, bloom: { value: bA.texture }, bloomK: { value: BLOOM_K }, px: { value: new THREE.Vector2() }, band: { value: 1.08 }, blur: { value: 3.2 }, dio: { value: 1 },
+  tone: { value: 1 }, exposure: { value: 1.0 } }, `
+  uniform sampler2D tex, bloom; uniform vec2 px; uniform float band, blur, dio, bloomK, tone, exposure;
   varying vec2 vUv;
+  // ACES（Stephen Hill 的擬合）
+  vec3 aces(vec3 c) {
+    const mat3 I = mat3(0.59719, 0.07600, 0.02840, 0.35458, 0.90834, 0.13383, 0.04823, 0.01566, 0.83777);
+    const mat3 O = mat3(1.60475, -0.10208, -0.00327, -0.53108, 1.10813, -0.07276, -0.07367, -0.00605, 1.07602);
+    c = I * c;
+    vec3 a = c * (c + 0.0245786) - 0.000090537, b = c * (0.983729 * c + 0.4329510) + 0.238081;
+    return clamp(O * (a / b), 0.0, 1.0);
+  }
+  // AgX（最小版：對數編碼 + 多項式擬合的 S 曲線）
+  vec3 agxCurve(vec3 x) { vec3 x2 = x * x, x4 = x2 * x2;
+    return 15.5 * x4 * x2 - 40.14 * x4 * x + 31.96 * x4 - 6.868 * x2 * x + 0.4298 * x2 + 0.1191 * x - 0.00232; }
+  vec3 agx(vec3 c) {
+    const mat3 I = mat3(0.842479, 0.0423282, 0.0423756, 0.0784336, 0.878468, 0.0784336, 0.0792237, 0.0791661, 0.879142);
+    const mat3 O = mat3(1.19688, -0.0528969, -0.0529716, -0.0980209, 1.15190, -0.0980435, -0.0990297, -0.0989612, 1.15107);
+    c = clamp((log2(max(I * c, 1e-10)) + 12.47393) / 16.5, 0.0, 1.0);
+    c = O * agxCurve(c);
+    return clamp(pow(max(c, 0.0), vec3(2.2)), 0.0, 1.0);   // 曲線輸出是顯示空間 → 轉回線性（後面統一轉 sRGB）
+  }
   void main() {
     // 只有四個角落糊：離中心的距離（邊的中點 = 1、角落 ≈ 1.41）超過 band 才開始糊，正上下左右都清楚
     vec2 e = (vUv - 0.5) * 2.0;
@@ -58,6 +79,14 @@ const mat = pass({ tex: { value: rt.texture }, bloom: { value: bA.texture }, blo
       c = acc / w;
     }
     c += texture2D(bloom, vUv).rgb * bloomK;
+    if (tone > 0.5) {
+      c *= exposure;
+      vec3 film = mix(aces(c), agx(c), 0.25);
+      // 保色版：同一條曲線只套在最亮的那個通道上、比例不變 → 火還是橘的（純 ACES 會把很亮的橘色洗成淡黃白）
+      float m = max(c.r, max(c.g, c.b));
+      vec3 keep = c * (mix(aces(vec3(m)).r, agx(vec3(m)).r, 0.25) / max(m, 1e-4));
+      c = mix(film, keep, 0.45);
+    }
     if (dio > 0.5) {
       // 飽和度 +12%、暗部偏冷一點
       float l = dot(c, vec3(0.2126, 0.7152, 0.0722));
@@ -78,6 +107,9 @@ function draw(m, target) { quad.material = m; renderer.setRenderTarget(target); 
 export const dioramaOn = () => on;
 // 設定（src/settings.js）：泛光開關、反鋸齒取樣數（0 / 2 / 4）
 export function setBloom(v) { bloomOn = v; }
+// 色調映射開關（關 = 舊的直接截斷）；發光物的 HDR 倍率跟著開關（core.js GFX.hdr）
+export const TONE_EXPOSURE = 1.3, GLOW_HDR = 2.2;
+export function setTone(v) { mat.uniforms.tone.value = v ? 1 : 0; mat.uniforms.exposure.value = TONE_EXPOSURE; GFX.hdr = v ? GLOW_HDR : 1; }
 export function setMsaa(n) { if (rt.samples !== n) { rt.samples = n; rt.dispose(); } }
 export function setDiorama(v) {
   on = v;

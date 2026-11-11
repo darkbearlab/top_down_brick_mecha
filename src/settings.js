@@ -3,7 +3,7 @@
 // 存在 localStorage（brickmecha.gfx）；模型桌效果沿用 post.js 自己存的（O 鍵也能切）
 // 沒列進來的（方塊明暗、碎片、焦痕、迷霧的視線多邊形）幾乎不花效能，就不給關
 import { renderer, resize, scene, sun } from './core.js';
-import { dioramaOn, setBloom, setDiorama, setMsaa } from './post.js';
+import { dioramaOn, setBloom, setDiorama, setMsaa, setTone } from './post.js';
 import { setHazeLevel } from './haze.js';
 import { setLightsOn } from './lights.js';
 import { setHeightFogOn } from './fog.js';
@@ -17,6 +17,7 @@ const ITEMS = [
   { k: 'scale', name: '解析度', opts: [[1, '100%'], [0.85, '85%'], [0.7, '70%'], [0.5, '50%']], note: '畫面實際算幾成的像素再放大；顯卡吃不消時最有效' },
   { k: 'msaa', name: '反鋸齒', opts: [[4, '4×'], [2, '2×'], [0, '關']], note: '方塊邊緣的鋸齒；倍數越高顯卡越累' },
   { k: 'shadow', name: '陰影', opts: [[2048, '高'], [1024, '中'], [0, '關']], note: '太陽的影子；每幀要從太陽方向多畫一次場景' },
+  { k: 'tone', name: '色調映射', opts: [[true, '開'], [false, '關']], note: '火、爆炸、光束亮到溢出也不死白（ACES + AgX）；幾乎不花效能' },
   { k: 'bloom', name: '泛光', opts: [[true, '開'], [false, '關']], note: '火、爆炸、發光方塊的光暈' },
   { k: 'lights', name: '動態光源', opts: [[true, '開'], [false, '關']], note: '爆炸、砲口、火焰照亮周圍；切換時會頓一下（重新編譯）' },
   { k: 'haze', name: '地面風沙', opts: [[2, '兩層'], [1, '一層'], [0, '關']], note: '貼地飄的薄霧；整個畫面每個像素都要算雜訊' },
@@ -24,9 +25,9 @@ const ITEMS = [
   { k: 'dio', name: '模型桌效果', opts: [[true, '開'], [false, '關']], note: '四角模糊、暗角、調色（O 鍵也能切）' },
 ];
 const PRESETS = {
-  high: { name: '高', v: { scale: 1, msaa: 4, shadow: 2048, bloom: true, lights: true, haze: 2, hfog: true, dio: true } },
-  mid: { name: '中', v: { scale: 1, msaa: 2, shadow: 1024, bloom: true, lights: true, haze: 1, hfog: true, dio: true } },
-  low: { name: '低', v: { scale: 0.7, msaa: 0, shadow: 1024, bloom: false, lights: false, haze: 0, hfog: true, dio: false } },
+  high: { name: '高', v: { scale: 1, msaa: 4, shadow: 2048, tone: true, bloom: true, lights: true, haze: 2, hfog: true, dio: true } },
+  mid: { name: '中', v: { scale: 1, msaa: 2, shadow: 1024, tone: true, bloom: true, lights: true, haze: 1, hfog: true, dio: true } },
+  low: { name: '低', v: { scale: 0.7, msaa: 0, shadow: 1024, tone: true, bloom: false, lights: false, haze: 0, hfog: true, dio: false } },
 };
 const S = { ...PRESETS.high.v, perf: false };
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY)) ?? {}); } catch { /* 讀不到就用預設 */ }
@@ -45,6 +46,7 @@ function apply(k) {
     if (now) { sun.shadow.mapSize.set(S.shadow, S.shadow); sun.shadow.map?.dispose(); sun.shadow.map = null; }
     if (was !== now) scene.traverse(o => { for (const m of [o.material].flat()) if (m) m.needsUpdate = true; });   // 開關陰影：材質要重新編譯
   }
+  if (all || k === 'tone') setTone(S.tone !== false);
   if (all || k === 'bloom') setBloom(S.bloom);
   if (all || k === 'lights') setLightsOn(S.lights);
   if (all || k === 'haze') setHazeLevel(S.haze);

@@ -18,7 +18,7 @@
 //           d.status = 'corrode' 就是酸液彈（投擲蟲）：落地不爆炸、濺開一灘酸，站在裡面腳被腐蝕
 // 敵人的子彈和光束比較慢，看得到、閃得掉
 import * as THREE from 'three';
-import { G, UNIT_BOX, addMat, addTrauma, angleDiff, scene } from './core.js';
+import { G, GFX, UNIT_BOX, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { isBlock, rayBlock, wallFace } from './arena.js';
 import { blastBuildings, damageBuilding, isBuilding } from './buildings.js';
 import { facing, hasModule, hitMech, mechs, muzzleOf, slotBroken, slotLive, updateReady, useEnergy } from './mech.js';
@@ -42,7 +42,7 @@ export function makeGuns(lo) {
 const powerDmgK = (m, d) => (d.kind === 'beam' || d.kind === 'saber') && hasModule(m, 'power') ? WEAPONS.power.dmgK : 1;
 export const shots = [];
 const mats = new Map();
-const glowMat = c => { if (!mats.has(c)) mats.set(c, addMat(c)); return mats.get(c); };
+const glowMat = c => { if (!mats.has(c)) mats.set(c, addMat(c)); const m = mats.get(c); if (m.userData.hdr !== GFX.hdr) { m.color.setHex(c).multiplyScalar(GFX.hdr); m.userData.hdr = GFX.hdr; } return m; };   // 子彈、飛彈尾焰、燃料：HDR
 const CORE_MAT = addMat(0xffffff);
 const R = (a, b) => a + Math.random() * (b - a);
 

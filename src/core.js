@@ -51,6 +51,9 @@ export const WALL_H = 1.8;
 
 // ---------- 共用狀態 ----------
 export const G = { now: 0, hitStop: 0, slowMo: 0, trauma: 0, paused: false };
+// 畫面：hdr = 發光的東西（火、火花、爆炸、子彈、光束）亮度乘多少（> 1 = 超過白、靠色調映射壓回來 → 亮到溢出但不死白）
+//   色調映射關掉（設定）時 = 1（照舊）
+export const GFX = { hdr: 2.2 };
 export const camTarget = new THREE.Vector3();
 export function addTrauma(v) { G.trauma = Math.min(1, G.trauma + v); }
 export const angleDiff = (a, b) => Math.atan2(Math.sin(b - a), Math.cos(b - a));
