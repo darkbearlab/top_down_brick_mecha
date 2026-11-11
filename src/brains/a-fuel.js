@@ -43,7 +43,8 @@ export default {
     const fuelS = ['armL', 'armR'].filter(s => ok(W, s) && HOSE.has(W[s].kind));
     // 對照用：同一個大腦拿火焰噴射器（6 格扇形）→ 距離改短
     const flameMode = !fuelS.some(s => W[s].kind === 'stream') && fuelS.length > 0;
-    const REACH = flameMode ? 5.8 : P.reach, KEEP = flameMode ? 4.5 : fuelS.length ? P.keep : 8, KEEPM = flameMode ? 4.5 : fuelS.length ? P.keepMelee : 8.5;
+    const fr = flameMode ? W[fuelS[0]].range ?? 6 : 6;   // 火焰噴射器的射程（數值會調）
+    const REACH = flameMode ? fr - 0.2 : P.reach, KEEP = flameMode ? fr - 1.5 : fuelS.length ? P.keep : 8, KEEPM = flameMode ? fr - 1.5 : fuelS.length ? P.keepMelee : 8.5;
     const see = e => e._see ?? (e._see = clearLine(api, me.x, me.z, e.x, e.z, 0.6));
 
     // ---- 油槍的目標：射程內看得到的敵人；優先：沒燒滿、威脅大、血少、在甩得過去的角度 ----

@@ -90,8 +90,9 @@ export const WEAPONS = {
     model: [[-3, -3, -4, 6, 6, 9, 'f'], [-2, -2, 5, 1, 1, 1, 'w'], [0, -2, 5, 1, 1, 1, 'w'], [2, -2, 5, 1, 1, 1, 'w'], [-2, 0, 5, 1, 1, 1, 'w'], [0, 0, 5, 1, 1, 1, 'w'], [2, 0, 5, 1, 1, 1, 'w']], muzzle: [0, -1, 6] },
   vmissile: { name: '垂直飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'vmissile', interval: 1.6, ammo: 64, dmg: 22, salvo: 4, speed: 9, accel: 30, maxSpeed: 26, turn: 1.55, life: 3.2, size: 0.12, splash: 1.5, needLock: true,
     model: [[-3, -3, -4, 6, 5, 8, 'f'], [-2, 2, -3, 2, 1, 2, 'w'], [0, 2, -3, 2, 1, 2, 'w'], [-2, 2, 0, 2, 1, 2, 'w'], [0, 2, 0, 2, 1, 2, 'w']], muzzle: [0, 3, 0] },
-  // 火焰噴射器（手臂）：按著一直噴，range 格內、左右 arc 弧度的扇形全部燒到（穿透、被牆擋）；每下 dmg + 打中的部位疊 burn 層燃燒（status.js）
-  flamer: { name: '火焰噴射器', type: 'chemical', mount: 'arm', weight: 4, kind: 'flame', interval: 0.1, ammo: 260, dmg: 3, range: 6, arc: 0.4, burn: 0.3, kb: 0.04, recoil: 0, size: 0.1,
+  // 火焰噴射器（手臂）：2026-11 加強（射程 6→7、弧 0.4→0.5、每下 3→4、燃燒 0.3→0.4；原本被汽油投射器全面取代）
+  //   按著一直噴，range 格內、左右 arc 弧度的扇形全部燒到（穿透、被牆擋）；每下 dmg + 打中的部位疊 burn 層燃燒（status.js）
+  flamer: { name: '火焰噴射器', type: 'chemical', mount: 'arm', weight: 4, kind: 'flame', interval: 0.1, ammo: 260, dmg: 4, range: 7, arc: 0.5, burn: 0.4, kb: 0.04, recoil: 0, size: 0.1,
     model: [[-2, -2, 0, 4, 4, 5, 'f'], [-1, -1, 5, 2, 2, 7, 'f'], [-2, -2, 12, 4, 4, 1, 'w'], [-1, 2, 0, 3, 2, 4, 'w']], muzzle: [0, 0, 13] },
   // 汽油投射器（手臂）：按著一直噴，噴出一串會飛的燃料（speed、約 range 格落地）→ 上半身一轉整條火舌就甩出弧線
   //   打中第一台機體：dmg + 打中的部位疊 burn 層燃燒（不穿透、盾擋得住）；落到地上 / 射程盡頭：留下一小灘燒著的油（puddle 半徑、puddleT 秒、站在上面每秒疊 puddleBurn 層）
@@ -139,7 +140,7 @@ low('saber', '電擊棒', { dmg: 32, interval: 0.85, reach: 1.9, lunge: 4, blade
 low('cannon', '迫擊砲', { dmg: 48, interval: 3.4, speed: 30, splash: 1.6, kb: 4, ammo: 10 });
 low('missile', '小型飛彈', { dmg: 22, salvo: 1, interval: 1.9, turn: 1.4, maxSpeed: 26, ammo: 20 });
 low('rocket', '火箭筒', { dmg: 38, salvo: 1, interval: 2.0, ammo: 10, spread: 0.07 });
-low('flamer', '小火焰噴射器', { dmg: 2, range: 5.6, burn: 0.26, ammo: 260 });
+low('flamer', '小火焰噴射器', { dmg: 2, range: 5.6, arc: 0.4, burn: 0.26, ammo: 260 });   // 雜魚的維持原樣
 low('napalm', '燒夷砲', { dmg: 16, zone: 2.2, zoneT: 4.5, burn: 1.2, interval: 2.3, range: 17, ammo: 14 });
 // 酸液囊（投擲蟲）：燒夷彈的邏輯，落地濺酸 + 一灘腐蝕的酸（status: 'corrode'）；彈藥很多（蟲子自己會產酸）
 WEAPONS.acid_l = { ...WEAPONS.napalm, name: '酸液囊', low: true, dmg: 14, splash: 1.5, zone: 2.1, zoneT: 4.5, burn: 1.1, interval: 1.9, range: 17, ammo: 60, status: 'corrode', model: [], size: 0.24 };
