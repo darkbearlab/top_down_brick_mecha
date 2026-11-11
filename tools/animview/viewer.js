@@ -62,6 +62,9 @@ function makeUnit(key, bx) {
   scene.add(M.root);
   const guns = {};
   for (const s of ['armL', 'armR']) if (lo[s]) guns[s] = { cd: 0, def: WEAPONS[lo[s]] };
+  // 部位耐久（只給動畫讀）；腳原本的顏色留著，「損毀」要把它塗黑、復原時塗回來
+  for (const k in M.parts) Object.assign(M.parts[k], { hp: 100, max: 100, broken: false });
+  M.parts.legs.col0 = M.parts.legs.mat.color.getHex();
   return {
     id: ++uid, key, loadout: lo, model: M, spec, parts: M.parts, guns, k: 1, grunt: false, fly: false,
     x: 0, z: 0, vx: 0, vz: 0, legYaw: 0, torsoYaw: 0, walk: 0, bob: 0, readyK: { L: 0, R: 0 }, swing: null, punch: null, charge: null,
@@ -73,17 +76,37 @@ function setUnits(setKey) {
   const keys = SETS[setKey];
   units = keys.map((k, i) => makeUnit(k, (i - (keys.length - 1) / 2) * 2.7));
   for (const u of units) { u.legYaw = u.torsoYaw = state.heading; }
+  applyDamage();
   cam.tx = 0;
   const info = units.map(u => `${u.loadout.name}：總重 ${u.spec.total}・負載 ${Math.round(u.spec.loadK * 100)}%${u.spec.loadK > 1 ? '（超載）' : ''}`).join('　');
   document.getElementById('info').textContent = info;
 }
+
+// ---- 損傷：照遊戲的做法設部位耐久（腳損毀 = 塗黑不拆、手臂損毀 = 整隻拿掉）----
+const HP = { ok: 100, half: 40, low: 15, broken: 0 };
+function applyDamage() {
+  for (const u of units) {
+    const P = u.parts, set = (p, v, broken = false) => { if (p) { p.hp = v; p.broken = broken; } };
+    set(P.legs, HP[state.legs], state.legs === 'broken');
+    P.legs.mat.color.setHex(state.legs === 'broken' ? 0x5a5048 : P.legs.col0);
+    set(P.torso, HP[state.torso]);
+    for (const [slot, gone, hurt] of [['armL', 'L', 'hurt'], ['armR', 'R', 'hurt']]) {
+      const p = P[slot]; if (!p) continue;
+      const broken = state.arms === gone || state.arms === 'both';
+      set(p, broken ? 0 : state.arms === hurt ? 15 : 100, broken);
+      p.g.visible = !broken;
+    }
+  }
+}
+// 腳的出力（src/mech.js 的 legK）：腳受損跑不快
+const legK = m => m.parts.legs.broken ? 0.35 : 0.65 + 0.35 * m.parts.legs.hp / m.parts.legs.max;
 
 // ---- 移動（照 src/mech.js driveMech 的加減速簡化；只是給動畫當輸入）----
 const GRIP = 30, AIR_DRAG = 0.1, BRAKE_K = 2.2;
 const angDiff = (a, b) => { let d = (b - a) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2; return d; };
 const approach = (a, b, step) => { const d = angDiff(a, b); return Math.abs(d) <= step ? b : a + Math.sign(d) * step; };
 function drive(m, dt, ml, heading, fire) {
-  const S = m.spec, L = S.legs, vmax = S.vmax;
+  const S = m.spec, L = S.legs, vmax = S.vmax * legK(m);
   const mx = Math.sin(heading) * ml, mz = Math.cos(heading) * ml;
   let tx = mx * vmax, tz = mz * vmax;
   if (ml > 0.1) m.legYaw = approach(m.legYaw, heading, S.legTurn * dt);
@@ -105,7 +128,7 @@ function drive(m, dt, ml, heading, fire) {
   for (const s in m.guns) {
     const g = m.guns[s];
     g.cd -= dt;
-    if (fire && g.cd <= 0 && g.def.kind !== 'shield') g.cd = Math.max(0.07, g.def.interval ?? 0.5);
+    if (fire && g.cd <= 0 && g.def.kind !== 'shield' && !m.parts[s].broken) g.cd = Math.max(0.07, g.def.interval ?? 0.5);
   }
 }
 function pose(m, dt) {
@@ -116,7 +139,7 @@ function pose(m, dt) {
 }
 
 // ---- 操作狀態 ----
-const state = { set: 'trio', move: 'auto', fire: false, speed: 1, heading: Math.PI / 2, t: 0 };
+const state = { set: 'trio', move: 'auto', fire: false, speed: 1, heading: Math.PI / 2, t: 0, legs: 'ok', arms: 'ok', torso: 'ok' };
 // 自動：跑 → 急停 → 邊走邊開火 → 轉身跑 → 停下開火
 const AUTO = [[2.6, 1, 0, false], [1.6, 0, 0, false], [2.4, 0.45, 0, true], [2.8, 1, Math.PI, false], [1.4, 0, 0, false], [1.6, 0, 0, true]];
 const AUTO_T = AUTO.reduce((a, s) => a + s[0], 0);
@@ -168,6 +191,7 @@ function bindGroup(id, key, onChange) {
 bindGroup('gSet', 'set', v => { setUnits(v); });
 bindGroup('gMove', 'move', () => { state.t = 0; });
 bindGroup('gSpeed', 'speed');
+for (const k of ['legs', 'arms', 'torso']) bindGroup('gD' + k, k, applyDamage);
 const fireBtn = document.getElementById('bFire');
 fireBtn.addEventListener('click', () => { state.fire = !state.fire; fireBtn.setAttribute('aria-pressed', String(state.fire)); });
 document.getElementById('bTurn').addEventListener('click', () => { state.heading += Math.PI / 2; if (state.move === 'auto') { state.move = 'run'; document.querySelectorAll('#gMove button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === 'run'))); } });

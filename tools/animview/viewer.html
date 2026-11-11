@@ -84,6 +84,30 @@ button[aria-pressed="true"] { background: var(--accent); border-color: var(--acc
         <button type="button" id="bTurn">轉向 90°</button>
       </div>
     </div>
+    <div class="row"><span>腳</span>
+      <div class="chips" id="gDlegs">
+        <button type="button" data-v="ok">正常</button>
+        <button type="button" data-v="half">受損</button>
+        <button type="button" data-v="low">重創</button>
+        <button type="button" data-v="broken">損毀</button>
+      </div>
+    </div>
+    <div class="row"><span>手臂</span>
+      <div class="chips" id="gDarms">
+        <button type="button" data-v="ok">正常</button>
+        <button type="button" data-v="hurt">重創</button>
+        <button type="button" data-v="L">左臂損毀</button>
+        <button type="button" data-v="R">右臂損毀</button>
+        <button type="button" data-v="both">兩臂損毀</button>
+      </div>
+    </div>
+    <div class="row"><span>軀幹</span>
+      <div class="chips" id="gDtorso">
+        <button type="button" data-v="ok">正常</button>
+        <button type="button" data-v="half">受損</button>
+        <button type="button" data-v="low">重創</button>
+      </div>
+    </div>
     <div class="row"><span>速度</span>
       <div class="chips" id="gSpeed">
         <button type="button" data-v="1">1×</button>
@@ -92,7 +116,7 @@ button[aria-pressed="true"] { background: var(--accent); border-color: var(--acc
         <button type="button" data-v="0">暫停</button>
       </div>
     </div>
-    <p class="note">拖曳畫面旋轉鏡頭，滾輪或兩指縮放。跑的時候按「站著」看急停。機體固定在原地，地板往後捲。目前是階段 1：重量感步態（腳掌著地不滑）、急停、擺臂、開火時前臂打直；跛行、失衡、推進、近戰還沒做。</p>
+    <p class="note">拖曳畫面旋轉鏡頭，滾輪或兩指縮放。跑的時候按「站著」看急停。機體固定在原地，地板往後捲。階段 2：損傷會換動作。腳受損（不到 50%）輕跛、重創（不到 25%）重跛、損毀就拖著一隻腳走；少一隻手臂上半身歪向另一邊；軀幹重創往前駝、喘。壞的是哪隻腳每台固定。失衡、推進、近戰還沒做。</p>
   </div>
 </div>
 
