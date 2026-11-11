@@ -11,7 +11,7 @@ const KEY = 'brickmecha.diorama';
 let on = !/[?&]flat\b/.test(location.search);
 try { const v = localStorage.getItem(KEY); if (v != null) on = v === '1'; } catch { /* 讀不到就用預設 */ }
 
-const BLOOM_TH = 1.0, BLOOM_KNEE = 0.5, BLOOM_K = 0.75;   // 多亮開始發光、門檻的柔和範圍、光暈強度
+const BLOOM_TH = 1.5, BLOOM_KNEE = 0.5, BLOOM_K = 0.5;   // 多亮開始發光、門檻的柔和範圍、光暈強度
 const size = new THREE.Vector2();
 const rt = new THREE.WebGLRenderTarget(1, 1, { type: THREE.HalfFloatType, samples: 4 });
 let bloomOn = true;
@@ -85,7 +85,7 @@ const mat = pass({ tex: { value: rt.texture }, bloom: { value: bA.texture }, blo
       // 保色版：同一條曲線只套在最亮的那個通道上、比例不變 → 火還是橘的（純 ACES 會把很亮的橘色洗成淡黃白）
       float m = max(c.r, max(c.g, c.b));
       vec3 keep = c * (mix(aces(vec3(m)).r, agx(vec3(m)).r, 0.25) / max(m, 1e-4));
-      c = mix(film, keep, 0.45);
+      c = mix(film, keep, 0.6);
     }
     if (dio > 0.5) {
       // 飽和度 +12%、暗部偏冷一點

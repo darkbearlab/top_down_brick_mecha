@@ -41,17 +41,54 @@ export const FOG_GLSL = `uniform sampler2D fogTex, fogVis; uniform vec2 fogSize;
 `;
 
 // 讓材質吃迷霧（InstancedMesh 也可以）
+// 表面細節（設定「材質細節」）：
+//   世界座標的大尺度雜訊：顏色 ±12% 慢慢變化 → 地板、岩壁不再一片一樣；朝上的面積一點灰（偏暖、偏淡）；牆面往下的流痕
+//   倒角高光（只有方塊實例：岩壁、建築、箱子）：每個方塊的邊緣一條亮線（寬度照世界尺寸），像磨圓的邊接到光
+export const surfU = { surfOn: { value: 1 } };
+export function setSurface(v) { surfU.surfOn.value = v ? 1 : 0; }
+const SURF_GLSL = `
+  float sfH(vec3 p) { p = fract(p * 0.3183099 + 0.1); p *= 17.0; return fract(p.x * p.y * p.z * (p.x + p.y + p.z)); }
+  float sfN(vec3 x) { vec3 i = floor(x), f = fract(x); f = f * f * (3.0 - 2.0 * f);
+    return mix(mix(mix(sfH(i), sfH(i + vec3(1, 0, 0)), f.x), mix(sfH(i + vec3(0, 1, 0)), sfH(i + vec3(1, 1, 0)), f.x), f.y),
+               mix(mix(sfH(i + vec3(0, 0, 1)), sfH(i + vec3(1, 0, 1)), f.x), mix(sfH(i + vec3(0, 1, 1)), sfH(i + vec3(1, 1, 1)), f.x), f.y), f.z); }
+`;
 export function fogMaterial(mat, U = fogU) {
   mat.onBeforeCompile = sh => {
-    Object.assign(sh.uniforms, U, heightFog);
-    sh.vertexShader = 'varying vec2 vFogXZ;\nvarying float vFogY;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
+    Object.assign(sh.uniforms, U, heightFog, surfU);
+    sh.vertexShader = 'varying vec2 vFogXZ;\nvarying float vFogY;\nvarying vec3 vSfP, vSfN, vSfOP, vSfON, vSfS;\n' + sh.vertexShader.replace('#include <project_vertex>', `#include <project_vertex>
       vec4 fogP = vec4(transformed, 1.0);
+      vec3 sfN = objectNormal, sfS = vec3(1.0);
       #ifdef USE_INSTANCING
         fogP = instanceMatrix * fogP;
+        sfN = mat3(instanceMatrix) * sfN;
+        sfS = vec3(length(instanceMatrix[0].xyz), length(instanceMatrix[1].xyz), length(instanceMatrix[2].xyz));
       #endif
       vec4 fogW = modelMatrix * fogP;
-      vFogXZ = fogW.xz; vFogY = fogW.y;`);
-    sh.fragmentShader = 'uniform float fogOn;\nuniform float fogDim;\nuniform vec3 hfColor;\nuniform float hfDensity;\nvarying vec2 vFogXZ;\nvarying float vFogY;\n' + FOG_GLSL + sh.fragmentShader.replace('#include <dithering_fragment>', `#include <dithering_fragment>
+      vFogXZ = fogW.xz; vFogY = fogW.y;
+      vSfP = fogW.xyz; vSfN = mat3(modelMatrix) * sfN; vSfOP = transformed; vSfON = objectNormal; vSfS = sfS;`);
+    sh.fragmentShader = 'uniform float fogOn;\nuniform float fogDim;\nuniform vec3 hfColor;\nuniform float hfDensity;\nuniform float surfOn;\nvarying vec2 vFogXZ;\nvarying float vFogY;\nvarying vec3 vSfP, vSfN, vSfOP, vSfON, vSfS;\n' + FOG_GLSL + SURF_GLSL + sh.fragmentShader.replace('#include <color_fragment>', `#include <color_fragment>
+      if (surfOn > 0.5) {
+        vec3 wp = vSfP, wn = normalize(vSfN);
+        // 大尺度雜訊：顏色慢慢變
+        float macro = sfN(wp * 0.12) * 0.55 + sfN(wp * 0.45 + 3.1) * 0.3 + sfN(wp * 1.7 + 9.3) * 0.15;
+        diffuseColor.rgb *= 0.8 + 0.4 * macro;
+        // 朝上的面積灰：一塊一塊變淡、偏暖
+        float lum = dot(diffuseColor.rgb, vec3(0.2126, 0.7152, 0.0722));
+        float dust = smoothstep(0.6, 0.9, wn.y) * smoothstep(0.45, 0.85, sfN(wp * 0.33 + 7.0));
+        diffuseColor.rgb = mix(diffuseColor.rgb, lum * vec3(1.18, 1.06, 0.86) + 0.012, dust * 0.55);
+        // 牆面：往下的流痕（雜訊在垂直方向拉長）
+        float side = 1.0 - smoothstep(0.3, 0.6, abs(wn.y));
+        float streak = sfN(vec3((wp.x + wp.z) * 2.6, wp.y * 0.22, 1.7));
+        diffuseColor.rgb *= 1.0 - side * 0.3 * smoothstep(0.5, 0.85, streak);
+        #ifdef USE_INSTANCING
+          // 倒角高光：離這一面的邊多近（世界尺寸），朝上的面亮一點
+          vec3 an = abs(vSfON), d = (0.5 - abs(vSfOP)) * vSfS;
+          float e = an.x > 0.5 ? min(d.y, d.z) : an.y > 0.5 ? min(d.x, d.z) : min(d.x, d.y);
+          float w = min(0.11, 0.22 * min(vSfS.x, min(vSfS.y, vSfS.z)));
+          float bev = 1.0 - smoothstep(0.0, w, e);
+          diffuseColor.rgb *= 1.0 + bev * (0.35 + 0.35 * max(wn.y, 0.0));
+        #endif
+      }`).replace('#include <dithering_fragment>', `#include <dithering_fragment>
       float fogV = fogOn > 0.5 ? fogSample(vFogXZ) * fogDim : 1.0;
       gl_FragColor.rgb *= fogV;
       // 高度霧：比地面低越多越往霧色混（霧色也照那層的迷霧亮度，沒去過的地方還是黑的）

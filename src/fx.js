@@ -460,7 +460,8 @@ export function updateParticles(dt) {
   }
   stepList(glows, dt, glowMesh, (p, t) => {
     sampleRamp(p.ramp, t, tmpC);
-    if (GFX.hdr !== 1) tmpC.multiplyScalar(1 + (GFX.hdr - 1) * (1 - t) * (1 - t));   // 剛冒出來最亮（超過白），越燒越暗
+    // 剛冒出來最亮（超過白），越燒越暗；爆炸的閃光大方塊、火團不加（方塊的形狀是設計圖騰，不能被光暈吃掉）
+    if (GFX.hdr !== 1 && !p.puff && p.ramp !== RAMP.flash) tmpC.multiplyScalar(1 + (GFX.hdr - 1) * (1 - t) * (1 - t));
     return p.puff ? p.s1 * Math.sin(Math.PI * Math.min(1, Math.pow(t, 0.55))) + 0.02 : p.s0 + (p.s1 - p.s0) * t;
   });
   stepList(puffs, dt, puffMesh, (p, t) => {

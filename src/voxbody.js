@@ -21,6 +21,11 @@ const FACES = [
   { d: [0, 0, 1], c: [[0, 0, 1], [1, 0, 1], [0, 1, 1], [1, 1, 1]] },
 ];
 
+// 每一面旁邊的四個方向（垂直於法線的那四個面的索引）：判斷這一面的邊是不是凸出去的稜角
+const SIDES = FACES.map(f => FACES.map((g, i) => i).filter(i => FACES[i].d[0] * f.d[0] + FACES[i].d[1] * f.d[1] + FACES[i].d[2] * f.d[2] === 0));
+// 倒角高光：凸出去的稜角那一顆方塊的面亮一點（機體方塊只有 1/32 格，一顆寬剛好是一條 1～2 像素的亮邊）；朝上的面最亮、底面不加
+const RIM_UP = 1.2, RIM_SIDE = 1.1;
+
 // ---------- 樣板：從方塊清單（設計單位、顏色已經是 hex）蓋出格子 ----------
 // boxes = [[x, y, z, w, h, d, hex], …]（後面的蓋掉前面的）；carve = 挖空的範圍（核心的位置）；cell = 設計單位的大小（1/16）
 const cache = new Map();
@@ -86,7 +91,8 @@ export function voxelTemplate(boxes, cell, carve = [], F = FINE, useCache = true
 // ---------- 網格：每一顆沒被打掉的，旁邊是空的（或被打掉）的那幾面 ----------
 let P = new Float32Array(0), Nn = new Float32Array(0), C = new Float32Array(0), I = new Uint32Array(0);
 function buildGeo(T, gone, scar, geo = null) {
-  const { list, nb, gx, gy, gz, col, s, x0, y0, z0 } = T, L = list.length;
+  const { list, nb, gx, gy, gz, col, s, x0, y0, z0, nx, ny, nz, grid } = T, L = list.length;
+  const empty = (x, y, z) => { if (x < 0 || y < 0 || z < 0 || x >= nx || y >= ny || z >= nz) return true; const g = grid[(x * ny + y) * nz + z]; return g < 0 || (gone && gone[g]); };
   // 先數面數
   let f = 0;
   for (let j = 0; j < L; j++) {
@@ -104,11 +110,17 @@ function buildGeo(T, gone, scar, geo = null) {
       const nbg = nb[j * 6 + k];
       if (nbg >= 0 && !(gone && gone[nbg])) continue;
       const F = FACES[k];
+      // 這一面有沒有一條邊是凸稜：旁邊那格空、而且旁邊再往外那格也空
+      let rim = 1;
+      if (F.d[1] >= 0) for (const k2 of SIDES[k]) {
+        const t = FACES[k2].d;
+        if (empty(gx[v] + t[0], gy[v] + t[1], gz[v] + t[2]) && empty(gx[v] + t[0] + F.d[0], gy[v] + t[1] + F.d[1], gz[v] + t[2] + F.d[2])) { rim = F.d[1] > 0 ? RIM_UP : RIM_SIDE; break; }
+      }
       for (let c = 0; c < 4; c++) {
         const o = (q * 4 + c) * 3;
         P[o] = (bx + F.c[c][0]) * s; P[o + 1] = (by + F.c[c][1]) * s; P[o + 2] = (bz + F.c[c][2]) * s;
         Nn[o] = F.d[0]; Nn[o + 1] = F.d[1]; Nn[o + 2] = F.d[2];
-        C[o] = r; C[o + 1] = g; C[o + 2] = b;
+        C[o] = r * rim; C[o + 1] = g * rim; C[o + 2] = b * rim;
       }
       const ii = q * 6, b0 = q * 4;
       I[ii] = b0; I[ii + 1] = b0 + 1; I[ii + 2] = b0 + 2; I[ii + 3] = b0 + 2; I[ii + 4] = b0 + 1; I[ii + 5] = b0 + 3;

@@ -6,7 +6,7 @@ import { renderer, resize, scene, sun } from './core.js';
 import { dioramaOn, setBloom, setDiorama, setMsaa, setTone } from './post.js';
 import { setHazeLevel } from './haze.js';
 import { setLightsOn } from './lights.js';
-import { setHeightFogOn } from './fog.js';
+import { setHeightFogOn, setSurface } from './fog.js';
 import { setPerfPanel } from './perf.js';
 import { padCfg, setPadLayout } from './input.js';
 import { setViewMode, setViewSens, setViewSmooth, view } from './camview.js';
@@ -18,6 +18,7 @@ const ITEMS = [
   { k: 'msaa', name: '反鋸齒', opts: [[4, '4×'], [2, '2×'], [0, '關']], note: '方塊邊緣的鋸齒；倍數越高顯卡越累' },
   { k: 'shadow', name: '陰影', opts: [[2048, '高'], [1024, '中'], [0, '關']], note: '太陽的影子；每幀要從太陽方向多畫一次場景' },
   { k: 'tone', name: '色調映射', opts: [[true, '開'], [false, '關']], note: '火、爆炸、光束亮到溢出也不死白（ACES + AgX）；幾乎不花效能' },
+  { k: 'surf', name: '材質細節', opts: [[true, '開'], [false, '關']], note: '地面、岩壁的大片色差、積灰、流痕和方塊邊緣的倒角亮邊；每個像素多算幾次雜訊' },
   { k: 'bloom', name: '泛光', opts: [[true, '開'], [false, '關']], note: '火、爆炸、發光方塊的光暈' },
   { k: 'lights', name: '動態光源', opts: [[true, '開'], [false, '關']], note: '爆炸、砲口、火焰照亮周圍；切換時會頓一下（重新編譯）' },
   { k: 'haze', name: '地面風沙', opts: [[2, '兩層'], [1, '一層'], [0, '關']], note: '貼地飄的薄霧；整個畫面每個像素都要算雜訊' },
@@ -25,9 +26,9 @@ const ITEMS = [
   { k: 'dio', name: '模型桌效果', opts: [[true, '開'], [false, '關']], note: '四角模糊、暗角、調色（O 鍵也能切）' },
 ];
 const PRESETS = {
-  high: { name: '高', v: { scale: 1, msaa: 4, shadow: 2048, tone: true, bloom: true, lights: true, haze: 2, hfog: true, dio: true } },
-  mid: { name: '中', v: { scale: 1, msaa: 2, shadow: 1024, tone: true, bloom: true, lights: true, haze: 1, hfog: true, dio: true } },
-  low: { name: '低', v: { scale: 0.7, msaa: 0, shadow: 1024, tone: true, bloom: false, lights: false, haze: 0, hfog: true, dio: false } },
+  high: { name: '高', v: { scale: 1, msaa: 4, shadow: 2048, tone: true, surf: true, bloom: true, lights: true, haze: 2, hfog: true, dio: true } },
+  mid: { name: '中', v: { scale: 1, msaa: 2, shadow: 1024, tone: true, surf: true, bloom: true, lights: true, haze: 1, hfog: true, dio: true } },
+  low: { name: '低', v: { scale: 0.7, msaa: 0, shadow: 1024, tone: true, surf: false, bloom: false, lights: false, haze: 0, hfog: true, dio: false } },
 };
 const S = { ...PRESETS.high.v, perf: false };
 try { Object.assign(S, JSON.parse(localStorage.getItem(KEY)) ?? {}); } catch { /* 讀不到就用預設 */ }
@@ -51,6 +52,7 @@ function apply(k) {
   if (all || k === 'lights') setLightsOn(S.lights);
   if (all || k === 'haze') setHazeLevel(S.haze);
   if (all || k === 'hfog') setHeightFogOn(S.hfog);
+  if (all || k === 'surf') setSurface(S.surf !== false);
   if (k === 'dio') setDiorama(S.dio);
   if (all || k === 'perf') setPerfPanel(S.perf);
 }
