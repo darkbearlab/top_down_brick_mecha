@@ -124,7 +124,12 @@ button[aria-pressed="true"] { background: var(--accent); border-color: var(--acc
 { "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
 </script>
 <script type="module">
-  const fail = e => { const b = document.getElementById('boot'); b.hidden = false; b.textContent = '載入失敗：' + (e?.message ?? e); };
+  // 載入失敗（多半是行動網路漏抓一個檔案）：先自動重新整理一次，還是不行才顯示訊息和「重新載入」按鈕
+  const fail = e => {
+    if (location.hash !== '#retry') { location.hash = 'retry'; location.reload(); return; }
+    const b = document.getElementById('boot'); b.hidden = false; b.textContent = '載入失敗（可能是網路不穩）：' + (e?.message ?? e) + ' ';
+    const r = document.createElement('button'); r.type = 'button'; r.textContent = '重新載入'; r.onclick = () => location.reload(); b.append(r);
+  };
   window.addEventListener('error', e => fail(e.error ?? e.message));
   import('./viewer.js').catch(fail);
 </script>
