@@ -74,3 +74,39 @@
 - 每一步截圖或錄影給使用者看，問過再往下做。
 - 合併回 `main` 前：跑上面那行模擬確認結果一致；遊戲裡實際走、打、被打一輪，主控台沒有錯誤；說明對效能的影響（每台機體每幀多做了什麼）。
 - 提交訊息結尾加 `Co-Authored-By: Claude <noreply@anthropic.com>` 一類的署名（照當下系統的提示）。是否推送、怎麼合併，問使用者。
+
+## 交接說明（給開發 session，2026-11-12）
+分支 `claude/mech-physics-animation-42bf6f`。階段 1–4 都做完了，只剩光束劍的新姿勢等參考圖重做。
+
+### 做了什麼
+- **階段 1 重量感**：有關節的腳（膝蓋、腳踝）用 IK 踩地；上半身用彈簧跟著加減速前傾、急停往回晃；重量越重步伐越沉。
+- **階段 2 損傷**：腳不到 50% 輕跛、不到 25% 重跛、損毀拖著一隻腳；少一隻手臂上半身歪向另一邊；軀幹重創駝背、喘。
+- **階段 3 事件**：失衡踉蹌補一步、撞牆卡住、推進時腳離地、空投下墜和落地蹲。
+- **階段 4 近戰**：打樁拳（蓄力 → 直拳）、騎槍（夾槍 → 突刺）有扭腰、踏步、下蹲的全身動作。光束劍維持原本的掃法（`SABER_NEW = false`），試做的 IK 和姿勢表留在 `src/anim.js` 裡關著。
+
+### 動到哪些遊戲檔案
+- `src/anim.js`（新）：全部的動畫。入口 `animMech(m, dt, air)`，狀態放在 `m.model.anim`。機體沒有關節（雜魚、菁英、旋停機）就回傳 false，什麼都不做。
+- `src/mech.js`：`poseMech` 先呼叫 `animMech`；回傳 true 的機體，舊的擺腳、上半身、手臂那幾行跳過。空投中（`m.drop`）也會呼叫，只擺姿勢。
+- `src/model.js`：一般零件組的機體，腳切成大腿 / 小腿 / 腳掌、手臂切成上臂 / 前臂。多了 `model.rig = { legs: [{ hip, knee, ankle, hipP, kneeP, ankleP, sole, side }], arms: { armL: { shoulder, elbow, elbowP, handP }, … } }`。有自訂身體的（`lo.body`）不切，`rig.legs = []`。
+- `src/voxbody.js`：方塊身體可以分段畫（`segment`），方塊資料還是同一份，磨損、傳送、爆開不變。`offStream(fn)`：只為畫面多建立的 three.js 物件不吃 `Math.random`。
+- `src/shapes.js`：外型多了關節點 `elbow`、`knee`、`ankle`（可以不放，`model.js` 的 `autoJoints` 會照外型算）。
+- `src/workshop.js`：零件工坊可以放關節點、顯示切開的高度。
+- `src/warp.js`：傳送分解時，分段身體的各段網格不要整個藏掉（一行）。
+
+### 之後改這些檔案要注意
+- 動畫只能是畫面。`src/anim.js` 不可以寫 `m.x / m.z`、速度、`m.torsoYaw`、`m.legYaw`、`m.walk`，也不可以呼叫 `Math.random()`。
+- `model.js` / `voxbody.js` 裡為了畫面多建立 Group、Mesh、BufferGeometry 時要包在 `offStream` 裡。three.js 建立物件會呼叫 `Math.random()` 產生 uuid，不包的話模擬器重播的結果會變。
+- 上半身看起來的朝向 = `m.torsoYaw` + `anim.tw`（近戰扭腰，只有畫面）。槍口、判定一律用 `m.torsoYaw`，不要去讀 `torsoG.rotation.y`。
+- 動畫讀的近戰欄位：`m.swing { slot, t, dur }`、`m.punch { slot, t }`、`m.charge { slot, phase, t }`。改這些欄位的名字或時間長度，`src/anim.js` 的近戰段要一起改。
+- 新增腳的種類或新的近戰武器：`animMech` 用 `spec.legs.type` 和 `def.kind` 分支，沒列到的會走預設（腳不擺、手臂照一般武器）。
+
+### 怎麼檢查
+- 模擬比對（改完一定要跑）：`node --import ./tools/sim/register.mjs tools/sim/duel.mjs --a 突擊型 --b 狙擊型 --n 10 --seed 1 --quiet --out tools/sim/out/anim-check`，結果要跟沒有動畫的版本一樣（只有 `summary.json` 的 `out` 路徑不同）。
+- 動作檢視器：`tools/animview/`（`viewer.html` + `viewer.js`，直接讀 `src/` 的模型和動畫，可以切機體、損傷、事件、慢動作）。
+- 腳滑檢查：`node --import ./tools/sim/register.mjs tools/animview/slip-check.mjs`。
+
+### 合併前實測（2026-11-12）
+- 遊戲內：觀戰 3 場、王牌 vs 雜魚、對戰騎槍型、探索第 1 關、試玩場，共約 4800 幀。每幀檢查每台機體所有節點的矩陣，沒有壞值；主控台沒有錯誤。雙足、逆關節、履帶、懸浮都出現過；失衡、撞牆、推進、空投、揮劍、打樁、騎槍衝刺、腳 / 手臂 / 頭損毀都實際發生過。
+- 效能：`animMech` 每台每幀約 1.3–3.2 微秒（Node 量 2 萬幀平均；雙足和逆關節多了腳的 IK 所以較高）。10 台機體約 0.03 毫秒，一幀預算 16.7 毫秒。模型多了關節，每台多 6 個腳的群組、2 個手肘的群組，身體分段後繪圖呼叫每台多幾次，這部分沒有單獨量。
+- 模擬比對：一致。
+- 沒做的：沒有用真人操作長時間玩；手機沒測；測試用的內建瀏覽器畫面更新被限制在每秒 30 次，所以沒有量到實際 FPS。
