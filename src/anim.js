@@ -66,7 +66,7 @@ function armGeo(Ar, blade) {
   const n0 = u0.clone().cross(f0);
   if (n0.lengthSq() < 1e-6) n0.set(-1, 0, 0);
   n0.normalize();
-  const g = { S, la, lb, n0, al0: Math.acos(clamp(u0.dot(f0), -1, 1)), M0: new THREE.Matrix4().makeBasis(u0, n0, u0.clone().cross(n0)).transpose(), base: Ar.shoulder.position.clone(), blade: null };
+  const g = { S, la, lb, n0, f0, al0: Math.acos(clamp(u0.dot(f0), -1, 1)), M0: new THREE.Matrix4().makeBasis(u0, n0, u0.clone().cross(n0)).transpose(), base: Ar.shoulder.position.clone(), blade: null };
   // 光束劍的刀身：piv = 劍柄（前臂群組的座標）、len = 刀長
   if (blade) { const len = blade.children[0]?.geometry.parameters?.depth ?? 1; g.blade = { g: blade, len, piv: blade.position.clone().setZ(blade.position.z - len / 2 - 0.06) }; }
   return g;
@@ -91,13 +91,14 @@ function armIK(Ar, g, hx, hy, hz, px, py, pz) {
   Ar.shoulder.position.copy(g.S).applyQuaternion(Ar.shoulder.quaternion).negate().add(g.S).add(g.base);
 }
 
-// 光束劍的姿勢 = [刀尖在機體的哪個方位（度；繞機體中心算，跟判定的扇形同一個算法；0 = 正前、正 = 拿劍那一側的外面）、刀尖的仰角（度）、手的位置（往外、往上、往前；相對肩膀，單位 = 手臂全長 0.88 時的格數）、扭腰（正 = 拿劍的肩膀往後收）]
-const SK0 = [130, -18, 0.16, -0.50, -0.08, 0.12];   // 脇構：劍在外側後方、刀尖朝後下
-const SK1 = [44, -8, 0.42, -0.40, 0.22, 0.42];      // 起刀：刀甩到外側前方的低處（44 度 = 判定的扇形在這個時間點的角度）
-const SK2 = [-75, 30, -0.12, -0.04, 0.50, -0.45];   // 斬完：刀在內側前方的高處
-const SK3 = [-80, 38, -0.20, 0.06, 0.36, -0.50];   // 殘心：順勢再帶過去一點，定住
-const SAB_R = 1.9, SAB_HOLD = 0.1, SAB_RET = 0.22, PILE_HOLD = 0.3, PILE_RET = 0.5, LANCE_HOLD = 0.2, LANCE_RET = 0.45;
-const mix = (o, a, b, k) => { for (let i = 0; i < 6; i++) o[i] = a[i] + (b[i] - a[i]) * k; };
+// 光束劍的姿勢 = [刀尖在機體的哪個方位（度；繞機體中心算，跟判定的扇形同一個算法；0 = 正前、正 = 拿劍那一側的外面）、刀尖的仰角（度）、手的位置（往外、往上、往前；相對肩膀，單位 = 手臂全長 0.88 時的格數）、扭腰（正 = 拿劍的肩膀往後收）、手肘往前（正）還是往後（負）凸]
+//   正握：刀從拳頭的虎口那一側出去，所以前臂要大致順著刀的方向（夾角不超過 90 度左右）。脇構時手收到腰後、手肘在前，前臂才會朝後
+const SK0 = [130, -18, 0.13, -0.54, -0.28, 0.12, 0.7];   // 脇構：劍在外側後方、刀尖朝後下
+const SK1 = [44, -8, 0.42, -0.40, 0.22, 0.42, -0.5];      // 起刀：刀甩到外側前方的低處（44 度 = 判定的扇形在這個時間點的角度）
+const SK2 = [-75, 30, -0.12, -0.04, 0.50, -0.45, -0.5];   // 斬完：刀在內側前方的高處
+const SK3 = [-80, 38, -0.20, 0.06, 0.36, -0.50, -0.5];   // 殘心：順勢再帶過去一點，定住
+const SAB_WC = Math.cos(80 * Math.PI / 180), SAB_R = 1.9, SAB_HOLD = 0.1, SAB_RET = 0.22, PILE_HOLD = 0.3, PILE_RET = 0.5, LANCE_HOLD = 0.2, LANCE_RET = 0.45;
+const mix = (o, a, b, k) => { for (let i = 0; i < 7; i++) o[i] = a[i] + (b[i] - a[i]) * k; };
 function saberPose(a) {
   const o = a.pose;
   if (a.mph === 1) { const p = a.mp; if (p < 0.15) mix(o, a.from, SK1, smooth(p / 0.15)); else mix(o, SK1, SK2, (p - 0.15) / 0.85); }
@@ -469,10 +470,17 @@ export function animMech(m, dt, air = false) {
       // 刀的方向：從手指向「機體中心往 th 方位、SAB_R 格遠」的那一點（判定的扇形是繞機體中心掃的，手在肩膀外面，直接用 th 當刀的方向會偏外）
       const sx0 = g.base.x + g.S.x, sz0 = g.base.z + g.S.z, tx = side * Math.sin(th) * SAB_R - (sx0 * c + sz0 * s + hx), tz = Math.cos(th) * SAB_R - (-sx0 * s + sz0 * c + hz * K), tl = Math.hypot(tx, tz) || 1;
       const dx = tx / tl * cp, dz = tz / tl * cp;
-      armIK(Ar, g, hx * c - hz * K * s, hy * K, hx * s + hz * K * c, side * 0.7, -0.5, -0.5);
+      armIK(Ar, g, hx * c - hz * K * s, hy * K, hx * s + hz * K * c, side * (0.7 - 0.8 * Math.max(0, o[6])), -0.5, o[6]);   // 手肘在前的時候夾緊一點，不然會像張著翅膀
       const B = g.blade;
       _q.copy(Ar.shoulder.quaternion).multiply(Ar.elbow.quaternion).invert();
       _b.set(dx * c - dz * s, Math.sin(ph), dx * s + dz * c).applyQuaternion(_q);
+      // 正握的手腕轉不過去：刀和前臂的夾角最多 SAB_WRIST（收刀繞回來的途中會碰到），超過就把刀拉回來
+      const cw0 = _b.dot(g.f0);
+      if (cw0 < SAB_WC && a.mph !== 1) {   // 起刀的那一兩幀手肘正從前面甩到後面，不拉（拉了刀尖會往地上點一下）
+        _t.copy(_b).addScaledVector(g.f0, -cw0);
+        if (_t.lengthSq() < 1e-8) _t.set(0, 1, 0).addScaledVector(g.f0, -g.f0.y);
+        _b.copy(g.f0).multiplyScalar(SAB_WC).addScaledVector(_t.normalize(), Math.sqrt(1 - SAB_WC * SAB_WC));
+      }
       B.g.quaternion.setFromUnitVectors(Z1, _b);
       B.g.position.copy(B.piv).addScaledVector(_b, B.len / 2 + 0.05);
       a.pcd = gun?.cd ?? 0; a.aim = 1;
