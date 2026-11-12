@@ -4,7 +4,7 @@
 // 外型資料：每個零件一個 key（getShape）→ 優先順序：零件工坊正在試穿的（shapeOverrides）> 編輯過的正式版（src/shapes.js）> 零件原本的方塊
 //   方塊一律換成細格單位（1/32）再蓋；掛點、槍口、手、頭的位置用設計單位（1/16）
 import * as THREE from 'three';
-import { voxelBody } from './voxbody.js';
+import { offStream, voxelBody } from './voxbody.js';
 import { addMat } from './core.js';
 import { ARMORS, CORES, DMG_TYPES, ELITES, GRUNTS, GRUNTS_LOW, HEADS, LEGS, WEAPONS } from './parts.js';
 import { SHAPES } from './shapes.js';
@@ -20,7 +20,7 @@ const HAND = [0, 1, 4];
 const LEG_SHAPES = {
   biped: { pelvis: hy => [[-5, hy - 2, -2, 10, 3, 5, 'f']], x: 0.28,
     leg: [[-1, -7, -2, 3, 7, 4, 'f'], [-2, -9, 0, 4, 3, 3, 'a'], [-2, -14, -2, 4, 6, 4, 'a'], [-1, -15, -1, 2, 1, 2, 'f'], [-2, -16, -3, 4, 2, 8, 'f'], [-2, -16, 4, 4, 1, 1, 't']] },
-  reverse: { pelvis: hy => [[-5, hy - 2, -2, 10, 3, 5, 'f']], x: 0.3,
+  reverse: { pelvis: hy => [[-5, hy - 2, -2, 10, 3, 5, 'f']], x: 0.3, joints: { knee: [0.5, -7, 2], ankle: [0.5, -14, -1.5] },
     leg: [[-1, -6, 0, 3, 6, 4, 'a'], [-1, -8, 2, 3, 2, 3, 'f'], [-1, -13, -3, 3, 6, 3, 'a'], [-2, -17, -2, 4, 3, 8, 'f'], [-1, -14, -4, 2, 2, 1, 't']] },
   tread: { pelvis: () => [
     [-5, 7, -4, 10, 6, 8, 'f'], [-11, 0, -10, 5, 8, 20, 'a'], [6, 0, -10, 5, 8, 20, 'a'],
@@ -44,7 +44,7 @@ export function legacyShape(key) {
   if (kind === 'legs' || kind === 'leg') {
     const L = LEG_SHAPES[LEGS[id]?.type ?? id], hy = Math.round((LEGS[id]?.hipY ?? 1) * 16);
     if (!L) return null;
-    if (kind === 'leg') return L.leg ? { boxes: L.leg, points: {} } : null;
+    if (kind === 'leg') return L.leg ? { boxes: L.leg, points: { ...L.joints } } : null;
     return { boxes: L.pelvis(hy), points: L.leg ? { legL: [L.x * 16, hy, 0] } : {} };
   }
   if (kind === 'elite') {
@@ -117,22 +117,85 @@ function addCore(part, [x, y, z, w, h, d], crit, gate) {
   part.core = { mesh, mat, base: CORE_C, crit, gate, c: [(x + w / 2) * V, (y + h / 2) * V, (z + d / 2) * V], half: [(w / 2 + 1) * V, (h / 2 + 1) * V, (d / 2 + 1) * V] };
 }
 
+// ---------- 關節（膝蓋、腳踝、手肘） ----------
+// 關節點跟其他點同一種格式（設計單位）：腳（leg:*）knee、ankle；手臂（arm）elbow。y = 從哪個高度切開，x / z = 轉軸的位置
+// 沒放點的外型（舊的、使用者在零件工坊自己做的）照外型自動算，不改資料：
+//   腳踝 = 從腳底往上，前後長度明顯變短的那一層（腳掌比小腿長）；膝蓋 = 腳踝到髖關節的中間
+//   手肘 = 從手的高度往上，前後長度明顯變短的那一層（前臂是橫的、上臂是直的）
+// boxes：細格單位（getShape 的結果）；回傳設計單位
+function layerBox(boxes, y) {
+  let x0 = Infinity, x1 = -Infinity, z0 = Infinity, z1 = -Infinity;
+  for (const [x, by, z, w, h, d] of boxes) if (by <= y && y < by + h) { x0 = Math.min(x0, x); x1 = Math.max(x1, x + w); z0 = Math.min(z0, z); z1 = Math.max(z1, z + d); }
+  return x1 > x0 ? { x0, x1, z0, z1 } : null;
+}
+const zLen = (boxes, y) => { const b = layerBox(boxes, y); return b ? b.z1 - b.z0 : 0; };
+const yRange = boxes => boxes.reduce(([a, b], [, y, , , h]) => [Math.min(a, y), Math.max(b, y + h)], [Infinity, -Infinity]);
+// 那個高度的截面中心（那一層沒方塊 → 往上下找最近的一層）
+function layerMid(boxes, y) {
+  for (let k = 0; k < 64; k++) for (const yy of [y + k, y - 1 - k]) { const b = layerBox(boxes, yy); if (b) return [(b.x0 + b.x1) / 4, y / 2, (b.z0 + b.z1) / 4]; }
+  return [0, y / 2, 0];
+}
+export function autoJoints(shape, kind) {
+  const B = shape.boxes;
+  if (!B.length) return {};
+  const [y0, y1] = yRange(B);
+  if (kind === 'leg') {
+    const top = Math.min(y1, 0) > y0 ? Math.min(y1, 0) : y1, H = top - y0, foot = zLen(B, y0);
+    let ay = null;
+    for (let y = y0 + 1; y < y0 + H * 0.35; y++) if (zLen(B, y) <= foot * 0.75) { ay = y; break; }
+    ay ??= Math.round(y0 + H * 0.12);
+    const ky = Math.max(ay + 1, Math.round((ay + top) / 2));
+    return { knee: layerMid(B, ky), ankle: layerMid(B, ay) };
+  }
+  if (kind === 'arm') {
+    const hy = Math.round((shape.points.hand?.[1] ?? HAND[1]) * 2), base = Math.max(zLen(B, hy - 1), zLen(B, hy), zLen(B, hy + 1), 1);
+    let ey = null;
+    for (let y = Math.max(hy, y0) + 1; y < y1; y++) if (zLen(B, y) <= base * 0.7) { ey = y; break; }
+    ey ??= Math.round(hy + (y1 - hy) * 0.25);
+    return { elbow: layerMid(B, ey) };
+  }
+  return {};
+}
+// 這個外型的關節點：有放的用放的，沒放的自動算
+export function jointsOf(shape, kind) {
+  const A = autoJoints(shape, kind), out = {};
+  for (const n in A) out[n] = shape.points[n] ?? A[n];
+  return out;
+}
+const pv = ([x, y, z], sx = 1) => new THREE.Vector3(sx * x * V, y * V, z * V);
+
 // 腳的模型
-function buildLegs(lo, team, legsG, K) {
+// 有腳的（雙足、逆關節）每隻腳切成大腿、小腿、腳掌三段：髖（g）→ 大腿 + 膝（kneeG）→ 小腿 + 踝（ankleG）→ 腳掌
+//   方塊身體還是一隻腳一個（voxbody.js 的 segment），所以磨損、模擬器看到的跟沒切的時候一樣
+//   有自訂身體的（菁英、雜魚）不切（split = false）
+function buildLegs(lo, team, legsG, K, split) {
   const P = pal(lo.armor.legs, team), L = LEGS[lo.legs];
   const part = partGroup([], P, legsG, lo.armor.legs);
-  const swing = [];
+  const swing = [], rig = [];
   const pelvis = getShape(K.legs), leg = getShape(K.leg);
   if (pelvis?.boxes.length) part.g.add(mk(pelvis.boxes, P, part.mat));
   const at = pelvis && pointOf(pelvis, 'legL');
   if (leg && at) for (const side of ['L', 'R']) {
     const [x, y, z] = pointOf(pelvis, 'leg' + side), g = new THREE.Group();
     // 右腳 = 左腳左右鏡像（腳的方塊不一定置中，不鏡像的話兩隻腳會往同一邊偏）
-    g.add(mk(side === 'L' ? leg.boxes : leg.boxes.map(([bx, by, bz, w, h, d, k]) => [-bx - w, by, bz, w, h, d, k]), P, part.mat));
+    const mesh = mk(side === 'L' ? leg.boxes : leg.boxes.map(([bx, by, bz, w, h, d, k]) => [-bx - w, by, bz, w, h, d, k]), P, part.mat);
+    g.add(mesh);
     g.position.set(x * V, y * V, z * V);
     part.g.add(g); swing.push(g);
+    if (split && leg.boxes.length) {
+      const J = jointsOf(leg, 'leg'), sx = side === 'L' ? 1 : -1;
+      const ay = Math.round(J.ankle[1] * 2), ky = Math.max(ay + 1, Math.round(J.knee[1] * 2));
+      const [thigh, shin, foot] = mesh.userData.vb.segment(`leg:${ky}:${ay}`, 3, (vx, vy) => vy >= ky ? 0 : vy >= ay ? 1 : 2);
+      const [kneeG, ankleG] = offStream(() => [new THREE.Group(), new THREE.Group()]), KP = pv(J.knee, sx), AP = pv(J.ankle, sx);   // 多出來的群組不能吃模擬器的亂數（voxbody.js 的 offStream）
+      KP.y = ky * V / 2; AP.y = ay * V / 2;
+      kneeG.position.copy(KP); shin.position.copy(KP).negate();
+      ankleG.position.copy(AP).sub(KP); foot.position.copy(AP).negate();
+      g.add(thigh, kneeG); kneeG.add(shin, ankleG); ankleG.add(foot);
+      // hipP = 髖關節在腳部群組裡的位置；kneeP / ankleP = 相對髖關節；sole = 腳底的高度（相對髖關節）
+      rig.push({ side, hip: g, knee: kneeG, ankle: ankleG, hipP: g.position.clone(), kneeP: KP, ankleP: AP, sole: yRange(leg.boxes)[0] * V / 2 });
+    }
   }
-  return { part, swing, hipY: L.hipY };
+  return { part, swing, rig, hipY: L.hipY };
 }
 
 // 掛點在上半身的位置（方塊單位）
@@ -145,7 +208,8 @@ export function buildMechModel(lo, team) {
   const root = new THREE.Group();
   const legsG = new THREE.Group();
   root.add(legsG);
-  const legs = buildLegs(lo, team, legsG, K);
+  const split = !lo.body;   // 關節：先做王牌機（一般零件組的）；有自訂身體的菁英、雜魚維持一整塊
+  const legs = buildLegs(lo, team, legsG, K, split);
   const hipY = LEGS[lo.legs].hipY;
   const torsoG = new THREE.Group();
   torsoG.position.y = hipY;
@@ -161,7 +225,7 @@ export function buildMechModel(lo, team) {
   for (const k of ['torso', 'head']) if (CO[k]) addCore(parts[k], CO[k].box, !!CO[k].crit, CO[k].gate);
   const hp = pointOf(torsoS, 'head') ?? [0, CORES[lo.core].top, 0];
   parts.head.g.position.set(hp[0] * V, hp[1] * V, hp[2] * V);
-  const weapons = {}, muzzles = {};
+  const weapons = {}, muzzles = {}, arms = {};
   for (const slot of ['armL', 'armR', 'backL', 'backR']) {
     const id = lo[slot], W = id ? WEAPONS[id] : null;
     const [mx, my, mz] = pointOf(torsoS, slot) ?? [0, 0, 0];
@@ -173,12 +237,29 @@ export function buildMechModel(lo, team) {
     // 武器接在手上 / 背上（細格單位：位移 ×2）
     const off = arm ? pointOf(armS, 'hand') ?? HAND : [0, 0, 0];
     const WS = W && getShape(`weapon:${id}`);
+    const nArm = boxes.length;
     if (WS) for (const [x, y, z, w, h, d, k] of WS.boxes) boxes.push([x + off[0] * 2, y + off[1] * 2, z + off[2] * 2, w, h, d, k]);
     // 右邊（armR、backR）= 左邊的鏡像：手臂、武器、槍口、刀身都左右翻過來
     const R = slot.endsWith('R'), sx = R ? -1 : 1;
     const p = partGroup(R ? boxes.map(([x, y, z, w, h, d, k]) => [-x - w, y, z, w, h, d, k]) : boxes, P, torsoG, armorKey);
     p.g.position.set(mx * V, my * V, mz * V);
     parts[slot] = p;
+    // 手臂切成上臂、前臂（含武器）：肩（p.g）→ 上臂 + 肘（foreG）→ 前臂；手肘高度以下的、還有武器的方塊都算前臂
+    let foreG = p.g, EP = null;
+    if (arm && split) {
+      const J = jointsOf(armS, 'arm'), ey = Math.round(J.elbow[1] * 2), wb = boxes.slice(nArm);
+      const [upper, fore] = p.g.children[0].userData.vb.segment(`arm:${ey}:${id ?? ''}:${R ? 'R' : 'L'}`, 2, (vx, vy, vz) => {
+        if (vy < ey) return 1;
+        const ux = R ? -vx - 1 : vx;
+        for (const [x, y, z, w, h, d] of wb) if (ux >= x && ux < x + w && vy >= y && vy < y + h && vz >= z && vz < z + d) return 1;
+        return 0;
+      });
+      EP = pv(J.elbow, sx); EP.y = ey * V / 2;
+      foreG = offStream(() => new THREE.Group());
+      foreG.position.copy(EP); fore.position.copy(EP).negate();
+      p.g.add(upper, foreG); foreG.add(fore);
+      arms[slot] = { shoulder: p.g, elbow: foreG, elbowP: EP, handP: pv(off, sx) };
+    }
     if (W) {
       const mu = pointOf(WS, 'muzzle') ?? W.muzzle;
       muzzles[slot] = [(mx + sx * (off[0] + mu[0])) * V, (my + off[1] + mu[1]) * V, (mz + off[2] + mu[2]) * V];
@@ -189,11 +270,13 @@ export function buildMechModel(lo, team) {
         const glow = new THREE.Mesh(new THREE.BoxGeometry(3 * V, 3 * V, (W.blade + 1) * V), addMat(DMG_TYPES.energy.hex, 0.55));
         blade.add(core, glow);
         blade.position.set(sx * off[0] * V, (off[1] + 0.5) * V, (off[2] + 3 + W.blade / 2) * V);
-        p.g.add(blade);
+        if (EP) blade.position.sub(EP);
+        foreG.add(blade);
         weapons[slot] = { blade };
       }
     }
   }
   root.traverse(o => { if (o.isMesh && o.material.type === 'MeshLambertMaterial') o.castShadow = true; });
-  return { root, legsG, legs: legs.swing, torsoG, parts, muzzles, weapons, hipY };
+  // rig：動畫用的關節（src/anim.js）；沒切的機體 legs = []、arms = {}
+  return { root, legsG, legs: legs.swing, torsoG, parts, muzzles, weapons, hipY, rig: { legs: legs.rig, arms } };
 }

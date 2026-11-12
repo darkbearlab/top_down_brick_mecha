@@ -1,0 +1,145 @@
+<title>方塊機甲動作檢視器</title>
+<meta name="claude:viewport-fit-sides" content="cover">
+<style>
+/* 版面：一個畫面的工具。機體的 3D 畫面佔滿，操作列在下方（手機）或右側（寬螢幕）。單一深色外觀，跟遊戲同一個世界。 */
+:root {
+  color-scheme: dark;
+  --bg: #0d1016;        /* 機庫的暗處 */
+  --panel: #151a22;     /* 操作列 */
+  --line: #262d38;      /* 分隔線、按鈕外框 */
+  --fg: #e3e9f1;
+  --dim: #8894a6;
+  --accent: #2aa8c8;    /* 玩家隊伍色 */
+  --glow: #7ff0ff;      /* 隊伍發光色 */
+  --font-ui: "Noto Sans TC", "PingFang TC", "Microsoft JhengHei", system-ui, sans-serif;
+  --font-data: ui-monospace, "SF Mono", Consolas, "Noto Sans TC", monospace;
+}
+html, body { height: 100%; }
+body { background: var(--bg); color: var(--fg); font-family: var(--font-ui); font-size: 14px; line-height: 1.5; overflow: hidden; }
+.app { height: 100%; display: grid; grid-template-rows: minmax(0, 1fr) auto; }
+#stage { position: relative; min-height: 0; min-width: 0; background: var(--bg); }
+#stage canvas { display: block; width: 100%; height: 100%; touch-action: none; cursor: grab; }
+#stage canvas:active { cursor: grabbing; }
+#boot { position: absolute; inset: 0; display: grid; place-items: center; color: var(--dim); padding: 24px; text-align: center; }
+.hud { position: absolute; left: 0; right: 0; top: 0; display: flex; justify-content: space-between; gap: 12px; align-items: flex-start; pointer-events: none;
+  padding-block: 10px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.hud h1 { margin: 0; font-size: 13px; font-weight: 600; letter-spacing: 0.08em; color: var(--glow); }
+#info { margin: 2px 0 0; font-family: var(--font-data); font-size: 12px; color: var(--dim); font-variant-numeric: tabular-nums; }
+.views { display: flex; gap: 6px; pointer-events: auto; flex-wrap: wrap; justify-content: flex-end; }
+.panel { background: var(--panel); border-top: 1px solid var(--line); max-height: 46vh; overflow-y: auto; display: grid; gap: 10px;
+  padding-block: 12px; padding-left: max(16px, env(safe-area-inset-left, 0px)); padding-right: max(16px, env(safe-area-inset-right, 0px)); }
+.row { display: grid; grid-template-columns: 3.2em minmax(0, 1fr); gap: 10px; align-items: start; }
+.row > span { color: var(--dim); font-size: 12px; padding-top: 7px; }
+.chips { display: flex; flex-wrap: wrap; gap: 6px; }
+button { font: inherit; color: var(--fg); background: transparent; border: 1px solid var(--line); border-radius: 4px; padding: 6px 11px; min-height: 34px; cursor: pointer; }
+button:hover { border-color: var(--dim); }
+button:focus-visible { outline: 2px solid var(--glow); outline-offset: 2px; }
+button[aria-pressed="true"] { background: var(--accent); border-color: var(--accent); color: #06161c; font-weight: 600; }
+.views button { background: color-mix(in srgb, var(--panel) 82%, transparent); padding: 4px 9px; min-height: 30px; font-size: 12px; }
+.note { margin: 0; color: var(--dim); font-size: 12px; max-width: 65ch; }
+@media (min-width: 860px) {
+  .app { grid-template-rows: none; grid-template-columns: minmax(0, 1fr) 330px; }
+  .panel { border-top: 0; border-left: 1px solid var(--line); max-height: none; align-content: start; padding-block: 18px; gap: 14px; }
+}
+</style>
+
+<div class="app">
+  <div id="stage">
+    <div id="boot">載入機體中…</div>
+    <div class="hud">
+      <div>
+        <h1>動作檢視器</h1>
+        <p id="info"></p>
+      </div>
+      <div class="views" id="gView" aria-label="鏡頭">
+        <button type="button" data-v="side">側面</button>
+        <button type="button" data-v="three">斜上</button>
+        <button type="button" data-v="game">遊戲視角</button>
+      </div>
+    </div>
+  </div>
+  <div class="panel">
+    <div class="row"><span>機體</span>
+      <div class="chips" id="gSet">
+        <button type="button" data-v="trio">輕・標準・超載並排</button>
+        <button type="button" data-v="light">輕量</button>
+        <button type="button" data-v="std">標準</button>
+        <button type="button" data-v="heavy">超載</button>
+        <button type="button" data-v="reverse">逆關節</button>
+        <button type="button" data-v="tread">履帶</button>
+        <button type="button" data-v="hover">懸浮</button>
+      </div>
+    </div>
+    <div class="row"><span>動作</span>
+      <div class="chips" id="gMove">
+        <button type="button" data-v="auto">自動示範</button>
+        <button type="button" data-v="stand">站著</button>
+        <button type="button" data-v="walk">走</button>
+        <button type="button" data-v="run">跑</button>
+      </div>
+    </div>
+    <div class="row"><span>操作</span>
+      <div class="chips">
+        <button type="button" id="bFire" aria-pressed="false">持續開火</button>
+        <button type="button" id="bTurn">轉向 90°</button>
+      </div>
+    </div>
+    <div class="row"><span>事件</span>
+      <div class="chips" id="gEvent">
+        <button type="button" data-v="melee">近戰攻擊</button>
+        <button type="button" data-v="stagBack">失衡（正面被打）</button>
+        <button type="button" data-v="stagSide">失衡（側面被打）</button>
+        <button type="button" data-v="wall">撞牆卡住</button>
+        <button type="button" data-v="boost">推進</button>
+        <button type="button" data-v="drop">空投落地</button>
+      </div>
+    </div>
+    <div class="row"><span>腳</span>
+      <div class="chips" id="gDlegs">
+        <button type="button" data-v="ok">正常</button>
+        <button type="button" data-v="half">受損</button>
+        <button type="button" data-v="low">重創</button>
+        <button type="button" data-v="broken">損毀</button>
+      </div>
+    </div>
+    <div class="row"><span>手臂</span>
+      <div class="chips" id="gDarms">
+        <button type="button" data-v="ok">正常</button>
+        <button type="button" data-v="hurt">重創</button>
+        <button type="button" data-v="L">左臂損毀</button>
+        <button type="button" data-v="R">右臂損毀</button>
+        <button type="button" data-v="both">兩臂損毀</button>
+      </div>
+    </div>
+    <div class="row"><span>軀幹</span>
+      <div class="chips" id="gDtorso">
+        <button type="button" data-v="ok">正常</button>
+        <button type="button" data-v="half">受損</button>
+        <button type="button" data-v="low">重創</button>
+      </div>
+    </div>
+    <div class="row"><span>速度</span>
+      <div class="chips" id="gSpeed">
+        <button type="button" data-v="1">1×</button>
+        <button type="button" data-v="0.5">0.5×</button>
+        <button type="button" data-v="0.2">0.2×</button>
+        <button type="button" data-v="0">暫停</button>
+      </div>
+    </div>
+    <p class="note">拖曳畫面旋轉鏡頭，滾輪或兩指縮放。跑的時候按「站著」看急停。機體固定在原地，地板往後捲。階段 2：損傷會換動作。腳受損（不到 50%）輕跛、重創（不到 25%）重跛、損毀就拖著一隻腳走；少一隻手臂上半身歪向另一邊；軀幹重創往前駝、喘。壞的是哪隻腳每台固定。階段 3：「事件」那排按一下發生一次，建議先切 0.5× 或 0.2× 再按；推進在跑的時候按最明顯。階段 4：「近戰攻擊」讓每台用自己的近戰武器出一招，輕量 = 光束劍、標準 = 打樁拳、超載 = 騎槍、懸浮 = 光束劍；「持續開火」會一直出招。打樁拳和騎槍有全身動作；光束劍先維持舊的姿勢（手臂由外往內掃），之後照參考重做。揮的時候那排藍色方塊是遊戲裡判定的範圍。</p>
+  </div>
+</div>
+
+<script type="importmap">
+{ "imports": { "three": "https://cdn.jsdelivr.net/npm/three@0.160.0/build/three.module.js" } }
+</script>
+<script type="module">
+  // 載入失敗（多半是行動網路漏抓一個檔案）：先自動重新整理一次，還是不行才顯示訊息和「重新載入」按鈕
+  const fail = e => {
+    if (location.hash !== '#retry') { location.hash = 'retry'; location.reload(); return; }
+    const b = document.getElementById('boot'); b.hidden = false; b.textContent = '載入失敗：' + (e?.message ?? e) + ' ';
+    const r = document.createElement('button'); r.type = 'button'; r.textContent = '重新載入'; r.onclick = () => location.reload(); b.append(r);
+  };
+  window.addEventListener('error', e => fail(e.error ?? e.message));
+  import('./viewer.js').catch(fail);
+</script>

@@ -33,7 +33,7 @@ export function startWarp(root) {
     } else if (o.isInstancedMesh && o.userData.voxels) {
       if (!shown(o, root)) return;
       o.userData.voxels.forEach((v, i) => { v3.set(v.x, v.y, v.z).applyMatrix4(o.matrixWorld); vox.push({ o, i, x: v3.x, y: v3.y, z: v3.z, c: v.c, fx: true }); });
-    } else if (o.isMesh) o.visible = false;   // 腳下的圈、推進器的火之類：直接收掉
+    } else if (o.isMesh && !o.userData.vbSeg) o.visible = false;   // 腳下的圈、推進器的火之類：直接收掉（分段身體的各段網格不算，跟著方塊一顆一顆消失）
   });
   vox.sort((a, b) => b.y - a.y);
   const top = vox.length ? vox[0].y : 2, bot = vox.length ? vox[vox.length - 1].y : 0;

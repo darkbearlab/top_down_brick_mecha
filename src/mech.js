@@ -10,6 +10,7 @@
 import * as THREE from 'three';
 import { G, addMat, addTrauma, angleDiff, approachAngle, scene } from './core.js';
 import { collideBlocks, surfaceAt } from './arena.js';
+import { animMech } from './anim.js';
 import { RAMP, burnAt, burst, chipDebris, explosion, fire, flame, hitSparks, smoke, sparks, spawnGlow, spawnPuff, voxelBurst } from './fx.js';
 import { sfx } from './audio.js';
 import { BAL, EFFECT, WEAPONS, computeSpec } from './parts.js';
@@ -739,7 +740,8 @@ export function collideMechs() {
 
 // 畫面：位置、轉向、踏步、傾斜、受傷閃白、冒煙著火、揮劍
 export function poseMech(m, dt) {
-  if (!m.alive || m.drop) return;
+  if (!m.alive) return;
+  if (m.drop) { animMech(m, dt, true); return; }   // 空投中：位置由 ai.js 管，這裡只擺下墜的姿勢（落地的衝擊接在後面）
   const M = m.model, L = m.spec.legs;
   const hover = L.type === 'hover' ? Math.sin(m.bob * 3) * 0.04 + 0.06 : 0;
   M.root.position.set(m.x, hover + (m.flyH ?? 0) + (m.fly ? Math.sin(m.bob * 2.2 + m.x) * 0.12 : 0), m.z);
@@ -763,13 +765,17 @@ export function poseMech(m, dt) {
     const open = m.parts[k].wear?.anyOpen, b = open ? 1.25 + 0.45 * Math.sin(G.now * 11) : 0.85 + 0.2 * Math.sin(G.now * 4);
     C.mat.color.copy(C.base).multiplyScalar(b);
   }
+  // 有關節的機體（王牌機）：腳、上半身、手臂交給 src/anim.js（有重量的程序動畫）；其他的（雜魚、菁英、旋停機）照舊
+  const rigged = animMech(m, dt);
   const sw = Math.sin(m.walk) * 0.45;
-  if (M.legs.length === 2) { M.legs[0].rotation.x = sw; M.legs[1].rotation.x = -sw; }
+  if (!rigged && M.legs.length === 2) { M.legs[0].rotation.x = sw; M.legs[1].rotation.x = -sw; }
   const limp = m.parts.legs.broken ? 0.06 : 0;
-  M.torsoG.position.y = M.hipY + Math.abs(Math.sin(m.walk)) * 0.05 - limp;
-  M.torsoG.rotation.set(m.lean.x, m.torsoYaw, m.lean.z + (limp ? Math.sin(m.walk) * 0.05 : 0));
+  if (!rigged) {
+    M.torsoG.position.y = M.hipY + Math.abs(Math.sin(m.walk)) * 0.05 - limp;
+    M.torsoG.rotation.set(m.lean.x, m.torsoYaw, m.lean.z + (limp ? Math.sin(m.walk) * 0.05 : 0));
+  }
   // 揮劍：那隻手臂由外往內掃過去
-  for (const slot of ['armL', 'armR']) {
+  if (!rigged) for (const slot of ['armL', 'armR']) {
     const p = m.parts[slot];
     if (!p) continue;
     const s = m.swing?.slot === slot ? m.swing : null;
