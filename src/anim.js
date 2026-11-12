@@ -27,7 +27,8 @@
 //      空投：下墜中腳微彎懸著、手臂張開；落地深蹲、重的蹲得深、起來得慢。
 //   F. 近戰（階段 4）：全身一起動。出招的時間點全照遊戲邏輯（m.swing / m.punch / m.charge），這裡只擺姿勢。
 //      共通：上半身扭腰（只轉畫面上的上半身，m.torsoYaw 不動；頭轉回來看前面）、一隻腳踏出去撐住、身體壓低。
-//      光束劍：握法 = 劍柄握在拳頭裡，刀身跟前臂不再是一直線（手腕可以轉）。平常是「下段」：手在身側，刀垂在自己的斜前方、刀尖朝前下（正握）。
+//      光束劍：目前關著（SABER_NEW = false），照舊 = 刀是前臂的延長、手臂由外往內掃。等使用者給參考再逐幀照做；下面是先前試做的版本，IK 和姿勢表留著給那時候用。
+//        試做版：握法 = 劍柄握在拳頭裡，刀身跟前臂不再是一直線（手腕可以轉）。平常是「下段」：手在身側，刀垂在自己的斜前方、刀尖朝前下（正握）。
 //        揮法 = 由外側下方往內側上方斜斬上去（逆袈裟），同側的腳踏出去；斬完刀停在內側高處定住一拍（殘心），再從前面放回架式。
 //        手用兩節 IK 追「手的位置」，刀身另外對準「刀的方向」；俯視時刀掃過的角度跟判定的扇形（外 → 內）對得上。
 //      打樁拳：蓄力時拳頭收到身後、上半身往後扭、對側的腳在前；出拳瞬間扭腰整隻手臂打直，定住，再慢慢收回。
@@ -97,6 +98,7 @@ const SK0 = [38, -21, 0.14, -0.44, 0.18, 0.12, -0.5];    // 下段：手在身�
 const SK1 = [44, -8, 0.42, -0.40, 0.22, 0.42, -0.5];      // 起刀：刀甩到外側前方的低處（44 度 = 判定的扇形在這個時間點的角度）
 const SK2 = [-75, 30, -0.12, -0.04, 0.50, -0.45, -0.5];   // 斬完：刀在內側前方的高處
 const SK3 = [-80, 38, -0.20, 0.06, 0.36, -0.50, -0.5];   // 殘心：順勢再帶過去一點，定住
+const SABER_NEW = false;   // 光束劍的新握法 / 揮法（試做版）：關 = 舊的姿勢
 const SAB_WC = Math.cos(80 * Math.PI / 180), SAB_R = 1.9, SAB_HOLD = 0.1, SAB_RET = 0.22, PILE_HOLD = 0.3, PILE_RET = 0.5, LANCE_HOLD = 0.2, LANCE_RET = 0.45;
 const mix = (o, a, b, k) => { for (let i = 0; i < 7; i++) o[i] = a[i] + (b[i] - a[i]) * k; };
 function saberPose(a) {
@@ -229,7 +231,7 @@ export function animMech(m, dt, air = false) {
       // 踏一步撐住：lead = 哪隻腳在前、bks = 上半身往後坐（正）還是壓上去（負）；方向 = 上半身朝的方向
       const stepIn = (lead, bks) => { A.bdx = sT; A.bdz = cT; if (A.legged) { A.bk = 1; A.bks = bks; A.lead = A.limp > 0.3 ? 1 - A.bad : lead; } };
       let tw = 0;
-      if (kind === 'saber') {
+      if (kind === 'saber' && SABER_NEW) {
         const sw = m.swing?.slot === slot ? m.swing : null;
         if (sw) {
           if (a.mph !== 1) { a.mph = 1; a.from = a.pose.slice(); stepIn(sameLeg, -1); A.y.v -= lerp(0.7, 0.5, h); }
@@ -459,7 +461,7 @@ export function animMech(m, dt, air = false) {
     const dm = p.broken ? 0 : dmgOf(p), shake = dm * 0.014 * Math.sin(now * 31 + A.seed * 40 + side);
     const g = a.geo;
     // 光束劍：手追著姿勢表走（IK），刀身對準刀的方向
-    if (g?.blade && def?.kind === 'saber' && !p.broken) {
+    if (SABER_NEW && g?.blade && def?.kind === 'saber' && !p.broken) {
       const o = a.pose, K = (g.la + g.lb) / 0.88, idle = a.mph ? 0 : 1;
       // 架式中：跑步時劍跟著步伐晃、手再往後收一點；手臂受損刀尖垂下去
       const th = (o[0] + idle * 5 * Math.sin(A.ph) * gait) * RAD + idle * 0.03 * Math.sin(now * 1.3 + A.seed * 5);
@@ -488,7 +490,10 @@ export function animMech(m, dt, air = false) {
       a.pcd = gun?.cd ?? 0; a.aim = 1;
       continue;
     }
-    p.g.rotation.y *= Math.exp(-12 * adt);
+    // 揮劍（舊的姿勢）：那隻手臂由外往內掃過去
+    const sw = m.swing?.slot === slot ? m.swing : null;
+    if (sw) { const t = 1 - sw.t / sw.dur; p.g.rotation.y = side * (1.1 - t * 2.4); }
+    else p.g.rotation.y *= Math.exp(-12 * adt);
     // 開火：冷卻跳起來的那一幀 = 剛射出去 → 前臂馬上打直、後座力推一下
     const cd = gun?.cd ?? 0, fired = adt > 0 && cd > a.pcd + 1e-4 && def?.kind !== 'shield';
     a.pcd = cd;
@@ -500,7 +505,7 @@ export function animMech(m, dt, air = false) {
     }
     if (adt > 0) {
       a.hold -= adt;
-      const busy = cd > 0 || a.hold > 0 || def?.kind === 'shield' || a.mph > 0 || m.punch?.slot === slot || m.charge?.slot === slot;
+      const busy = cd > 0 || a.hold > 0 || def?.kind === 'shield' || def?.kind === 'saber' || a.mph > 0 || m.punch?.slot === slot || m.charge?.slot === slot;
       a.aim += ((busy ? 1 : 0) - a.aim) * (1 - Math.exp(-(busy ? 30 : 3.5) * adt));
       spring(a.kick, 0, 24, 0.55, adt);
     }
