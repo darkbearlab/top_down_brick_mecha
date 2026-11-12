@@ -68,6 +68,8 @@ function makeUnit(key, bx) {
   return {
     id: ++uid, key, loadout: lo, model: M, spec, parts: M.parts, guns, k: 1, grunt: false, fly: false,
     x: 0, z: 0, vx: 0, vz: 0, legYaw: 0, torsoYaw: 0, walk: 0, bob: 0, readyK: { L: 0, R: 0 }, swing: null, punch: null, charge: null,
+    staggerT: 0, staggerMax: 0, stagDir: { x: 0, z: 0 }, stuckT: 0, stuckMax: 0, stuckN: { x: 0, z: 0 }, stuckHit: 0,
+    boostT: 0, boostDir: { x: 0, z: 0 }, drop: null,
     bx, px: 0, pz: 0,
   };
 }
@@ -105,8 +107,30 @@ const legK = m => m.parts.legs.broken ? 0.35 : 0.65 + 0.35 * m.parts.legs.hp / m
 const GRIP = 30, AIR_DRAG = 0.1, BRAKE_K = 2.2;
 const angDiff = (a, b) => { let d = (b - a) % (Math.PI * 2); if (d > Math.PI) d -= Math.PI * 2; if (d < -Math.PI) d += Math.PI * 2; return d; };
 const approach = (a, b, step) => { const d = angDiff(a, b); return Math.abs(d) <= step ? b : a + Math.sign(d) * step; };
+// 事件（照 src/mech.js 的 stagger / hitWall / tryBoost、src/ai.js 的空投，只留動畫要讀的欄位）
+const BOOST_DV = 9, BOOST_TIME = 0.22, BOOST_PUSH = 18, DROP_TIME = 1.1, DROP_H = 7;   // 遊戲裡是從 16 格高掉下來；這裡降低，下墜的姿勢才看得到
+function fireEvent(kind) {
+  for (const m of units) {
+    const f = { x: Math.sin(m.legYaw), z: Math.cos(m.legYaw) }, v = Math.hypot(m.vx, m.vz);
+    if (kind === 'stagBack' || kind === 'stagSide') {
+      const d = kind === 'stagBack' ? { x: -f.x, z: -f.z } : { x: f.z, z: -f.x };
+      m.staggerT = m.staggerMax = 0.35 + 0.25 * Math.max(0, Math.min(1, (m.spec.loadK - 1) / 0.4));
+      m.stagDir = d; m.boostT = 0; m.vx += d.x * 4; m.vz += d.z * 4;
+    } else if (kind === 'wall') {
+      m.stuckT = m.stuckMax = 0.8; m.stuckN = { x: -f.x, z: -f.z }; m.stuckHit = Math.max(0.6, Math.min(1, v / 14));
+      m.vx = m.vz = 0; m.boostT = 0;
+    } else if (kind === 'boost' && m.spec.boost && !m.drop) {
+      const along = Math.max(0, m.vx * f.x + m.vz * f.z), k = m.spec.boost * (m.parts.legs.broken ? 0.75 : 1);
+      m.vx = f.x * (along + BOOST_DV * k); m.vz = f.z * (along + BOOST_DV * k);
+      m.boostDir = f; m.boostK = k; m.boostT = BOOST_TIME; m.stuckT = 0;
+    } else if (kind === 'drop') { m.drop = { t: 0 }; m.vx = m.vz = 0; m.staggerT = m.stuckT = m.boostT = 0; }
+  }
+}
+
 function drive(m, dt, ml, heading, fire) {
   const S = m.spec, L = S.legs, vmax = S.vmax * legK(m);
+  if (m.drop) { if ((m.drop.t += dt) >= DROP_TIME) m.drop = null; return; }
+  if (m.staggerT > 0) { m.staggerT -= dt; ml = 0; }   // 失衡：腳不出力
   const mx = Math.sin(heading) * ml, mz = Math.cos(heading) * ml;
   let tx = mx * vmax, tz = mz * vmax;
   if (ml > 0.1) m.legYaw = approach(m.legYaw, heading, S.legTurn * dt);
@@ -114,11 +138,23 @@ function drive(m, dt, ml, heading, fire) {
     const fx = Math.sin(m.legYaw), fz = Math.cos(m.legYaw), dot = ml > 0.1 ? (mx * fx + mz * fz) / ml : 0, sp = ml * vmax * Math.max(0, dot);
     tx = fx * sp; tz = fz * sp;
   }
-  const dvx = tx - m.vx, dvz = tz - m.vz, dl = Math.hypot(dvx, dvz), v = Math.hypot(m.vx, m.vz), hover = L.type === 'hover';
-  const brake = v > 0.3 && dl > 1e-4 ? Math.max(0, -(dvx * m.vx + dvz * m.vz) / (dl * v)) : 0;
-  const acc = Math.min(S.acc * (1 + (hover ? 0.3 : BRAKE_K - 1) * brake), GRIP * (L.slide ?? 1) * (L.grip ?? 1));
-  const cap = acc * dt, k = dl > cap ? cap / dl : 1;
-  m.vx += dvx * k; m.vz += dvz * k;
+  const hover = L.type === 'hover';
+  if (m.boostT > 0) {
+    // 噴射中速度鎖在噴射方向
+    m.boostT -= dt;
+    const sp = Math.max(0, m.vx * m.boostDir.x + m.vz * m.boostDir.z) + BOOST_PUSH * m.boostK * dt;
+    m.vx = m.boostDir.x * sp; m.vz = m.boostDir.z * sp;
+  } else {
+    const dvx = tx - m.vx, dvz = tz - m.vz, dl = Math.hypot(dvx, dvz), v = Math.hypot(m.vx, m.vz);
+    const brake = v > 0.3 && dl > 1e-4 ? Math.max(0, -(dvx * m.vx + dvz * m.vz) / (dl * v)) : 0;
+    const gripMax = GRIP * (L.slide ?? 1) * (L.grip ?? 1);
+    let acc = S.acc * (1 + (hover ? 0.3 : BRAKE_K - 1) * brake);
+    if (!hover && v > vmax * 1.05) acc = Math.max(acc, gripMax);   // 超速（噴射完、被打飛）：整個抓地力剎住
+    acc = Math.min(acc, gripMax);
+    if (m.stuckT > 0) { m.stuckT -= dt; acc *= 0.12 + 0.88 * (1 - m.stuckT / m.stuckMax) ** 2; }   // 卡住：慢慢拔出來
+    const cap = acc * dt, k = dl > cap ? cap / dl : 1;
+    m.vx += dvx * k; m.vz += dvz * k;
+  }
   const drag = Math.exp(-AIR_DRAG * dt);
   m.vx *= drag; m.vz *= drag;
   m.px += m.vx * dt; m.pz += m.vz * dt;
@@ -133,8 +169,21 @@ function drive(m, dt, ml, heading, fire) {
 }
 function pose(m, dt) {
   const M = m.model, hover = m.spec.legs.type === 'hover' ? Math.sin(m.bob * 3) * 0.04 + 0.06 : 0;
-  M.root.position.set(m.bx, hover, 0);
   M.legsG.rotation.y = m.legYaw;
+  // 空投：從天上掉下來（越掉越快）
+  if (m.drop) { const k = Math.min(1, m.drop.t / DROP_TIME); M.root.position.set(m.bx, DROP_H * (1 - k * k), 0); animMech(m, dt, true); return; }
+  M.root.position.set(m.bx, hover, 0);
+  // 失衡、卡住時 poseMech 對整台做的事（有腳的機體 anim.js 會把歪斜改成上半身和腳的動作）
+  if (m.staggerT > 0) {
+    const k = m.staggerT / m.staggerMax, e = Math.sin((1 - k) * Math.PI) * 0.22 + Math.sin(m.bob * 38) * 0.04 * k;
+    M.root.rotation.set(m.stagDir.z * e, 0, -m.stagDir.x * e);
+  } else if (M.root.rotation.x || M.root.rotation.z) M.root.rotation.set(0, 0, 0);
+  if (m.stuckT > 0) {
+    const k = m.stuckT / m.stuckMax, dent = 0.14 * m.stuckHit * k, sh = 0.025 * k * Math.sin(m.bob * 70);
+    M.root.position.x += -m.stuckN.x * dent + m.stuckN.z * sh;
+    M.root.position.z += -m.stuckN.z * dent - m.stuckN.x * sh;
+    M.root.position.y -= 0.05 * m.stuckHit * k;
+  }
   animMech(m, dt);
 }
 
@@ -192,6 +241,7 @@ bindGroup('gSet', 'set', v => { setUnits(v); });
 bindGroup('gMove', 'move', () => { state.t = 0; });
 bindGroup('gSpeed', 'speed');
 for (const k of ['legs', 'arms', 'torso']) bindGroup('gD' + k, k, applyDamage);
+document.getElementById('gEvent').addEventListener('click', e => { const b = e.target.closest('button'); if (b) fireEvent(b.dataset.v); });
 const fireBtn = document.getElementById('bFire');
 fireBtn.addEventListener('click', () => { state.fire = !state.fire; fireBtn.setAttribute('aria-pressed', String(state.fire)); });
 document.getElementById('bTurn').addEventListener('click', () => { state.heading += Math.PI / 2; if (state.move === 'auto') { state.move = 'run'; document.querySelectorAll('#gMove button').forEach(b => b.setAttribute('aria-pressed', String(b.dataset.v === 'run'))); } });
@@ -199,16 +249,20 @@ document.getElementById('gView').addEventListener('click', e => { const b = e.ta
 
 // ---- 每幀 ----
 const ML = { stand: 0, walk: 0.45, run: 1 };
+// 模擬走一步（除錯時也可以從 __av.step 手動呼叫）
+function step(dt) {
+  G.now += dt; state.t += dt;
+  const a = state.move === 'auto' ? autoAt(state.t) : { ml: ML[state.move], heading: state.heading, fire: false };
+  for (const u of units) { drive(u, dt, a.ml, a.heading, a.fire || state.fire); pose(u, dt); }
+  const lead = units[Math.floor(units.length / 2)];
+  if (lead) tex.offset.set(lead.px / 2, -lead.pz / 2);
+}
 let last = performance.now();
 function frame(now) {
   const raw = Math.min(0.05, (now - last) / 1000); last = now;
   const dt = raw * state.speed;
   if (dt > 0) {
-    G.now += dt; state.t += dt;
-    const a = state.move === 'auto' ? autoAt(state.t) : { ml: ML[state.move], heading: state.heading, fire: false };
-    for (const u of units) { drive(u, dt, a.ml, a.heading, a.fire || state.fire); pose(u, dt); }
-    const lead = units[Math.floor(units.length / 2)];
-    if (lead) tex.offset.set(lead.px / 2, -lead.pz / 2);
+    step(dt);
   }
   const cy = Math.cos(cam.pitch);
   // 直式螢幕（手機）：拉遠一點，並排的機體才不會被切掉
@@ -218,7 +272,7 @@ function frame(now) {
   renderer.render(scene, camera);
   requestAnimationFrame(frame);
 }
-window.__av = { get units() { return units; }, state, cam };   // 除錯用
+window.__av = { get units() { return units; }, state, cam, fireEvent, step };   // 除錯用
 setUnits(state.set); setView('three'); resize();
 document.getElementById('boot').hidden = true;
 requestAnimationFrame(frame);

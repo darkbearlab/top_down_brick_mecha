@@ -19,6 +19,12 @@
 //        拖行（drag，腳損毀）：壞腳不再跨步，伸直拖在後面、腳尖刮地；好腳小步快跳，身體靠向好腳、一頓一頓往前。
 //      手臂損毀：少了一邊的重量，上半身歪向還在的那隻。手臂受損：垂得低、發抖。
 //      軀幹重創（hunch 0.5 / 1）：整台往前駝、喘息似的起伏；剩不到 25% 會不時抽一下。
+//   E. 事件（階段 3）：都是「推彈簧一下 + 換一個腳的姿勢」，恢復多快跟著重量走。
+//      失衡：上半身被打向 stagDir、手臂甩開，靠那邊的腳往那個方向踏出去撐住（跟急停同一套踏步，方向不同）。
+//        有腳的不再整台像木板一樣歪（poseMech 的 root 傾斜在這裡歸零）；履帶、懸浮照舊。
+//      撞牆卡住：撞上去的瞬間上半身往牆栽、蹲下去，卡住期間一下一下往外掙。
+//      推進：噴射中往前壓、兩腳離地收在後面；噴完（或速度掉回來）腳才放下，落地沉一下。被撞飛超速時也是腳離地。
+//      空投：下墜中腳微彎懸著、手臂張開；落地深蹲、重的蹲得深、起來得慢。
 import { G } from './core.js';
 
 const TAU = Math.PI * 2;
@@ -67,12 +73,15 @@ function init(m) {
     // 損傷：limp 跛行 0 / 0.5 / 1、drag 拖行 0 / 1、hunch 軀幹重創 0 / 0.5 / 1、tilt 少了哪邊手臂（-1 少左、+1 少右）；都是平滑過的
     limp: 0, drag: 0, hunch: 0, tilt: 0, bad: hash((m.id ?? 1) + 77) < 0.5 ? 0 : 1, jolt: -1,
     lp: [0, 0.5], pp: [0, 0.5], dd: [0.6, 0.6], rr: [1, 1],   // 每隻腳：上一幀的相位、這一幀的相位、支撐期佔多少、一步最多跨多長
+    // 事件：pst / pstk 上一幀的失衡 / 卡住時間（抓「剛發生」）、stg 失衡中、bks 踏步時上半身往哪邊（1 = 往後坐、負 = 倒向踏的方向）
+    //   jet 推進中（腳離地）、air 空投下墜中、land 落地後的深蹲（1 → 0）、fl 手臂甩開（1 → 0）
+    pst: 0, pstk: 0, stg: 0, bks: 1, jet: 0, pjet: false, air: 0, pair: false, land: 0, fl: 0,
     legs: R.legs.map(L => legGeo(L, type)),
     arms: { armL: { aim: 1, hold: 0, pcd: 0, kick: S0() }, armR: { aim: 1, hold: 0, pcd: 0, kick: S0() } },
   };
 }
 
-export function animMech(m, dt) {
+export function animMech(m, dt, air = false) {
   const M = m.model, R = M.rig;
   if (!R || m.grunt || m.fly || !(R.legs.length || R.arms.armL || R.arms.armR)) return false;
   const A = M.anim ??= init(m), k = m.k ?? 1, h = A.h;
@@ -98,7 +107,8 @@ export function animMech(m, dt) {
     const walking = A.legged && A.rate > 0.5;
     A.gait += ((walking ? 1 : 0) - A.gait) * (1 - Math.exp(-(walking ? 10 : 6) * adt));
     // 急停：還有速度的時候腳不出力了 → 一隻腳（正要落地的那隻）往前猛踏一步撐住、重心往後坐，穩住之後再收回來；重的撐比較久
-    if (sp > 0.2) { A.bdx = vx / sp; A.bdz = vz / sp; }
+    const stT = m.staggerT > 0 ? m.staggerT : 0;
+    if (sp > 0.2 && !stT) { A.bdx = vx / sp; A.bdz = vz / sp; }
     // 損傷等級（平滑過：剛跨過門檻時不會瞬間換姿勢）
     const P = m.parts, fd = 1 - Math.exp(-5 * adt);
     A.limp += ((A.legged ? dmgOf(P.legs) : 0) - A.limp) * fd;
@@ -106,11 +116,44 @@ export function animMech(m, dt) {
     A.hunch += (dmgOf(P.torso) - A.hunch) * (1 - Math.exp(-3 * adt));
     A.tilt += (((P.armR?.broken ? 1 : 0) - (P.armL?.broken ? 1 : 0)) - A.tilt) * fd;
     if (A.wasWalk && !driving && sp > 0.3 * vmax) {
-      A.bk = 1; A.lead = A.limp > 0.3 ? 1 - A.bad : frac(A.ph / TAU) > frac(A.ph / TAU + 0.5) ? 0 : 1;   // 腳受損：用好的那隻踏
+      A.bk = 1; A.bks = 1; A.lead = A.limp > 0.3 ? 1 - A.bad : frac(A.ph / TAU) > frac(A.ph / TAU + 0.5) ? 0 : 1;   // 腳受損：用好的那隻踏
       A.y.v -= lerp(0.45, 0.9, h);   // 踏下去那一下
       const jb = lerp(1.6, 1.1, h); A.lx.v -= A.bdx * jb; A.lz.v -= A.bdz * jb;   // 上半身馬上往後收
     }
     if (driving) A.bk = 0;
+    // 失衡：剛被打歪的那一幀 → 上半身被打過去、靠那邊的腳往那個方向踏出去撐住
+    if (stT > A.pst + 1e-3) {
+      const d = m.stagDir ?? { x: 0, z: 1 }, j = lerp(3.2, 2.2, h);
+      A.lx.v += d.x * j; A.lz.v += d.z * j; A.y.v -= 0.5; A.fl = 1;
+      if (A.legged) {
+        const dLx = d.x * Math.cos(m.legYaw) - d.z * Math.sin(m.legYaw);
+        A.bk = 1; A.bks = -2; A.bdx = d.x; A.bdz = d.z;
+        A.lead = A.limp > 0.3 ? 1 - A.bad : Math.abs(dLx) > 0.3 ? (Math.sign(dLx) === Math.sign(R.legs[0].hipP.x) ? 0 : 1) : A.lead;
+      }
+    }
+    A.pst = stT;
+    if (stT && A.legged) A.bk = Math.max(A.bk, 0.6);
+    A.stg += ((stT ? 1 : 0) - A.stg) * (1 - Math.exp(-(stT ? 25 : 5) * adt));
+    // 撞牆卡住：撞上去的瞬間往牆栽（stuckN 是牆面朝外的方向）
+    const sk = m.stuckT > 0 ? m.stuckT : 0;
+    if (sk > A.pstk + 1e-3) {
+      const hit = m.stuckHit ?? 0.5, N = m.stuckN ?? { x: 0, z: 0 };
+      A.lx.v -= N.x * 4.5 * hit; A.lz.v -= N.z * 4.5 * hit; A.y.v -= 0.7 * hit; A.fl = Math.max(A.fl, 0.6 * hit);
+    }
+    A.pstk = sk;
+    // 推進 / 騎槍衝刺：腳離地；噴完之後還超速（或被撞飛）的時候腳也還沒踩回去
+    const jetOn = m.boostT > 0 || m.charge?.phase === 'dash';
+    const jetT = jetOn ? 1 : A.legged ? clamp((sp / vmax - 1.15) / 0.4, 0, 1) : 0;
+    A.jet += (jetT - A.jet) * (1 - Math.exp(-(jetT > A.jet ? 30 : 9) * adt));
+    if (jetOn && !A.pjet) A.y.v += 0.6;                             // 點火：整台往上浮一下
+    if (!jetOn && A.pjet) A.y.v -= lerp(0.7, 1.2, h);               // 噴完落地
+    A.pjet = jetOn;
+    // 空投：下墜中 → 落地
+    if (!air && A.pair) { A.land = 1; A.y.v -= lerp(2.0, 2.8, h); A.fl = Math.max(A.fl, 0.5); }
+    A.pair = air;
+    A.air += ((air ? 1 : 0) - A.air) * (1 - Math.exp(-(air ? 20 : 14) * adt));
+    A.land = Math.max(0, A.land - adt / (0.45 + 0.5 * h));
+    A.fl *= Math.exp(-(4.5 - 1.5 * h) * adt);
     A.wasWalk = driving;
     A.bk = Math.max(0, A.bk - adt / (0.5 + 0.4 * h));
     const bt = smooth(Math.min(1, A.bk / 0.4));
@@ -131,7 +174,10 @@ export function animMech(m, dt) {
 
   // ---- A. 身體彈簧 ----
   // 上下：重的坐得低；跑起來要蹲低一點腿才跨得開；急停蹲下去
-  const sag0 = (legged ? 0.01 + 0.03 * h + 0.04 * A.over + skid * 0.07 + gait * (0.035 + 0.055 * Math.min(1, spK)) + 0.02 * limp + 0.02 * drag : 0.01 * h) + 0.03 * hunch;
+  // 卡住的程度（剛撞上最大、慢慢拔出來）
+  const stk = m.stuckT > 0 ? clamp(m.stuckT / (m.stuckMax || 1), 0, 1) * (m.stuckHit ?? 0.5) : 0;
+  const landK = smooth(A.land), offG = Math.max(A.jet, A.air);
+  const sag0 = 0.05 * stk + 0.13 * landK - 0.05 * A.jet + (legged ? 0.01 + 0.03 * h + 0.04 * A.over + skid * 0.07 + gait * (0.035 + 0.055 * Math.min(1, spK)) + 0.02 * limp + 0.02 * drag : 0.01 * h) + 0.03 * hunch;
   // 每隻腳的支撐期：讓「步幅 = 速度 × 支撐時間」剛好不超過腿長 → 腳掌貼著地不滑；慢的時候最多 0.64（兩腳都在地上）+ 重的再長一點
   //   快到連 0.16 都不夠（推進、被撞飛）才會滑。跛行：壞腳的支撐期縮短、好腳慢走時多撐一點
   const cyc = 1 / cadence(A, sp);   // 一個循環幾秒
@@ -151,8 +197,12 @@ export function animMech(m, dt) {
   const lat = sxB * (limp * (1 - drag) * (0.12 * dipB - 0.03 * (1 - gait)) - 0.06 * drag);
   // 少一隻手臂：歪向還在的那隻（上半身的座標 x）；軀幹重創：往前駝，喘的時候前後晃
   const pant = Math.sin(now * 2.9 + A.seed * 9) + 0.45 * Math.sin(now * 5.8 + 1);
-  const tlt = 0.07 * A.tilt, hp = hunch * (0.085 + 0.012 * pant);
-  const exx = cL * lat + cT * tlt + sT * hp, exz = -sL * lat - sT * tlt + cT * hp;
+  const tlt = 0.07 * A.tilt;
+  // 事件加在傾斜上的：失衡時發抖、卡住時往外掙、推進時往前壓、落地時往前栽一點
+  const sd = m.stagDir, sN = m.stuckN, shk = A.stg * 0.03 * Math.sin(now * 38), pull = stk * 0.06 * (0.5 + 0.5 * Math.sin(now * 10));
+  const fwd = hunch * (0.085 + 0.012 * pant) + 0.08 * landK;
+  const exx = cL * lat + cT * tlt + sT * fwd + (sd ? sd.x * shk : 0) + (sN ? sN.x * pull : 0) + A.bdx * 0.2 * A.jet;
+  const exz = -sL * lat - sT * tlt + cT * fwd + (sd ? sd.z * shk : 0) + (sN ? sN.z * pull : 0) + A.bdz * 0.2 * A.jet;
   const dirx = sp > 0.2 ? vx / sp : 0, dirz = sp > 0.2 ? vz / sp : 0;
   if (adt > 0) {
     // 傾斜：移動時往前傾一點（步行、懸浮）；加速度把頭頂往反方向甩（慣性），重的甩得多
@@ -176,11 +226,11 @@ export function animMech(m, dt) {
     const n = adt > 1 / 55 ? 2 : 1, sdt = adt / n;
     for (let i = 0; i < n; i++) {
       spring(A.y, -sag + idle + hunch * 0.014 * pant, w * 1.15, A.z, sdt);
-      spring(A.lx, dirx * leanV - A.bdx * back + exx, w, A.z, sdt, A.ax * gain * w2);
-      spring(A.lz, dirz * leanV - A.bdz * back + exz, w, A.z, sdt, A.az * gain * w2);
+      spring(A.lx, dirx * leanV - A.bdx * back * A.bks + exx, w, A.z, sdt, A.ax * gain * w2);
+      spring(A.lz, dirz * leanV - A.bdz * back * A.bks + exz, w, A.z, sdt, A.az * gain * w2);
     }
-    const ll = Math.hypot(A.lx.x, A.lz.x);
-    if (ll > 0.3) { A.lx.x *= 0.3 / ll; A.lz.x *= 0.3 / ll; }
+    const ll = Math.hypot(A.lx.x, A.lz.x), lMax = 0.3 + 0.12 * Math.max(A.stg, A.jet);
+    if (ll > lMax) { A.lx.x *= lMax / ll; A.lz.x *= lMax / ll; }
     A.y.x = clamp(A.y.x, -0.3, 0.12);
   }
   // 走路時重心左右換腳（俯視時最看得出來）：往支撐腳那邊靠
@@ -196,6 +246,7 @@ export function animMech(m, dt) {
 
   // ---- B. 腳 ----
   if (legged) {
+    if (M.root.rotation.x || M.root.rotation.z) M.root.rotation.set(0, 0, 0);   // 失衡：不整台歪，改由上半身和腳去表現
     // 身體位移換到腳部群組的座標（腳掌要留在原地，所以目標點要扣掉）
     const oxL = bx * cL - bz * sL, ozL = bx * sL + bz * cL;
     const pg = M.parts.legs.g;
@@ -239,6 +290,14 @@ export function animMech(m, dt) {
         Z = lerp(Z, g.az + bLz * back - ozL, drag);
         Y = lerp(Y, g.ay - by, drag);
         fp = lerp(fp, 0.12 + 0.4 * gait, drag);
+      }
+      // 腳離地：推進 = 兩腳收在後面（一前一後）；空投下墜 = 微彎懸著
+      if (offG > 0.001) {
+        const jb = -(i ? 0.3 : 0.12) * g.len * A.jet, hang = (i ? -0.1 : 0.08) * g.len * A.air;
+        X = lerp(X, bLx * jb - oxL, offG);
+        Z = lerp(Z, g.az + bLz * jb + hang - ozL, offG);
+        Y = lerp(Y, g.ay - by + (A.jet > A.air ? 0.17 : 0.13) * g.len, offG);
+        fp = lerp(fp, 0.45, offG);
       }
       // 兩節 IK（前後平面）
       let d = Math.hypot(Z, Y);
@@ -288,9 +347,11 @@ export function animMech(m, dt) {
     // 放鬆：上臂微微後收、前臂垂低；走路時前後擺（跟同側的腳相反）
     const relax = (1 - a.aim) * (1 - e), swing = side * cw * lerp(0.16, 0.1, h) * gait;
     // 軀幹駝著的時候，舉槍的手臂往上補回來（槍口還是朝前）
-    p.g.rotation.x = 0.5 * e + relax * (0.06 + swing + 0.1 * dm) + a.kick.x - hunch * 0.085 * a.aim * (1 - e);
-    p.g.rotation.z = side * (0.12 * e + 0.04 * relax);
-    Ar.elbow.rotation.x = 0.5 * e + relax * (0.3 + 0.25 * dm + Math.max(0, -swing) * 0.8) + e * swing * 0.5 + shake;
+    // 事件：失衡 / 撞牆 / 落地 → 手臂甩開；推進 → 往後收；下墜 → 張開（開火中的手臂照樣朝前）
+    const loose = 1 - 0.75 * a.aim, fl = A.fl * loose;
+    p.g.rotation.x = 0.5 * e + relax * (0.06 + swing + 0.1 * dm) + a.kick.x - hunch * 0.085 * a.aim * (1 - e) - 0.2 * fl + 0.25 * A.jet * loose;
+    p.g.rotation.z = side * (0.12 * e + 0.04 * relax + 0.4 * fl + 0.28 * A.air * loose);
+    Ar.elbow.rotation.x = 0.5 * e + relax * (0.3 + 0.25 * dm + Math.max(0, -swing) * 0.8) + e * swing * 0.5 + shake + 0.5 * fl + 0.35 * A.air * loose;
   }
   return true;
 }

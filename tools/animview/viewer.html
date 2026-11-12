@@ -84,6 +84,15 @@ button[aria-pressed="true"] { background: var(--accent); border-color: var(--acc
         <button type="button" id="bTurn">轉向 90°</button>
       </div>
     </div>
+    <div class="row"><span>事件</span>
+      <div class="chips" id="gEvent">
+        <button type="button" data-v="stagBack">失衡（正面被打）</button>
+        <button type="button" data-v="stagSide">失衡（側面被打）</button>
+        <button type="button" data-v="wall">撞牆卡住</button>
+        <button type="button" data-v="boost">推進</button>
+        <button type="button" data-v="drop">空投落地</button>
+      </div>
+    </div>
     <div class="row"><span>腳</span>
       <div class="chips" id="gDlegs">
         <button type="button" data-v="ok">正常</button>
@@ -116,7 +125,7 @@ button[aria-pressed="true"] { background: var(--accent); border-color: var(--acc
         <button type="button" data-v="0">暫停</button>
       </div>
     </div>
-    <p class="note">拖曳畫面旋轉鏡頭，滾輪或兩指縮放。跑的時候按「站著」看急停。機體固定在原地，地板往後捲。階段 2：損傷會換動作。腳受損（不到 50%）輕跛、重創（不到 25%）重跛、損毀就拖著一隻腳走；少一隻手臂上半身歪向另一邊；軀幹重創往前駝、喘。壞的是哪隻腳每台固定。失衡、推進、近戰還沒做。</p>
+    <p class="note">拖曳畫面旋轉鏡頭，滾輪或兩指縮放。跑的時候按「站著」看急停。機體固定在原地，地板往後捲。階段 2：損傷會換動作。腳受損（不到 50%）輕跛、重創（不到 25%）重跛、損毀就拖著一隻腳走；少一隻手臂上半身歪向另一邊；軀幹重創往前駝、喘。壞的是哪隻腳每台固定。階段 3：「事件」那排按一下發生一次，建議先切 0.5× 或 0.2× 再按；推進在跑的時候按最明顯。近戰的全身動作還沒做。</p>
   </div>
 </div>
 
@@ -127,7 +136,7 @@ button[aria-pressed="true"] { background: var(--accent); border-color: var(--acc
   // 載入失敗（多半是行動網路漏抓一個檔案）：先自動重新整理一次，還是不行才顯示訊息和「重新載入」按鈕
   const fail = e => {
     if (location.hash !== '#retry') { location.hash = 'retry'; location.reload(); return; }
-    const b = document.getElementById('boot'); b.hidden = false; b.textContent = '載入失敗（可能是網路不穩）：' + (e?.message ?? e) + ' ';
+    const b = document.getElementById('boot'); b.hidden = false; b.textContent = '載入失敗：' + (e?.message ?? e) + ' ';
     const r = document.createElement('button'); r.type = 'button'; r.textContent = '重新載入'; r.onclick = () => location.reload(); b.append(r);
   };
   window.addEventListener('error', e => fail(e.error ?? e.message));

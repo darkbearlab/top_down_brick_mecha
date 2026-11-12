@@ -740,7 +740,8 @@ export function collideMechs() {
 
 // 畫面：位置、轉向、踏步、傾斜、受傷閃白、冒煙著火、揮劍
 export function poseMech(m, dt) {
-  if (!m.alive || m.drop) return;
+  if (!m.alive) return;
+  if (m.drop) { animMech(m, dt, true); return; }   // 空投中：位置由 ai.js 管，這裡只擺下墜的姿勢（落地的衝擊接在後面）
   const M = m.model, L = m.spec.legs;
   const hover = L.type === 'hover' ? Math.sin(m.bob * 3) * 0.04 + 0.06 : 0;
   M.root.position.set(m.x, hover + (m.flyH ?? 0) + (m.fly ? Math.sin(m.bob * 2.2 + m.x) * 0.12 : 0), m.z);
