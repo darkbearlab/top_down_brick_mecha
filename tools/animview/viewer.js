@@ -13,11 +13,11 @@ const COLORS = { accent: 0x2aa8c8, glow: 0x7ff0ff };
 const armor = { head: 'composite', torso: 'composite', arms: 'composite', legs: 'composite' };
 const LO = {
   light: { name: '輕量', head: 'std', core: 'light', legs: 'biped', armL: 'mg', armR: 'saber', backL: null, backR: null, armor },
-  std: { name: '標準', head: 'std', core: 'std', legs: 'biped', armL: 'autocannon', armR: 'shotgun', backL: 'missile', backR: 'rocket', armor },
+  std: { name: '標準', head: 'std', core: 'std', legs: 'biped', armL: 'autocannon', armR: 'pile', backL: 'missile', backR: 'rocket', armor },
   heavy: { name: '超載', head: 'array', core: 'heavy', legs: 'biped', armL: 'shield', armR: 'lance', backL: 'cannon', backR: 'cannon', armor },
   reverse: { name: '逆關節', head: 'std', core: 'light', legs: 'reverse', armL: 'sniper', armR: 'mg', backL: null, backR: 'vmissile', armor },
   tread: { name: '履帶', head: 'std', core: 'heavy', legs: 'tread', armL: 'autocannon', armR: 'autocannon', backL: 'cannon', backR: 'cannon', armor },
-  hover: { name: '懸浮', head: 'std', core: 'std', legs: 'hover', armL: 'beam', armR: 'pulse', backL: 'missile', backR: null, armor },
+  hover: { name: '懸浮', head: 'std', core: 'std', legs: 'hover', armL: 'beam', armR: 'saber', backL: 'missile', backR: null, armor },
 };
 const SETS = { light: ['light'], std: ['std'], heavy: ['heavy'], trio: ['light', 'std', 'heavy'], reverse: ['reverse'], tread: ['tread'], hover: ['hover'] };
 
@@ -53,6 +53,16 @@ tex.anisotropy = renderer.capabilities.getMaxAnisotropy();
 const ground = new THREE.Mesh(new THREE.PlaneGeometry(80, 80), new THREE.MeshLambertMaterial({ map: tex }));
 ground.rotation.x = -Math.PI / 2; ground.receiveShadow = true;
 scene.add(ground);
+
+// 刀光：照 src/weapons.js updateSwing 的位置（判定的扇形）留一排發光方塊，用來對照刀身有沒有掃在同一個地方
+const glowGeo = new THREE.BoxGeometry(1, 1, 1), glows = [];
+for (let i = 0; i < 80; i++) {
+  const g = new THREE.Mesh(glowGeo, new THREE.MeshBasicMaterial({ color: 0x60e0ff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false }));
+  g.visible = false; g.life = 0; scene.add(g); glows.push(g);
+}
+let glowI = 0;
+function spawnGlow(x, y, z) { const g = glows[glowI = (glowI + 1) % glows.length]; g.position.set(x, y, z); g.life = 0.18; g.visible = true; }
+function tickGlows(dt) { for (const g of glows) if (g.visible) { g.life -= dt; if (g.life <= 0) g.visible = false; else { g.scale.setScalar(0.16 * g.life / 0.18); g.material.opacity = 0.9; } } }
 
 // ---- 機體 ----
 let units = [], uid = 0;
@@ -124,13 +134,45 @@ function fireEvent(kind) {
       m.vx = f.x * (along + BOOST_DV * k); m.vz = f.z * (along + BOOST_DV * k);
       m.boostDir = f; m.boostK = k; m.boostT = BOOST_TIME; m.stuckT = 0;
     } else if (kind === 'drop') { m.drop = { t: 0 }; m.vx = m.vz = 0; m.staggerT = m.stuckT = m.boostT = 0; }
+    else if (kind === 'melee') for (const s in m.guns) tryMelee(m, s);
   }
+}
+// 近戰（照 src/weapons.js 的 startSwing / startPunch、騎槍的點火 → 衝刺；只留動畫要讀的欄位，沒有判定）
+const MELEE = { saber: 1, pile: 1, lance: 1 };
+function tryMelee(m, slot) {
+  const g = m.guns[slot], d = g.def;
+  if (!MELEE[d.kind] || g.cd > 0 || m.parts[slot].broken || m.swing || m.punch || m.charge || m.staggerT > 0 || m.drop) return;
+  const f = { x: Math.sin(m.torsoYaw), z: Math.cos(m.torsoYaw) };
+  g.cd = d.interval;
+  if (d.kind === 'saber') { m.vx += f.x * d.lunge; m.vz += f.z * d.lunge; m.swing = { slot, d, t: 0.24, dur: 0.24 }; }
+  else if (d.kind === 'pile') { m.vx += f.x * d.lunge; m.vz += f.z * d.lunge; m.punch = { slot, d, t: d.windup }; }
+  else m.charge = { slot, d, phase: 'ignite', t: d.ignite };
+}
+function tickMelee(m, dt) {
+  const S = m.swing, P = m.punch;
+  if (S) {
+    S.t -= dt;
+    const d = S.d, side = S.slot === 'armL' ? 1 : -1, a = m.torsoYaw + side * (d.arc / 2 - (1 - S.t / S.dur) * d.arc);
+    for (let i = 0; i < 4; i++) { const r = d.reach * (0.45 + i * 0.18); spawnGlow(m.bx + Math.sin(a) * r, m.model.hipY + 0.4, Math.cos(a) * r); }
+    if (S.t <= 0) m.swing = null;
+  }
+  if (P && (P.t -= dt) <= 0) m.punch = null;
 }
 
 function drive(m, dt, ml, heading, fire) {
   const S = m.spec, L = S.legs, vmax = S.vmax * legK(m);
   if (m.drop) { if ((m.drop.t += dt) >= DROP_TIME) m.drop = null; return; }
-  if (m.staggerT > 0) { m.staggerT -= dt; ml = 0; }   // 失衡：腳不出力
+  if (m.staggerT > 0) { m.staggerT -= dt; ml = 0; m.charge = null; }   // 失衡：腳不出力
+  tickMelee(m, dt);
+  // 騎槍：點火時站住、衝刺時整台鎖在一個方向
+  const C = m.charge;
+  if (C) {
+    ml = 0;
+    if ((C.t -= dt) <= 0) {
+      if (C.phase === 'ignite') Object.assign(C, { phase: 'dash', t: C.d.dashT, dx: Math.sin(m.torsoYaw), dz: Math.cos(m.torsoYaw), v: C.d.speed });
+      else m.charge = null;
+    }
+  }
   const mx = Math.sin(heading) * ml, mz = Math.cos(heading) * ml;
   let tx = mx * vmax, tz = mz * vmax;
   if (ml > 0.1) m.legYaw = approach(m.legYaw, heading, S.legTurn * dt);
@@ -139,7 +181,10 @@ function drive(m, dt, ml, heading, fire) {
     tx = fx * sp; tz = fz * sp;
   }
   const hover = L.type === 'hover';
-  if (m.boostT > 0) {
+  if (C && m.charge) {
+    if (C.phase === 'dash') { m.vx = C.dx * C.v; m.vz = C.dz * C.v; }
+    else { const k = Math.exp(-14 * dt); m.vx *= k; m.vz *= k; }
+  } else if (m.boostT > 0) {
     // 噴射中速度鎖在噴射方向
     m.boostT -= dt;
     const sp = Math.max(0, m.vx * m.boostDir.x + m.vz * m.boostDir.z) + BOOST_PUSH * m.boostK * dt;
@@ -164,7 +209,7 @@ function drive(m, dt, ml, heading, fire) {
   for (const s in m.guns) {
     const g = m.guns[s];
     g.cd -= dt;
-    if (fire && g.cd <= 0 && g.def.kind !== 'shield' && !m.parts[s].broken) g.cd = Math.max(0.07, g.def.interval ?? 0.5);
+    if (fire && g.cd <= 0 && g.def.kind !== 'shield' && !m.parts[s].broken) { if (MELEE[g.def.kind]) tryMelee(m, s); else g.cd = Math.max(0.07, g.def.interval ?? 0.5); }
   }
 }
 function pose(m, dt) {
@@ -254,6 +299,7 @@ function step(dt) {
   G.now += dt; state.t += dt;
   const a = state.move === 'auto' ? autoAt(state.t) : { ml: ML[state.move], heading: state.heading, fire: false };
   for (const u of units) { drive(u, dt, a.ml, a.heading, a.fire || state.fire); pose(u, dt); }
+  tickGlows(dt);
   const lead = units[Math.floor(units.length / 2)];
   if (lead) tex.offset.set(lead.px / 2, -lead.pz / 2);
 }
