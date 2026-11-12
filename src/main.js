@@ -22,7 +22,7 @@ import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
 import { AI, DIFFS, clearEnemies, enemies, keepEnemies, parkEnemy, removeEnemy, spawnEnemy, unparkEnemy, updateEnemy } from './ai.js';
 import { burst, clearRubble, makeLaser, repairFx, setLaser, setRubbleLayer, smoke, updateParticles } from './fx.js';
 import { clearWarp, startWarp, updateWarp } from './warp.js';
-import { CHIPS, DEVICES, hasChip, techName } from './tech.js';
+import { CHIPS, DEVICES, hasChip, smokeBlocks, techName } from './tech.js';
 import { clearDevices, deviceReady, updateDeviceCd, updateDevices, useDevice } from './devices.js';
 import { updateStatus } from './status.js';
 import { closeReasm, openReasm, reasmActive, renderReasm, updateReasm } from './reasm.js';
@@ -518,7 +518,11 @@ function showEndlessResult() {
 // 零件：打爆敵機一定掉（精英多、越深越多），拿來開補給箱（強化模組）和武器箱；每張圖的箱子有限 → 強化的數量也有限
 // 清掉 need 隊 → 傳送門可以啟動（標在小地圖上）→ 啟動後頭目從天而降、每隔一陣子來一波增援 → 打倒頭目 → 傳送到下一關（整台修好、彈藥補滿）
 // 越後面的關卡 / 越深的區域：敵人傷害和耐久越高；箱子也越貴
-const SPAWN_R = 58, DESPAWN_R = 72, WAKE_R = 24, LOSE_R = 85;
+// 派系互打：正規軍（team 'enemy'）和蟲（team 'bug'）互相敵對；看得到、INFIGHT_R 格內的別派系也會被當成目標（pickFoes）
+//   被玩家驚動的小隊（S.byPlayer）：玩家有 PLAYER_BIAS 格的優勢，沒有別派系可打就去追玩家
+//   被別派系驚動的：只打別派系，打完回到待命（不會因為遠處的蟲打架就整張圖衝向玩家）；增援只有玩家驚動才叫
+const SPAWN_R = 58, DESPAWN_R = 72, WAKE_R = 24, LOSE_R = 85, INFIGHT_R = 16, PLAYER_BIAS = 2;
+const facTeam = P => P.faction === 'bug' ? 'bug' : 'enemy';
 const START_WEAPONS = { armL: null, armR: 'mg', backL: 'missile', backR: null };   // 右手機槍、左背飛彈
 const COST = { cache: 25, weapon: 35, supply: 15 };
 let EX = null;
@@ -646,7 +650,7 @@ function spawnSquad(S) {
 function spawnUnit(S, u, i, at, drop) {
   const a = i / S.units.length * Math.PI * 2;
   const P = gruntOf(u.key), look = drop ? player : { x: at.x + Math.sin(a), z: at.z + Math.cos(a) };
-  const e = spawnEnemy(look, P, at, { colors: GRUNT_COLORS, diff: exDiff(S.depth), grunt: true, noDrop: !drop });
+  const e = spawnEnemy(look, P, at, { team: facTeam(P), colors: GRUNT_COLORS, diff: exDiff(S.depth), grunt: true, noDrop: !drop });
   e.dormant = !S.awake; e.squad = S; e.unit = u; e.enElite = u.key.endsWith('*'); e.lvl = S.depth; e.fixed = !!P.fixed;
   e.chase = chaseOf(e);
   if (S.hold) e.hold = { x: S.x, z: S.z, r: S.hold };
@@ -697,7 +701,7 @@ function callReinforcements(groups, n, depth, pool) {
     const W = { wave: true, members: [], awake: true, x: spot.x, z: spot.z, depth, layer: EX.layer };
     for (let i = 0; i < n; i++) {
       const key = pool[Math.floor(Math.random() * pool.length)], a = i / n * Math.PI * 2;
-      const e = spawnEnemy(player, gruntOf(key), { x: spot.x + Math.sin(a) * 1.6, z: spot.z + Math.cos(a) * 1.6 }, { colors: GRUNT_COLORS, diff: exDiff(depth), grunt: true });
+      const P = gruntOf(key), e = spawnEnemy(player, P, { x: spot.x + Math.sin(a) * 1.6, z: spot.z + Math.cos(a) * 1.6 }, { team: facTeam(P), colors: GRUNT_COLORS, diff: exDiff(depth), grunt: true });
       e.squad = W; e.unit = { key, dead: false }; e.enElite = key.endsWith('*'); e.lvl = depth; e.chase = chaseOf(e);
       W.members.push(e);
     }
@@ -706,6 +710,39 @@ function callReinforcements(groups, n, depth, pool) {
   }
 }
 const zoneAt = (x, z) => EX.zones[EX.map.layers[EX.layer].zoneOf[tileR(z) * EX.map.W + tileC(x)]];
+// e 看不看得到 o（R 格內、中間沒有牆、沒有煙）
+function sees(e, o, R) {
+  const dx = o.x - e.x, dz = o.z - e.z, d = Math.hypot(dx, dz);
+  if (d > R) return false;
+  if (d < 1e-3) return true;
+  return rayBlock(e.x, e.z, dx / d, dz / d, d) >= d - o.r && !smokeBlocks(e.x, e.z, o.x, o.z);
+}
+const rivalNear = (e, R) => enemies.some(o => o.alive && !o.drop && o.team !== e.team && sees(e, o, R));
+// 增援據點：小隊第一次被（玩家）驚動，5 秒後從兩三個方向來增援（用這個區域的駐軍兵種）；同一個區域 45 秒內只叫一次
+function callFor(S) {
+  const Z = EX.zones[S.zone];
+  if (!Z?.reinforce || S.called || EN.t - (Z.lastCall ?? -99) <= 45 || !(EX.portal.state === 'idle' || EX.portal.state === 'ready')) return;   // 傳送門啟動後不再叫增援
+  S.called = true; Z.lastCall = EN.t;
+  EX.pending.push({ t: 5, groups: 1 + (S.depth >= 3 ? 1 : 0), n: 2, depth: S.depth, pool: Z.squads.flatMap(k => SQUADS[k].units).filter(k => pickEntry(k, REINFORCE_ENTRIES)) });
+}
+// 每台醒著的挑目標（e.foe；updateEnemy 用 e.foe ?? player）：玩家、或看得到的 INFIGHT_R 格內別派系，挑最近的
+//   玩家有 PLAYER_BIAS 格的優勢、現在的目標有 3 格的優勢（不會一直換）；頭目只打玩家
+function pickFoes() {
+  const live = enemies.filter(e => e.alive && !e.drop);
+  for (const e of live) {
+    const S = e.squad;
+    if (e.boss || (S && !S.awake)) { e.foe = null; continue; }
+    const chaseP = !S || S.byPlayer !== false;
+    let best = chaseP ? player : null, bd = chaseP ? Math.hypot(player.x - e.x, player.z - e.z) - PLAYER_BIAS - (e.foe === player ? 3 : 0) : Infinity;
+    for (const o of live) {
+      if (o.team === e.team) continue;
+      const s = Math.hypot(o.x - e.x, o.z - e.z) - (o === e.foe ? 3 : 0);
+      if (s < bd && sees(e, o, INFIGHT_R)) { bd = s; best = o; }
+    }
+    e.foe = best;
+    if (!chaseP) e.dormant = !best;
+  }
+}
 function updateExplore(dt) {
   if (!EX || MODE.result) return;
   EN.t += dt;
@@ -752,25 +789,27 @@ function updateExplore(dt) {
       }
       if (all || (S.legT += dt) > 25) { S.wp++; S.legT = 0; }
     }
-    if (!player.alive) continue;
     if (!S.awake) {
-      // 醒來：剛被打（跟上次看的時候比少了血；不然被打過又跟丟的小隊會一直醒來又跟丟）、或玩家在 WAKE_R 格內而且看得到
+      // 醒來：玩家在 WAKE_R 格內而且看得到、剛被打（跟上次看的時候比少了血；不然被打過又跟丟的小隊會一直醒來又跟丟）、或看得到別派系
       let hit = false;
       for (const e of live) { if (e.parts.torso.hp < (e.seenHp ?? e.parts.torso.max) - 0.01) hit = true; e.seenHp = e.parts.torso.hp; }
-      const trig = hit || live.some(e => {
-        const dx = player.x - e.x, dz = player.z - e.z, dd = Math.hypot(dx, dz);
-        return dd < WAKE_R && rayBlock(e.x, e.z, dx / dd, dz / dd, dd) >= dd - player.r;
-      });
-      if (trig) {
-        S.awake = S.found = true; for (const e of live) e.dormant = false;
-        const Z = EX.zones[S.zone], call = Z.reinforce && !S.called && EN.t - (Z.lastCall ?? -99) > 45 && (EX.portal.state === 'idle' || EX.portal.state === 'ready');   // 傳送門啟動後不再叫增援
-        // 增援據點：小隊第一次被驚動，5 秒後從兩三個方向來增援（用這個區域的駐軍兵種）；同一個區域 45 秒內只叫一次
-        if (call) { S.called = true; Z.lastCall = EN.t; EX.pending.push({ t: 5, groups: 1 + (S.depth >= 3 ? 1 : 0), n: 2, depth: S.depth, pool: Z.squads.flatMap(k => SQUADS[k].units).filter(k => pickEntry(k, REINFORCE_ENTRIES)) }); }
+      const seeP = player.alive && live.some(e => sees(e, player, WAKE_R));
+      const rival = live.some(e => rivalNear(e, hit ? INFIGHT_R : WAKE_R));
+      // 被打的時候旁邊有別派系 → 算是被別派系驚動；不然算玩家打的
+      const byP = seeP || (hit && !rival && player.alive);
+      if (byP || rival) {
+        S.awake = true; S.byPlayer = byP; for (const e of live) e.dormant = false;
+        if (byP) { S.found = true; callFor(S); }
       }
-    } else if (live.length && live.every(e => (e.fly ? flyDist(e.x, e.z) : flowDist(e.x, e.z)) > LOSE_R)) {   // 用實際要走的路程算（繞岩壁追過來的不算跟丟）
+    } else if (S.byPlayer === false) {
+      // 被別派系驚動的：看到玩家就改成追玩家；別派系打完（大家都沒目標了）回到待命
+      if (player.alive && live.some(e => sees(e, player, WAKE_R))) { S.byPlayer = true; S.found = true; for (const e of live) e.dormant = false; callFor(S); }
+      else if (live.length && live.every(e => e.dormant)) { S.awake = false; for (const e of live) e.seenHp = e.parts.torso.hp; }
+    } else if (live.length && !live.some(e => e.foe && e.foe !== player && e.foe.alive) && live.every(e => (e.fly ? flyDist(e.x, e.z) : flowDist(e.x, e.z)) > LOSE_R)) {   // 用實際要走的路程算（繞岩壁追過來的不算跟丟）；還在跟別派系打的不算
       S.awake = false; for (const e of live) { e.dormant = true; e.seenHp = e.parts.torso.hp; }
     }
   }
+  pickFoes();
   updateChasers(dt);
   for (let i = EX.pending.length - 1; i >= 0; i--) { const P = EX.pending[i]; if ((P.t -= dt) <= 0) { EX.pending.splice(i, 1); if (player.alive) callReinforcements(P.groups, P.n, P.depth, P.pool); } }
   // 增援部隊：全滅就收掉；全部離玩家很遠（被甩掉）也收掉
@@ -992,7 +1031,7 @@ function switchLayer(to) {
   for (const e of enemies.slice()) {
     if (!e.alive) { removeEnemy(e); continue; }
     const d = e.fly ? flyDist(e.x, e.z) : flowDist(e.x, e.z), q = e.boss ? 99 : e.chase ?? 0;
-    if (!e.dormant && !e.drop && q > 0 && d < 70 && canEnter(e.preset, 'drop')) {   // 追到別層是空投下來的 → 不能空投的（蟲群）不追
+    if (!e.dormant && !e.drop && e.squad?.byPlayer !== false && q > 0 && d < 70 && canEnter(e.preset, 'drop')) {   // 追到別層是空投下來的 → 不能空投的（蟲群）不追
       e.chase = q - 1;
       if (e.unit && e.squad && !e.squad.wave) { e.unit.away = true; e.unit.hp = e.parts.torso.hp; const i = e.squad.members.indexOf(e); if (i >= 0) e.squad.members.splice(i, 1); }
       parkEnemy(e);
