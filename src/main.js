@@ -5,6 +5,7 @@ import { clearPressed, input, padUi, updateInput } from './input.js';
 import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayers, loadMap, mapId, randomOpenSpot, rayBlock, setLayer, tileC, tileR } from './arena.js';
 import { THEMES, rng } from './mapgen.js';
 import { TERRAINS, genStage, terrainOf } from './stagegen.js';
+import { genBlocks } from './blockgen.js';
 import { flowDist, flyDist, updateFlow } from './pathing.js';
 import { addProp, clearProps, nearProp, props, removeProp, setPortal, setPropLayer, spendProp, updateProps } from './props.js';
 import { RADIUS, exploredAt, fogActive, fogOff, initFogLayers, setFogLayer, setHeightFog, updateFog, visibleAt } from './fog.js';
@@ -547,15 +548,20 @@ function startRun(seed, stage = 1) {
   }
   startStage(seed);
 }
+// 重火力測試（docs/HEAVY_TEST_PLAN.md）：遠征的流程，地圖換成街區（blockgen.js）；沒有箱子、不叫增援
+function startHeavy(seed) {
+  EN = { t: 0, kills: 0, mods: {}, scrap: 0, stage: 1, explore: true, heavy: true, loadout: structuredClone(loadout), inv: [] };
+  startStage(seed);
+}
 function spawnRunPlayer(x, z, yaw) {
   spawnPlayer(x, z, yaw, EN.loadout);
   for (const [k, n] of Object.entries(EN.mods)) for (let i = 0; i < n; i++) MODS[k].apply(player);
 }
 function startStage(seed) {
-  const map = genStage(seed, EN.stage, window.__dbg?.terrain);
+  const map = EN.heavy ? genBlocks(seed) : genStage(seed, EN.stage, window.__dbg?.terrain);
   // 每個區域：兩種駐軍輪流排、三成五是增援據點（出發區、第一圈除外）；用地圖的種子決定 → 同一張圖一樣
   const R = rng(map.seed * 7 + 13);
-  const zones = map.zones.map((Z, k) => ({ ...Z, squads: [pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R, map.terrain), pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R, map.terrain)], reinforce: k !== map.startZ && Z.depth >= 2 && R() < 0.35, n: 0 }));
+  const zones = map.zones.map((Z, k) => ({ ...Z, squads: [pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R, map.terrain), pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R, map.terrain)], reinforce: !EN.heavy && k !== map.startZ && Z.depth >= 2 && R() < 0.35, n: 0 }));
   const squads = map.sites.map(S => {
     const Z = zones[S.zone], key = Z.squads[Z.n++ % 2], D = SQUADS[key];
     const units = D.units.slice(0, 3);   // 每隊最多 3 台（深處也不加人）
@@ -1229,7 +1235,7 @@ function showPanel(title, html, buttons) {
 }
 function hidePanel() { $('panel').classList.add('hidden'); }
 const panelOpen = () => !$('panel').classList.contains('hidden');
-function restart() { MODE.name === 'explore' ? startRun() : MODE.name === 'endless' ? startEndless() : MODE.name === 'duel' ? startDuel(MODE.duel.preset, MODE.duel.diffKey) : MODE.name === 'watch' ? nextWatch() : startSandbox(); }
+function restart() { MODE.name === 'explore' ? (EN.heavy ? startHeavy() : startRun()) : MODE.name === 'endless' ? startEndless() : MODE.name === 'duel' ? startDuel(MODE.duel.preset, MODE.duel.diffKey) : MODE.name === 'watch' ? nextWatch() : startSandbox(); }
 const WATCH_LIMIT = 180;   // 觀戰一場最多幾秒（遊戲時間）
 const nextWatch = () => MODE.kind === 'teams' ? startTeamWatch() : MODE.kind === 'horde' ? startHorde() : MODE.kind === 'skirmish' ? startSkirmish() : MODE.kind === 'brains' ? startBrainWatch() : MODE.kind === 'brainpack' ? startBrainPack() : startWatch();
 function pause() {
@@ -1283,6 +1289,7 @@ $('mExplore').onclick = () => {
   showSub('遠征・選關', [
     { label: '第 1 關', desc: `${TERRAINS[terrainOf(1)]}・從機槍和飛彈出發`, primary: true, run: () => startRun() },
     ...[2, 3, 4, 5, 6].map(n => ({ label: `第 ${n} 關`, desc: `${TERRAINS[terrainOf(n)]}・直接從這關開始：補 ${Math.min(2, n - 1)} 把隨機武器、${(n - 1) * 2} 個強化模組、${(n - 1) * 30} 零件`, run: () => startRun(undefined, n) })),
+    { label: '重火力測試', desc: '街區地圖・整備裡的配裝・沒有箱子和增援（測試中）', run: () => startHeavy() },
   ]);
 };
 $('mWatchMenu').onclick = () => {
@@ -1775,7 +1782,7 @@ addEventListener('pointerdown', unlockAudio);
 // 面板上的按鈕可以用數字鍵選（1 = 第一個）
 addEventListener('keydown', e => { if (panelOpen() && !settingsOpen() && /^Digit[1-9]$/.test(e.code)) $('pButtons').children[+e.code.slice(5) - 1]?.click(); });
 addEventListener('keydown', unlockAudio);
-window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, startHorde, startSkirmish, startEndless, startRun, startStage, callReinforcements, warpOut, startBoss, useLink, switchLayer, props, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
+window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, startHorde, startSkirmish, startEndless, startRun, startStage, startHeavy, callReinforcements, warpOut, startBoss, useLink, switchLayer, props, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
 showMenu();
 camTarget.set(player.x, 0, player.z);
 nextFrame(frame);
