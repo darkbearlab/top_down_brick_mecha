@@ -32,7 +32,7 @@ import { att, log } from './combatlog.js';
 export const ENEMY_SPEED = 0.55;
 // 敵人子彈速度倍率（重火力測試模式會改，heavy.js）：一般 0.55、狙擊 0.5
 // carry：射擊冷卻累積（平常 false：每幀最多一發、冷卻直接重設 → 射速被幀率卡住；重火力測試開著，射速快的機槍一幀可以多發）
-export const SHOT_TUNE = { enemy: ENEMY_SPEED, sniper: 0.5, carry: false };
+export const SHOT_TUNE = { enemy: ENEMY_SPEED, sniper: 0.5, carry: false, speedK: 1 };   // speedK：子彈速度整體倍率（AI 用原本的速度判斷是不是狙擊槍）
 export function makeGuns(lo) {
   const g = {};
   const rack = ['backL', 'backR'].some(s => WEAPONS[lo[s]]?.module === 'ammo') ? WEAPONS.ammorack.ammoK : 1;   // 彈藥架：彈藥 ×1.5

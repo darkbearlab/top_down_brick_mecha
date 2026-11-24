@@ -1,5 +1,5 @@
 // ---------- 街區地圖（重火力測試模式，docs/HEAVY_TEST_PLAN.md） ----------
-// 單層、方格街道的密集城市：3～4 格寬的街道切出一塊塊街廓，街廓裡塞可破壞建築（1～4 層），偶爾是廣場 / 停車場（只有零星矮房當掩體）
+// 單層、方格街道的城市：4～5 格寬的街道切出一塊塊街廓，街廓裡塞可破壞建築（1～4 層），中間有小巷、空地；約五分之一是廣場 / 停車場（只有零星矮房當掩體）
 // 外圍一圈打不壞的牆；裡面的建築全部可以打爛（buildings.js）
 // 輸出格式跟 stagegen.js 的 genStage 一樣（layers、zones、sites、caches、portal、spawn），走遠征模式同一套流程
 // 區域（zones）：把地圖切成 3 × 2 塊，離出發點越遠 depth 越高；每個區域放幾支小隊（sites）
@@ -13,15 +13,15 @@ export function genBlocks(seed = Math.floor(Math.random() * 1e9), { W = 96, H = 
   const toX = c => c - W / 2 + 0.5, toZ = r => r - H / 2 + 0.5;
   const ri = (a, b) => a + Math.floor(R() * (b - a + 1));
 
-  // 街道切線：從邊牆內側開始，街道 3～4 格、街廓 7～13 格
+  // 街道切線：從邊牆內側開始，街道 4～5 格、街廓 7～13 格
   const cuts = (len) => {
     const out = [];   // [起點, 長度]（街廓）
-    let p = BORDER + ri(3, 4);
+    let p = BORDER + ri(4, 5);
     while (p < len - BORDER - 7) {
       const L = Math.min(ri(7, 13), len - BORDER - 3 - p);
       if (L < 5) break;
       out.push([p, L]);
-      p += L + ri(3, 4);
+      p += L + ri(4, 5);
     }
     return out;
   };
@@ -34,7 +34,7 @@ export function genBlocks(seed = Math.floor(Math.random() * 1e9), { W = 96, H = 
   const blocks = [];
   for (const [bc, bw] of cols) for (const [br, bh] of rows) {
     const nearSpawn = Math.hypot(bc + bw / 2 - spawnC, br + bh / 2 - spawnR) < 12;
-    const plaza = !nearSpawn && R() < 0.16;
+    const plaza = !nearSpawn && R() < 0.2;
     blocks.push({ c: bc, r: br, w: bw, h: bh, plaza });
     if (plaza) {
       // 廣場：零星 1～2 格的矮房、矮牆當掩體
@@ -55,11 +55,11 @@ export function genBlocks(seed = Math.floor(Math.random() * 1e9), { W = 96, H = 
       const split = side >= 8 && R() < 0.5;
       const parts = split ? [[0, Math.floor((side - 1) / 2)], [Math.floor((side - 1) / 2) + 1, side - Math.floor((side - 1) / 2) - 1]] : [[0, side]];
       for (const [o, s] of parts) {
-        if (s < 2) continue;
+        if (s < 2 || R() < 0.12) continue;   // 一成多留空（空地、停車場）
         const f = R() < 0.15 ? 1 : R() < 0.5 ? 2 : R() < 0.7 ? 3 : 4, st = ri(0, 2);
         if (along) addB(bc + p, br + o, L, s, f, st); else addB(bc + o, br + p, s, L, f, st);
       }
-      p += L + 1;   // 1 格小巷
+      p += L + ri(1, 2);   // 1～2 格小巷
     }
   }
 

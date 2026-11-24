@@ -147,6 +147,8 @@ WEAPONS.acid_l = { ...WEAPONS.napalm, name: '酸液囊', low: true, dmg: 14, spl
 // 榴彈砲（菁英專用，整備裡沒有）：燒夷彈的拋射，但飛得慢（lobT 秒）、地上先出現落點警示圈、落地只爆炸不留火海
 WEAPONS.howitzer = { name: '榴彈砲', type: 'chemical', mount: 'back', weight: 7, kind: 'napalm', low: true, interval: 2.4, ammo: 40, dmg: 40, splash: 2.0, range: 20, zone: 0, lobT: 1.05, mark: true, size: 0.2,
   model: [[-2, -2, -3, 5, 5, 6, 'f'], [-1, -1, 3, 3, 3, 8, 'f'], [-2, -2, 9, 1, 5, 2, 'w'], [2, -2, 9, 1, 5, 2, 'w'], [-1, -2, 9, 3, 1, 2, 'w'], [-1, 2, 9, 3, 1, 2, 'w'], [-2, 3, -2, 5, 1, 3, 'w']], muzzle: [0.5, 0.5, 11] };
+// 迫擊砲（重火力測試的敵人用，heavy.js 換到迫擊砲車上；整備裡沒有）：榴彈砲的拋射，弧線更高、射程更長、慢；indirect：看不到目標也會照著打（越過建築）
+WEAPONS.mortar_l = { ...WEAPONS.howitzer, name: '迫擊砲', interval: 3.4, ammo: 30, dmg: 42, splash: 2.4, range: 26, lobT: 1.7, indirect: true };
 // 手臂火箭莢艙（菁英專用）：火箭莢艙裝在手上，一次 3 發、彈藥很多，但散布很大（亂灑一片）
 WEAPONS.rocket_arm = { ...WEAPONS.rocket, name: '火箭莢艙', mount: 'arm', low: true, weight: 6, interval: 1.15, ammo: 210, dmg: 40, spread: 0.24,
   model: [[-3, -3, -2, 7, 7, 9, 'f'], [-2, -2, 7, 1, 1, 1, 'w'], [0, -2, 7, 1, 1, 1, 'w'], [2, -2, 7, 1, 1, 1, 'w'], [-2, 0, 7, 1, 1, 1, 'w'], [0, 0, 7, 1, 1, 1, 'w'], [2, 0, 7, 1, 1, 1, 'w'], [-2, 2, 7, 1, 1, 1, 'w'], [0, 2, 7, 1, 1, 1, 'w'], [2, 2, 7, 1, 1, 1, 'w'], [-3, 4, 0, 7, 1, 5, 'a']], muzzle: [0.5, 0.5, 8] };

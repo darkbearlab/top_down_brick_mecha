@@ -551,6 +551,12 @@ function startRun(seed, stage = 1) {
   startStage(seed);
 }
 // 重火力測試（docs/HEAVY_TEST_PLAN.md）：遠征的流程，地圖換成街區（blockgen.js）；沒有箱子、不叫增援
+// 重火力測試：射擊型站遠一點打（交戰距離 ×wantK），迫擊砲站在 18 格外拋射
+function heavyTune(e) {
+  if (!EN.heavy) return;
+  if (Object.values(e.guns).some(g => g.def.indirect)) e.ai.want = 18;
+  else if (e.ai.want >= 6) e.ai.want *= HEAVY.wantK;
+}
 function startHeavy(seed) {
   EN = { t: 0, kills: 0, mods: {}, scrap: 0, stage: 1, explore: true, heavy: true, loadout: structuredClone(loadout), inv: [] };
   startStage(seed);
@@ -662,7 +668,7 @@ function spawnUnit(S, u, i, at, drop) {
   const e = spawnEnemy(look, P, at, { team: facTeam(P), colors: GRUNT_COLORS, diff: exDiff(S.depth), grunt: true, noDrop: !drop });
   e.dormant = !S.awake; e.squad = S; e.unit = u; e.enElite = u.key.endsWith('*'); e.lvl = S.depth; e.fixed = !!P.fixed;
   e.chase = chaseOf(e);
-  if (EN.heavy && e.ai.want >= 6) e.ai.want *= HEAVY.wantK;   // 重火力測試：射擊型站遠一點打
+  heavyTune(e);
   if (S.hold) e.hold = { x: S.x, z: S.z, r: S.hold };
   e.slot = i;
   if (u.hp != null) { e.parts.torso.hp = Math.min(u.hp, e.parts.torso.max); syncWear(e, 'torso', 0, 0, true); }
@@ -712,7 +718,7 @@ function callReinforcements(groups, n, depth, pool) {
     for (let i = 0; i < n; i++) {
       const key = pool[Math.floor(Math.random() * pool.length)], a = i / n * Math.PI * 2;
       const P = gruntOf(key), e = spawnEnemy(player, P, { x: spot.x + Math.sin(a) * 1.6, z: spot.z + Math.cos(a) * 1.6 }, { team: facTeam(P), colors: GRUNT_COLORS, diff: exDiff(depth), grunt: true });
-      e.squad = W; e.unit = { key, dead: false }; e.enElite = key.endsWith('*'); e.lvl = depth; e.chase = chaseOf(e);
+      e.squad = W; e.unit = { key, dead: false }; e.enElite = key.endsWith('*'); e.lvl = depth; e.chase = chaseOf(e); heavyTune(e);
       W.members.push(e);
     }
     EX.waves.push(W);

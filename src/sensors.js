@@ -73,16 +73,16 @@ export function headStats(p) {
   const H = p.spec.head, hp = p.parts.head;
   if (hp.broken) {
     let b = brokenCache.get(H);
-    if (!b) brokenCache.set(H, b = { ...H, lockTime: H.lockTime * 2.2, lockRange: H.lockRange * 0.45, lockCount: 1, radarLock: false, intel: false, health: 0, broken: true });
+    if (!b || b.srcRange !== H.lockRange) brokenCache.set(H, b = { ...H, lockTime: H.lockTime * 2.2, lockRange: H.lockRange * 0.45, lockCount: 1, radarLock: false, intel: false, health: 0, broken: true, srcRange: H.lockRange });   // srcRange：重火力測試會改鎖定距離，改了就重算
     return b;
   }
   const k = hp.hp / hp.max;
   if (k >= 0.999) return H;
   const q = Math.round(k * 50) / 50;   // 量化，避免每幀都產生新物件
   let c = headCache.get(p);
-  if (c?.q !== q || c.H !== H) {
+  if (c?.q !== q || c.H !== H || c.R !== H.lockRange) {
     const d = 1 - q;
-    c = { q, H, s: { ...H, lockTime: H.lockTime * (1 + 1.2 * d), lockRange: H.lockRange * (1 - 0.5 * d),
+    c = { q, H, R: H.lockRange, s: { ...H, lockTime: H.lockTime * (1 + 1.2 * d), lockRange: H.lockRange * (1 - 0.5 * d),
       lockCount: q < 0.25 ? Math.min(1, H.lockCount) : H.lockCount, radarLock: q < 0.25 ? false : H.radarLock, health: q } };
     headCache.set(p, c);
   }

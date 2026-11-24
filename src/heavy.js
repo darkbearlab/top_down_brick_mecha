@@ -1,7 +1,7 @@
 // ---------- 重火力測試模式的數值覆蓋（docs/HEAVY_TEST_PLAN.md 第 2 階段） ----------
 // 只在重火力測試（EN.heavy）裡生效：startStage 蓋好場地後 applyHeavy()；任何模式重設場地（resetWorld）時先 clearHeavy() 還原
 // 原本的數值記在 saved 裡，還原時一個一個放回去 → 離開這個模式後遊戲、無頭模擬完全不受影響
-import { WEAPONS } from './parts.js';
+import { GRUNTS_LOW, HEADS, SQUADS, WEAPONS } from './parts.js';
 import { SHOT_TUNE } from './weapons.js';
 
 export const HEAVY = {
@@ -11,6 +11,7 @@ export const HEAVY = {
   enemyHpK: 2.5,        // 敵人耐久倍率
   squadMax: 2,          // 每隊最多幾台（平常 3）
   wantK: 1.6,           // 射擊型敵人的理想交戰距離倍率（8～13 格 → 13～20 格）
+  lockRangeK: 1.5,      // 頭部鎖定距離倍率（16～34 格 → 24～51 格）
 };
 
 let saved = null;   // [[物件, 欄位, 原值]]
@@ -25,6 +26,11 @@ export function applyHeavy() {
   set(SHOT_TUNE, 'enemy', HEAVY.enemyShotK);
   set(SHOT_TUNE, 'sniper', HEAVY.enemyShotK);
   set(SHOT_TUNE, 'carry', true);   // 射速不被幀率卡住
+  set(SHOT_TUNE, 'speedK', HEAVY.bulletSpeedK);
+  for (const h of Object.values(HEADS)) if (h.lockRange) set(h, 'lockRange', h.lockRange * HEAVY.lockRangeK);
+  // 迫擊砲：迫擊砲車換成真的迫擊砲（拋射、落點預告、越過建築），砲擊陣地也會出現在街區
+  set(GRUNTS_LOW.mortar, 'backR', 'mortar_l');
+  set(SQUADS.mortar, 'themes', { ...SQUADS.mortar.themes, city: 3 });
 }
 export function clearHeavy() {
   if (!saved) return;

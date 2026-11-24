@@ -13,7 +13,7 @@ import { G, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { isBlock, isSolid, randomOpenSpot, rayBlock, rayWalk, tileAt, tileC, tileR } from './arena.js';
 import { headStats } from './sensors.js';
 import { BOOST_DV, BOOST_PUSH, BOOST_TIME, ENEMY_COLORS, activeSlot, boostDirOf, boostKOf, legK, damagePart, facing, hitMech, makeMech, muzzleOf, mechs, removeMech, slotBroken, stagger, toggleReady, tryBoost, wantsLock } from './mech.js';
-import { makeGuns, shots, updateGuns } from './weapons.js';
+import { SHOT_TUNE, makeGuns, shots, updateGuns } from './weapons.js';
 import { BAL, ENEMY_PRESETS, SLOTS } from './parts.js';
 import { burst, explosion, hitSparks, makeLaser, setLaser, shatterSmall, smoke, sparks } from './fx.js';
 import { blastBuildings } from './buildings.js';
@@ -326,7 +326,9 @@ export function updateEnemy(e, dt, player) {
     else if (d.kind === 'pulse') t = onTarget && inRange && Math.random() < dt * 1.4 / DF.rest;
     else if (d.kind === 'missile' || d.kind === 'split') t = canShoot && clear && locks.length > 0 && Math.random() < dt * 1.6 / DF.rest;
     else if (d.kind === 'vmissile') t = clear && locks.length > 0 && dist > 6 && Math.random() < dt * 1.2 / DF.rest;
-    else if (d.speed > 50) {
+    // 迫擊砲（indirect）：射程內就打，看不到也打（拋過建築；落點照目標現在的位置）
+    else if (d.indirect) t = player.alive && !AI.passive && dist > 5 && dist < reachOf(d) && Math.random() < dt * 1.2 / DF.rest;
+    else if (d.speed / SHOT_TUNE.speedK > 50) {
       // 狙擊：瞄 0.8 秒（紅色雷射）才開槍
       if (onTarget && inRange && g.cd <= 0 && g.ammo > 0) { A.snipeT += dt; laserSlot = slot; if (A.snipeT >= 0.8) { t = true; A.snipeT = 0; } }
       else A.snipeT = Math.max(0, A.snipeT - dt);
