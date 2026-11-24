@@ -5,7 +5,7 @@ import { clearPressed, input, padUi, updateInput } from './input.js';
 import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayers, loadMap, mapId, randomOpenSpot, rayBlock, setLayer, tileC, tileR } from './arena.js';
 import { THEMES, rng } from './mapgen.js';
 import { TERRAINS, genStage, terrainOf } from './stagegen.js';
-import { genBlocks } from './blockgen.js';
+import { bigArena, genBlocks } from './blockgen.js';
 import { HEAVY, applyHeavy, clearHeavy } from './heavy.js';
 import { flowDist, flyDist, updateFlow } from './pathing.js';
 import { addProp, clearProps, nearProp, props, removeProp, setPortal, setPropLayer, spendProp, updateProps } from './props.js';
@@ -49,7 +49,7 @@ const $ = id => document.getElementById(id);
 const MODE = { name: 'menu', kind: 'duel', duel: null, endT: 0, round: 0, score: { blue: 0, red: 0 }, horde: null, sk: null };
 const BLUE_COLORS = { accent: 0x3a8cff, glow: 0x90c0ff };
 // 試玩場從中間偏下出發；對戰 / 觀戰兩邊從競技場左右兩側出發、面對面
-const PLAYER_START = { x: 0, z: 6 }, SIDE_A = { x: -26, z: 0 }, SIDE_B = { x: 26, z: 0 };
+const PLAYER_START = { x: 0, z: 6 }, SIDE_A = { x: -26, z: 0 }, SIDE_B = { x: 26, z: 0 };   // 兩側出發點：x 跟著場地（resetWorld 照 map.side 改；競技場 ±26、新觀戰場地 ±42）
 
 // ---------- 玩家 ----------
 let loadout = loadLoadout();
@@ -82,6 +82,7 @@ function resetWorld(map = null) {
   clearEnemies();
   clearHeavy();   // 重火力測試的數值覆蓋：任何模式重設場地都先還原（startStage 再視需要套上）
   const want = map ?? ARENA;
+  SIDE_B.x = want.side ?? 26; SIDE_A.x = -SIDE_B.x;
   if (want.layers) {
     // 多層地圖：每層的地板、岩壁、建築都蓋好（蓋建築要先切到那層），再回到第 0 層
     loadLayers(want);
@@ -155,7 +156,7 @@ async function startBrainWatch(fresh = false, pair = MODE.bw?.pair ?? ['alpha', 
     showPanel('AI 對打載入失敗', `${String(err.message ?? err).replace(/</g, '&lt;')}<br><br>多半是瀏覽器還在用舊的程式檔：按 Ctrl+Shift+R 強制重新整理再試一次。`, [{ label: '返回', primary: true, run: hidePanel }]);
     return;
   }
-  resetWorld();
+  resetWorld(watchMap());
   watchNumbers();
   MODE.name = 'watch';
   if (fresh || MODE.kind !== 'brains') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
@@ -197,7 +198,7 @@ async function startTeamWatch(fresh = false, fixed = MODE.tw?.fixed ?? null) {
     showPanel('AI 2v2 載入失敗', `${String(err.message ?? err).replace(/</g, '&lt;')}<br><br>多半是瀏覽器還在用舊的程式檔：按 Ctrl+Shift+R 強制重新整理再試一次。`, [{ label: '返回', primary: true, run: hidePanel }]);
     return;
   }
-  resetWorld();
+  resetWorld(watchMap());
   watchNumbers();
   MODE.name = 'watch';
   if (fresh || MODE.kind !== 'teams') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
@@ -237,7 +238,7 @@ async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
     showPanel('AI vs 雜魚載入失敗', `${String(err.message ?? err).replace(/</g, '&lt;')}<br><br>多半是瀏覽器還在用舊的程式檔：按 Ctrl+Shift+R 強制重新整理再試一次。`, [{ label: '返回', primary: true, run: hidePanel }]);
     return;
   }
-  resetWorld();
+  resetWorld(watchMap());
   watchNumbers();
   MODE.name = 'watch';
   if (fresh || MODE.kind !== 'brainpack') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
@@ -261,7 +262,7 @@ async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
   toast(`第 ${MODE.round} 場・雜魚 ${reds.length} 台`);   // 小隊名字在右下的面板
 }
 function startWatch(fresh = false) {
-  resetWorld();
+  resetWorld(watchMap());
   watchNumbers();
   MODE.name = 'watch';
   if (fresh || MODE.kind !== 'duel') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
@@ -289,7 +290,7 @@ const HORDE_TOTAL = 18, HORDE_MAX = 5, HORDE_FIRST = 3, HORDE_GAP = 2.2;
 // 雜魚的派系色：裝甲混 78% 隊伍色、腳下一圈光環
 const GRUNT_COLORS = { accent: 0xa8321a, glow: 0xff5a30, tint: 0.78 };
 function startHorde(fresh = false) {
-  resetWorld();
+  resetWorld(watchMap());
   watchNumbers();
   MODE.name = 'watch';
   if (fresh || MODE.kind !== 'horde') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
@@ -338,10 +339,10 @@ const SK_TOTAL = 12, SK_MAX = 5, SK_FIRST = 3, SK_GAP = 2.4;
 const GRUNT_BLUE = { accent: 0x2a62c0, glow: 0x70b0ff, tint: 0.78 };
 function spotOnSide(side) {
   for (let i = 0; i < 40; i++) { const p = randomOpenSpot(0, 0, 0); if (side < 0 ? p.x < -8 : p.x > 8) return p; }
-  return { x: side * 26, z: 0 };
+  return { x: side * SIDE_B.x, z: 0 };
 }
 function startSkirmish(fresh = false) {
-  resetWorld();
+  resetWorld(watchMap());
   watchNumbers();
   MODE.name = 'watch';
   if (fresh || MODE.kind !== 'skirmish') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
@@ -362,7 +363,7 @@ function skDrop(team) {
   if (T.spawned >= SK_TOTAL) return;
   T.spawned++;
   const at = spotOnSide(T.side);
-  const dummy = { x: -T.side * 26, z: 0, alive: false, r: 0 };   // 只拿來決定降落時面向哪邊
+  const dummy = { x: -T.side * SIDE_B.x, z: 0, alive: false, r: 0 };   // 只拿來決定降落時面向哪邊
   spawnEnemy(dummy, randomGrunt(), at, { team, colors: team === 'blue' ? GRUNT_BLUE : GRUNT_COLORS, diff: DIFFS.normal, grunt: true });
 }
 function updateSkirmish(dt) {
@@ -560,6 +561,9 @@ function startRun(seed, stage = 1) {
 // 觀戰一律用新數值（heavy.js）；觀戰選單可以切回舊數值（封存，只在這次開啟有效）
 let watchOld = false;
 const watchNumbers = () => { if (!watchOld) applyHeavy(); };
+// 新數值的觀戰場地：96 × 72 的街區（blockgen.js bigArena，固定種子、點對稱）；舊數值用原本的 64 × 48 競技場
+const BIG_ARENA = bigArena();
+const watchMap = () => watchOld ? null : BIG_ARENA;
 function startHeavy(seed) {
   EN = { t: 0, kills: 0, mods: {}, scrap: 0, stage: 1, explore: true, heavy: true, loadout: structuredClone(loadout), inv: [] };
   startStage(seed);
@@ -1712,7 +1716,7 @@ function step(t) {
       fx = all.reduce((a, e) => a + e.x, 0) / all.length; fz = all.reduce((a, e) => a + e.z, 0) / all.length - 0.8;
       let sep = all.length > 1 ? Math.hypot(all[0].x - all[1].x, all[0].z - all[1].z) : 0;
       if (MODE.kind === 'skirmish') for (const e of all) sep = Math.max(sep, 2 * Math.hypot(e.x - fx, e.z - fz - 0.8) * 0.8);
-      distK = Math.max(0.75, Math.min(1.6, 0.6 + sep / 22));
+      distK = Math.max(0.75, Math.min(watchOld ? 1.6 : 2, 0.6 + sep / 22));   // 新場地比較大：拉得更遠
     }
     lx = lz = 0; restZ = 0;
   }

@@ -9,7 +9,7 @@
 //   --patch <檔.mjs>：平衡實驗（改 WEAPONS 數值、parts.js 的 BAL 開關），只影響這次模擬
 //   --brainA / --brainB：大腦（src/brains/ 裡的名字，或 .js 檔路徑）；沒給 = 遊戲內建的 AI（default）
 //   結果：每場一個 battle-N.jsonl（所有事件 + 每 0.25 秒的狀態）、summary.json（每場的整理 + 總結）
-// 場地：對戰模式那張 64×48 對稱場地，A 在左（-26, 0）、B 在右（26, 0）
+// 場地：預設對戰模式那張 64×48 對稱場地，A 在左（-26, 0）、B 在右（26, 0）；--arena big：新觀戰場地 96×72，±42
 import { mkdirSync, writeFileSync, readFileSync, existsSync } from 'node:fs';
 import { join, resolve } from 'node:path';
 import { pathToFileURL } from 'node:url';
@@ -36,7 +36,8 @@ const loadBrain = async b => {
   return (await import(pathToFileURL(p).href)).default;
 };
 // --patch <檔.mjs>：平衡實驗，export default ({ WEAPONS, BAL, LEGS }) => { 直接改數值 / 開關 }（只影響這次模擬，不動遊戲檔）
-if (args.patch) { const P = await import('../../src/parts.js'); (await import(pathToFileURL(resolve(args.patch)).href)).default({ WEAPONS: P.WEAPONS, BAL: P.BAL, LEGS: P.LEGS, CORES: P.CORES }); }
+let PATCH = null;
+if (args.patch) { const P = await import('../../src/parts.js'); PATCH = await import(pathToFileURL(resolve(args.patch)).href); PATCH.default({ WEAPONS: P.WEAPONS, BAL: P.BAL, LEGS: P.LEGS, CORES: P.CORES }); }
 const BA = await loadBrain(args.brainA), BB = await loadBrain(args.brainB);
 const brainName = B => B?.name ?? 'default';
 
@@ -63,8 +64,11 @@ const diff = DIFFS[args.diff ?? 'hard'];
 // 可重現：每場用自己的種子取代 Math.random
 const mulberry = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 
-const ARENA = arenaMap();
-loadMap(ARENA); setLayout(ARENA_LAYOUT);
+// --arena old（預設，64×48 競技場）/ big（新數值的觀戰場地，96×72 街區）；patch 檔可以 export const arena 指定（heavy.mjs 是 big）
+const ARENA_KIND = args.arena ?? PATCH?.arena ?? 'old';
+const ARENA = ARENA_KIND === 'big' ? (await import('../../src/blockgen.js')).bigArena() : arenaMap();
+loadMap(ARENA); setLayout(ARENA_KIND === 'big' ? ARENA.buildings : ARENA_LAYOUT);
+const SIDE = ARENA.side ?? 26;
 const out = args.out ?? join('tools', 'sim', 'out', `${new Date().toISOString().replace(/[:.]/g, '-')}`);
 mkdirSync(out, { recursive: true });
 
@@ -86,7 +90,7 @@ function battle(i) {
   clearShots(); clearWrecks(); resetBuildings();
   G.now = 0; G.paused = false; G.slowMo = 0; G.hitStop = 0;
   AI.passive = false; AI.sandbox = false; AI.diff = diff;
-  const dummy = { x: 26, z: 0, alive: true, team: 'none' };
+  const dummy = { x: SIDE, z: 0, alive: true, team: 'none' };
   // A 在左、B 在右；多台的話上下排開
   const spawnSide = (units, x, team, side, yaw) => units.map((u, j) => {
     const m = spawnEnemy(dummy, u.P, { x, z: (j - (units.length - 1) / 2) * 4 }, { team, diff, noDrop: true });
@@ -95,10 +99,10 @@ function battle(i) {
     m.torsoYaw = m.legYaw = m.aimYaw = yaw;
     return m;
   });
-  const blues = spawnSide(UA, -26, 'blue', 'A', Math.PI / 2);
+  const blues = spawnSide(UA, -SIDE, 'blue', 'A', Math.PI / 2);
   // 雜魚小隊：在右邊散開站
-  const reds = PACK ? PACK.map((k, j) => { const g = spawnEnemy(dummy, gruntDef(k), { x: 24 + (j % 2) * 3, z: (j - (PACK.length - 1) / 2) * 3 }, { team: 'red', diff, noDrop: true, grunt: true }); g.side = 'B'; g.unitName = g.preset.name; g.brainName = 'default'; g.torsoYaw = g.legYaw = g.aimYaw = -Math.PI / 2; return g; })
-    : spawnSide(UB, 26, 'red', 'B', -Math.PI / 2);
+  const reds = PACK ? PACK.map((k, j) => { const g = spawnEnemy(dummy, gruntDef(k), { x: SIDE - 2 + (j % 2) * 3, z: (j - (PACK.length - 1) / 2) * 3 }, { team: 'red', diff, noDrop: true, grunt: true }); g.side = 'B'; g.unitName = g.preset.name; g.brainName = 'default'; g.torsoYaw = g.legYaw = g.aimYaw = -Math.PI / 2; return g; })
+    : spawnSide(UB, SIDE, 'red', 'B', -Math.PI / 2);
   const all = [...blues, ...reds];
   // 每台都打最近的敵人（每幀重新挑）
   // 目標：內建 AI 打最近的；有大腦的照大腦自己選的（act.target），沒選或目標死了才退回最近的

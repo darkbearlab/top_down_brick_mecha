@@ -16,7 +16,7 @@ node --import ./tools/sim/register.mjs tools/sim/duel.mjs --a 突擊型 --b 狙�
 - `--n` 幾場、`--seed` 種子（同一個種子結果完全一樣）、`--diff` 電腦難度（easy / normal / hard，預設 hard）、`--max` 每場最長幾秒（預設 120，時間到比剩餘耐久比例）
 - `--out` 輸出資料夾（預設 `tools/sim/out/<時間>`）、`--quiet` 不印每場
 - 場地：對戰模式的 64×48 對稱場地，A 在左、B 在右
-- 數值：預設是舊數值（遊戲本體）。觀戰模式現在用的新數值（重火力，`src/heavy.js`）要加 `--patch tools/sim/patches/heavy.mjs`
+- 數值：預設是舊數值（遊戲本體）。觀戰模式現在用的新數值（重火力，`src/heavy.js`）要加 `--patch tools/sim/patches/heavy.mjs`（同時換成新觀戰場地 96×72 街區；`--arena old / big` 可以單獨指定場地）
 
 ## 換電腦的大腦
 `--brainA` / `--brainB`：`src/brains/` 裡的名字或 .js 路徑（沒給 = 遊戲內建 AI）。怎麼寫大腦見 [BRAINS.md](BRAINS.md)。

@@ -30,38 +30,8 @@ export function genBlocks(seed = Math.floor(Math.random() * 1e9), { W = 96, H = 
   const addB = (c, r, w, h, f, st) => { buildings.push([c, r, w, h, f, st]); for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) grid[y][x] = 'B'; };
   const spawnC = cols[0][0] - 2, spawnR = Math.floor(H / 2);   // 出發點：左邊第一條直街的中間
 
-  // 街廓：切成幾棟（沿長邊切，中間留 1 格小巷），或是廣場
-  const blocks = [];
-  for (const [bc, bw] of cols) for (const [br, bh] of rows) {
-    const nearSpawn = Math.hypot(bc + bw / 2 - spawnC, br + bh / 2 - spawnR) < 12;
-    const plaza = !nearSpawn && R() < 0.2;
-    blocks.push({ c: bc, r: br, w: bw, h: bh, plaza });
-    if (plaza) {
-      // 廣場：零星 1～2 格的矮房、矮牆當掩體
-      const n = ri(2, 4);
-      for (let i = 0; i < n; i++) {
-        const w = ri(1, 2), h = ri(1, 2), c = ri(bc + 1, bc + bw - w - 1), r = ri(br + 1, br + bh - h - 1);
-        if (grid[r][c] === '.') addB(c, r, w, h, 1, ri(0, 2));
-      }
-      continue;
-    }
-    const along = bw >= bh;   // 沿長邊切
-    const len = along ? bw : bh, side = along ? bh : bw;
-    let p = 0;
-    while (p < len) {
-      let L = Math.min(len - p, ri(3, 6));
-      if (len - p - L < 3) L = len - p;   // 剩下太短就併進這棟
-      // 深的街廓（另一邊 ≥ 8 格）有時候前後分兩棟，中間一條小巷
-      const split = side >= 8 && R() < 0.5;
-      const parts = split ? [[0, Math.floor((side - 1) / 2)], [Math.floor((side - 1) / 2) + 1, side - Math.floor((side - 1) / 2) - 1]] : [[0, side]];
-      for (const [o, s] of parts) {
-        if (s < 2 || R() < 0.12) continue;   // 一成多留空（空地、停車場）
-        const f = R() < 0.15 ? 1 : R() < 0.5 ? 2 : R() < 0.7 ? 3 : 4, st = ri(0, 2);
-        if (along) addB(bc + p, br + o, L, s, f, st); else addB(bc + o, br + p, s, L, f, st);
-      }
-      p += L + ri(1, 2);   // 1～2 格小巷
-    }
-  }
+  // 街廓：切成幾棟（沿長邊切，中間留小巷），或是廣場
+  const blocks = fillBlocks(R, cols, rows, addB, grid, (c, r) => Math.hypot(c - spawnC, r - spawnR) < 12);
 
   // 區域：3 × 2，離出發點越遠越深
   const ZX = 3, ZY = 2, zoneOf = new Uint8Array(W * H);
@@ -100,4 +70,74 @@ export function genBlocks(seed = Math.floor(Math.random() * 1e9), { W = 96, H = 
     spawn: { x: toX(spawnC), z: toZ(spawnR), layer: 0 },
     layers: [{ name: '街區', grid, buildings, deep, zoneOf }],
   };
+}
+
+// 街廓填建築（genBlocks、bigArena 共用）：cols / rows = [起點, 長度] 的街廓切線；near(c, r) = 不要當廣場的地方（出發點附近）
+// 每塊：約五分之一是廣場（零星 1～2 格矮房），其他沿長邊切成 3～6 格寬的幾棟（深的街廓前後分兩棟），中間 1～2 格小巷，一成多留空
+function fillBlocks(R, cols, rows, addB, grid, near, plazaP = 0.2, skipP = 0.12) {
+  const ri = (a, b) => a + Math.floor(R() * (b - a + 1));
+  const blocks = [];
+  for (const [bc, bw] of cols) for (const [br, bh] of rows) {
+    const plaza = !near(bc + bw / 2, br + bh / 2) && R() < plazaP;
+    blocks.push({ c: bc, r: br, w: bw, h: bh, plaza });
+    if (plaza) {
+      const n = ri(2, 4);
+      for (let i = 0; i < n; i++) {
+        const w = ri(1, 2), h = ri(1, 2), c = ri(bc + 1, bc + bw - w - 1), r = ri(br + 1, br + bh - h - 1);
+        if (grid[r][c] === '.') addB(c, r, w, h, 1, ri(0, 2));
+      }
+      continue;
+    }
+    const along = bw >= bh;
+    const len = along ? bw : bh, side = along ? bh : bw;
+    let p = 0;
+    while (p < len) {
+      let L = Math.min(len - p, ri(3, 6));
+      if (len - p - L < 3) L = len - p;   // 剩下太短就併進這棟
+      const split = side >= 8 && R() < 0.5;
+      const parts = split ? [[0, Math.floor((side - 1) / 2)], [Math.floor((side - 1) / 2) + 1, side - Math.floor((side - 1) / 2) - 1]] : [[0, side]];
+      for (const [o, s] of parts) {
+        if (s < 2 || R() < skipP) continue;   // 留空（空地、停車場）
+        const f = R() < 0.15 ? 1 : R() < 0.5 ? 2 : R() < 0.7 ? 3 : 4, st = ri(0, 2);
+        if (along) addB(bc + p, br + o, L, s, f, st); else addB(bc + o, br + p, s, L, f, st);
+      }
+      p += L + ri(1, 2);   // 1～2 格小巷
+    }
+  }
+  return blocks;
+}
+// 街道切線：from 起、到 to 為止（最後一塊貼著 to）；街道 s0～s1 格、街廓 7～13 格 → [起點, 長度] 的清單
+function streetCuts(R, from, to, s0 = 4, s1 = 5, flush = false) {
+  const ri = (a, b) => a + Math.floor(R() * (b - a + 1));
+  const out = [];
+  let p = from + ri(s0, s1);
+  while (p <= to - 4) {
+    const L = Math.min(ri(7, 13), to - p);   // 最後一塊貼到 to（大道 / 邊牆旁邊）
+    if (L < 4) break;
+    out.push([p, L]);
+    p += L + ri(s0, s1);
+  }
+  if (flush && out.length) { const q = out[out.length - 1]; q[1] = to - q[0]; }   // flush：最後一塊一直延伸到 to（貼著大道，中間不留一大片空地）
+  return out;
+}
+
+// ---------- 觀戰場地（新數值用）：96 × 72，街區、點對稱 ----------
+// 左半邊照街區產生（街道 3～4 格，比重火力測試的街區密一點；中間留一條 6 格寬的大道），右半邊是左半邊對中心點轉 180°（兩邊條件一樣）
+// 兩邊出發點（x = ±side, z = 0）周圍清出一塊空地（11 × 25 格），放得下一整隊；大道中間兩小棟當掩體
+// 固定種子 → 每次都是同一張圖（觀戰、無頭模擬一樣）
+export const BIG_ARENA_SEED = 4;   // 挑過的：建築約 24%
+export function bigArena(seed = BIG_ARENA_SEED) {
+  const W = 96, H = 72, R = rng(seed);
+  const grid = Array.from({ length: H }, (_, r) => Array.from({ length: W }, (_, c) => (r === 0 || c === 0 || r === H - 1 || c === W - 1) ? '#' : '.'));
+  const half = [];
+  const addB = (c, r, w, h, f, st) => { half.push([c, r, w, h, f, st]); for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) grid[y][x] = 'B'; };
+  const AVE = W / 2 - 3;   // 大道左緣（c 45～50）
+  const side = 42, sc = Math.floor(W / 2 - side), sr = H / 2;   // 出發點那格（左邊）
+  const clearC = [1, sc + 5], clearR = [sr - 12, sr + 12];
+  const inClear = (c, r, w = 1, h = 1) => c < clearC[1] + 1 && c + w > clearC[0] && r < clearR[1] + 1 && r + h > clearR[0];
+  fillBlocks(R, streetCuts(R, 1, AVE, 3, 4, true), streetCuts(R, 1, H - 1, 3, 4), (c, r, w, h, f, st) => { if (!inClear(c, r, w, h)) addB(c, r, w, h, f, st); }, grid, (c, r) => inClear(Math.floor(c), Math.floor(r)), 0.1, 0.3);
+  addB(AVE + 1, 18, 2, 2, 1, 0);   // 大道上的掩體（對稱過去是另一棟）
+  const buildings = [...half, ...half.map(([c, r, w, h, f, st]) => [W - c - w, H - r - h, w, h, f, (st + 1) % 3])];
+  for (const [c, r, w, h] of buildings) for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) grid[y][x] = 'B';
+  return { id: 'bigarena' + seed, W, H, grid, buildings, side };
 }

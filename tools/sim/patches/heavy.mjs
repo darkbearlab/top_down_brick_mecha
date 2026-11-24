@@ -2,3 +2,4 @@
 // 不加就是舊數值（遊戲本體：遠征、無盡、對戰、試玩場）
 import { applyHeavy } from '../../../src/heavy.js';
 export default () => applyHeavy();
+export const arena = 'big';   // 跟觀戰一樣用新場地（96×72 街區）
