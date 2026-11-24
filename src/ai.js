@@ -14,7 +14,7 @@ import { isBlock, isSolid, randomOpenSpot, rayBlock, rayWalk, tileAt, tileC, til
 import { headStats } from './sensors.js';
 import { BOOST_DV, BOOST_PUSH, BOOST_TIME, ENEMY_COLORS, activeSlot, boostDirOf, boostKOf, legK, damagePart, facing, hitMech, makeMech, muzzleOf, mechs, removeMech, slotBroken, stagger, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { SHOT_TUNE, makeGuns, shots, updateGuns } from './weapons.js';
-import { BAL, ENEMY_PRESETS, SLOTS } from './parts.js';
+import { BAL, ENEMY_PRESETS, SLOTS, WEAPONS } from './parts.js';
 import { burst, explosion, hitSparks, makeLaser, setLaser, shatterSmall, smoke, sparks } from './fx.js';
 import { blastBuildings } from './buildings.js';
 import { sfx } from './audio.js';
@@ -33,6 +33,12 @@ export const DIFFS = {
   hard: { name: '強敵', dmg: 1, hp: 1, rest: 1, err: 0.02, dodge: true, lock: 1 },
 };
 export const AI = { passive: false, count: 2, diff: DIFFS.normal, sandbox: false };
+// 數值覆蓋（heavy.js 的新數值會改；平常是預設值 → 行為跟以前完全一樣）
+//   gruntErrK / gruntRestK：雜魚的瞄準誤差、兩陣射擊之間的休息時間倍率（小 = 準、攻擊慾高）
+//   gruntHpW：雜魚依武器總重加耐久：×(1 + gruntHpW × (總重 − 3))，最多 ×1.6（拿重武器的比較耐打）
+//   wantK：射擊型（理想距離 ≥ 6）的交戰距離倍率；indirectWant：有迫擊砲（indirect）的站多遠（0 = 不管）
+export const AI_TUNE = { gruntErrK: 1, gruntRestK: 1, gruntHpW: 0, wantK: 1, indirectWant: 0 };
+const gruntHpK = P => { if (!AI_TUNE.gruntHpW) return 1; const w = SLOTS.reduce((a, s) => a + (P[s] ? WEAPONS[P[s]]?.weight ?? 0 : 0), 0); return Math.min(1.6, Math.max(1, 1 + AI_TUNE.gruntHpW * (w - 3))); };
 const DROP_TIME = 1.1, DROP_H = 16;
 const RING_GEO = new THREE.RingGeometry(0.8, 0.95, 36);
 
@@ -42,8 +48,8 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   const p = at ?? randomOpenSpot(player.x, player.z, 10);
   const D = opts.diff ?? AI.diff;   // 每台可以有自己的難度（王牌 vs 雜魚：王牌強敵、雜魚普通）
   const e = makeMech({ team: opts.team ?? 'enemy', colors: opts.colors ?? ENEMY_COLORS, loadout: P, x: p.x, z: p.z, yaw: Math.atan2(player.x - p.x, player.z - p.z), hpMul: D.hp,
-    grunt: opts.grunt ? { hp: P.hp } : null });
-  e.diff = D;
+    grunt: opts.grunt ? { hp: P.hp * gruntHpK(P) } : null });
+  e.diff = opts.grunt && (AI_TUNE.gruntErrK !== 1 || AI_TUNE.gruntRestK !== 1) ? { ...D, err: D.err * AI_TUNE.gruntErrK, rest: D.rest * AI_TUNE.gruntRestK } : D;
   e.dmgMul = D.dmg;
   e.seed = Math.random() * 10;
   e.guns = makeGuns(P);
@@ -65,6 +71,8 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   if (P.bug) setupBug(e, P.bug, P);
   if (P.bomber || P.charger || P.swarm || P.melee) e.ai.want = 0;
   if (P.fly && !P.swarm) e.ai.want = 9;
+  if (AI_TUNE.wantK !== 1 && e.ai.want >= 6) e.ai.want *= AI_TUNE.wantK;
+  if (AI_TUNE.indirectWant && Object.values(e.guns).some(g => g.def.indirect)) e.ai.want = AI_TUNE.indirectWant;
   // noDrop：直接站在地上（遠征模式的遭遇小隊），不然從天上降落
   if (opts.noDrop) { e.drive = { mx: 0, mz: 0 }; e.aimYaw = e.torsoYaw; }
   else {

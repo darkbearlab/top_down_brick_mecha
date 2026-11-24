@@ -156,6 +156,7 @@ async function startBrainWatch(fresh = false, pair = MODE.bw?.pair ?? ['alpha', 
     return;
   }
   resetWorld();
+  watchNumbers();
   MODE.name = 'watch';
   if (fresh || MODE.kind !== 'brains') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
   MODE.kind = 'brains';
@@ -197,6 +198,7 @@ async function startTeamWatch(fresh = false, fixed = MODE.tw?.fixed ?? null) {
     return;
   }
   resetWorld();
+  watchNumbers();
   MODE.name = 'watch';
   if (fresh || MODE.kind !== 'teams') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
   MODE.kind = 'teams'; MODE.tw = { fixed }; MODE.round++;
@@ -236,6 +238,7 @@ async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
     return;
   }
   resetWorld();
+  watchNumbers();
   MODE.name = 'watch';
   if (fresh || MODE.kind !== 'brainpack') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
   MODE.kind = 'brainpack';
@@ -259,6 +262,7 @@ async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
 }
 function startWatch(fresh = false) {
   resetWorld();
+  watchNumbers();
   MODE.name = 'watch';
   if (fresh || MODE.kind !== 'duel') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
   MODE.kind = 'duel';
@@ -286,6 +290,7 @@ const HORDE_TOTAL = 18, HORDE_MAX = 5, HORDE_FIRST = 3, HORDE_GAP = 2.2;
 const GRUNT_COLORS = { accent: 0xa8321a, glow: 0xff5a30, tint: 0.78 };
 function startHorde(fresh = false) {
   resetWorld();
+  watchNumbers();
   MODE.name = 'watch';
   if (fresh || MODE.kind !== 'horde') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
   MODE.kind = 'horde';
@@ -337,6 +342,7 @@ function spotOnSide(side) {
 }
 function startSkirmish(fresh = false) {
   resetWorld();
+  watchNumbers();
   MODE.name = 'watch';
   if (fresh || MODE.kind !== 'skirmish') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
   MODE.kind = 'skirmish';
@@ -551,12 +557,9 @@ function startRun(seed, stage = 1) {
   startStage(seed);
 }
 // 重火力測試（docs/HEAVY_TEST_PLAN.md）：遠征的流程，地圖換成街區（blockgen.js）；沒有箱子、不叫增援
-// 重火力測試：射擊型站遠一點打（交戰距離 ×wantK），迫擊砲站在 18 格外拋射
-function heavyTune(e) {
-  if (!EN.heavy) return;
-  if (Object.values(e.guns).some(g => g.def.indirect)) e.ai.want = 18;
-  else if (e.ai.want >= 6) e.ai.want *= HEAVY.wantK;
-}
+// 觀戰一律用新數值（heavy.js）；觀戰選單可以切回舊數值（封存，只在這次開啟有效）
+let watchOld = false;
+const watchNumbers = () => { if (!watchOld) applyHeavy(); };
 function startHeavy(seed) {
   EN = { t: 0, kills: 0, mods: {}, scrap: 0, stage: 1, explore: true, heavy: true, loadout: structuredClone(loadout), inv: [] };
   startStage(seed);
@@ -668,7 +671,6 @@ function spawnUnit(S, u, i, at, drop) {
   const e = spawnEnemy(look, P, at, { team: facTeam(P), colors: GRUNT_COLORS, diff: exDiff(S.depth), grunt: true, noDrop: !drop });
   e.dormant = !S.awake; e.squad = S; e.unit = u; e.enElite = u.key.endsWith('*'); e.lvl = S.depth; e.fixed = !!P.fixed;
   e.chase = chaseOf(e);
-  heavyTune(e);
   if (S.hold) e.hold = { x: S.x, z: S.z, r: S.hold };
   e.slot = i;
   if (u.hp != null) { e.parts.torso.hp = Math.min(u.hp, e.parts.torso.max); syncWear(e, 'torso', 0, 0, true); }
@@ -718,7 +720,7 @@ function callReinforcements(groups, n, depth, pool) {
     for (let i = 0; i < n; i++) {
       const key = pool[Math.floor(Math.random() * pool.length)], a = i / n * Math.PI * 2;
       const P = gruntOf(key), e = spawnEnemy(player, P, { x: spot.x + Math.sin(a) * 1.6, z: spot.z + Math.cos(a) * 1.6 }, { team: facTeam(P), colors: GRUNT_COLORS, diff: exDiff(depth), grunt: true });
-      e.squad = W; e.unit = { key, dead: false }; e.enElite = key.endsWith('*'); e.lvl = depth; e.chase = chaseOf(e); heavyTune(e);
+      e.squad = W; e.unit = { key, dead: false }; e.enElite = key.endsWith('*'); e.lvl = depth; e.chase = chaseOf(e);
       W.members.push(e);
     }
     EX.waves.push(W);
@@ -1305,6 +1307,7 @@ $('mExplore').onclick = () => {
 $('mWatchMenu').onclick = () => {
   unlockAudio(); sfx.click();
   showSub('觀戰', [
+    { label: `數值：${watchOld ? '舊數值（封存）' : '新數值（重火力）'}`, desc: '點一下切換・新數值：子彈快、雜魚攻擊慾和準度高、重武器雜魚較耐打、交戰距離長、迫擊砲', run: () => { watchOld = !watchOld; $('mWatchMenu').onclick(); } },
     { label: '電腦對電腦', desc: '隨機配裝・打完自動換下一場', primary: true, run: () => startWatch(true) },
     { label: '王牌 vs 雜魚', desc: '一台王牌機對上一批批空投的雜魚機（共 18 台）', run: () => startHorde(true) },
     { label: '雜魚 vs 雜魚', desc: '藍紅兩隊雜魚各 12 台，從兩側空投，先全滅的輸', run: () => startSkirmish(true) },
