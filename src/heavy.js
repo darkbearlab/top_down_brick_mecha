@@ -12,7 +12,7 @@ import { AI_TUNE } from './ai.js';
 export const HEAVY = {
   bulletSpeedK: 2,      // 實彈（kind 'bullet'）飛行速度倍率；飛行時間同時減半 → 射程不變
   enemyShotK: 1,        // 敵人子彈速度（舊數值 0.55，狙擊 0.5：刻意放慢讓玩家躲得掉）
-  mg: { interval: 0.025, ammo: 1200 },   // 機槍：扣住約 30 秒打光（舊 0.07 秒、720 發 ≈ 50 秒）
+  mg: { interval: 0.025, ammo: 1200, dmg: 2.5 },   // 機槍：扣住約 30 秒打光（舊 0.07 秒、720 發 ≈ 50 秒）；每發 4 → 2.5（每秒傷害 57 → 100，不然拿機槍的精英雜魚 / 王牌每秒 160 太兇）
   lockRangeK: 1.5,      // 頭部鎖定距離倍率（16～34 格 → 24～51 格）
   wantK: 1.6,           // 射擊型的理想交戰距離倍率（8～13 格 → 13～20 格）
   indirectWant: 18,     // 迫擊砲站多遠
@@ -44,6 +44,7 @@ export function applyHeavy() {
   // 武器
   set(WEAPONS.mg, 'interval', HEAVY.mg.interval);
   set(WEAPONS.mg, 'ammo', HEAVY.mg.ammo);
+  set(WEAPONS.mg, 'dmg', HEAVY.mg.dmg);
   for (const [id, o] of Object.entries(HEAVY.low)) for (const [k, v] of Object.entries(o)) if (WEAPONS[id]) set(WEAPONS[id], k, v);
   for (const h of Object.values(HEADS)) if (h.lockRange) set(h, 'lockRange', h.lockRange * HEAVY.lockRangeK);
   // 迫擊砲：迫擊砲車換成真的迫擊砲（拋射、落點預告、越過建築），砲擊陣地也會出現在街區
@@ -55,6 +56,8 @@ export function applyHeavy() {
   set(AI_TUNE, 'gruntHpW', HEAVY.grunt.hpW);
   set(AI_TUNE, 'wantK', HEAVY.wantK);
   set(AI_TUNE, 'indirectWant', HEAVY.indirectWant);
+  set(AI_TUNE, 'leadReal', true);   // 預判照實際子彈速度
+  set(AI_TUNE, 'ace', true);        // 王牌新戰術
 }
 export function clearHeavy() {
   if (!saved) return;

@@ -1710,7 +1710,7 @@ function step(t) {
   let fx = player.x, fz = player.z, restZ = REST_Z, distK = 1;   // restZ：畫面方向（往上）的偏移，觀戰 / 特寫不用
   if (watching) {
     // 王牌 vs 雜魚：看王牌和它現在的目標
-    const pool = MODE.kind === 'horde' && MODE.horde ? [MODE.horde.ace, MODE.horde.ace.foe].filter(Boolean) : enemies;
+    const pool = MODE.kind === 'horde' && MODE.horde ? [MODE.horde.ace, MODE.horde.ace.ai?.tgt?.alive ? MODE.horde.ace.ai.tgt : MODE.horde.ace.foe].filter(Boolean) : enemies;   // 新戰術的王牌自己挑目標（ai.tgt）
     const live = pool.filter(e => e.alive && !e.drop), all = live.length ? live : pool;
     if (all.length) {
       fx = all.reduce((a, e) => a + e.x, 0) / all.length; fz = all.reduce((a, e) => a + e.z, 0) / all.length - 0.8;

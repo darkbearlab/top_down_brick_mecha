@@ -103,6 +103,18 @@ export function updateFlow(dt, x, z) {
   ground.update(dt, x, z);
   if ((flyUsed -= dt) > 0) fly.update(dt, x, z);
 }
+// 往任意目標的路（新數值的王牌戰術：觀戰 / 模擬裡打的不是玩家，流場用不上）
+// key = 目標（機體 id）；目標換格子且過了 0.3 秒、或每 0.6 秒重算；now = 遊戲時間（G.now）
+const routes = new Map();
+export function routeDir(key, now, fx, fz, tx, tz) {
+  let F = routes.get(key);
+  if (!F) { if (routes.size > 16) routes.clear(); F = makeField(t => t === '#' || t === 'v'); F.t = -99; routes.set(key, F); }
+  const c = Math.floor(tx + W / 2), r = Math.floor(tz + H / 2);
+  if (F.mapG !== grid || F.mapW !== W || F.mapH !== H || now < F.t || ((c !== F.srcC || r !== F.srcR) && now - F.t > 0.3) || now - F.t > 0.6) {
+    F.mapG = grid; F.mapW = W; F.mapH = H; F.srcC = c; F.srcR = r; F.t = now; F.compute(c, r);
+  }
+  return F.dirAt(fx, fz);
+}
 export const flowDist = (x, z) => ground.distAt(x, z);
 export const flowDir = (x, z) => ground.dirAt(x, z);
 export const flyDist = (x, z) => { flyUsed = 2; return fly.distAt(x, z); };
