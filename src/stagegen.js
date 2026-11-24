@@ -14,7 +14,7 @@
 //         傳送門在最高那層
 import { genWorld, rng } from './mapgen.js';
 
-export const TERRAINS = { ruins: '沙漠廢墟', hive: '層疊城塞', blocks: '街區（重火力測試）' };
+export const TERRAINS = { ruins: '沙漠廢墟', hive: '層疊城塞', blocks: '街區' };
 export const terrainOf = stage => stage % 2 === 0 ? 'hive' : 'ruins';   // 第 1、3、5… 關廢墟，2、4… 關城塞
 
 export function genStage(seed = Math.floor(Math.random() * 1e9), stage = 1, terrain = terrainOf(stage)) {

@@ -30,6 +30,9 @@ import { applyStatus, burnSpreadK } from './status.js';
 import { att, log } from './combatlog.js';
 
 export const ENEMY_SPEED = 0.55;
+// 敵人子彈速度倍率（重火力測試模式會改，heavy.js）：一般 0.55、狙擊 0.5
+// carry：射擊冷卻累積（平常 false：每幀最多一發、冷卻直接重設 → 射速被幀率卡住；重火力測試開著，射速快的機槍一幀可以多發）
+export const SHOT_TUNE = { enemy: ENEMY_SPEED, sniper: 0.5, carry: false };
 export function makeGuns(lo) {
   const g = {};
   const rack = ['backL', 'backR'].some(s => WEAPONS[lo[s]]?.module === 'ammo') ? WEAPONS.ammorack.ammoK : 1;   // 彈藥架：彈藥 ×1.5
@@ -63,10 +66,20 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
     if (gun.ammo <= 0) { gun.cd = 0.3; if (m.team === 'player') sfx.click(); continue; }   // 彈盡
     if (d.needLock && !locks.length && m.team === 'player') { gun.cd = 0.3; sfx.click(); continue; }
     if (d.energy && !useEnergy(m, d.energy * (hasModule(m, 'power') ? WEAPONS.power.costK : 1))) continue;   // 供能模組：耗能 ×0.7
-    gun.cd = d.interval * (m.rateMul ?? 1) * chipRateK(m);   // rateMul：無盡模式的射速強化
+    const iv = d.interval * (m.rateMul ?? 1) * chipRateK(m);   // rateMul：無盡模式的射速強化
     // 飛彈 / 火箭一次好幾發，剩不夠就只射剩下的
-    const n = Math.min(d.salvo ?? 1, gun.ammo);
-    fire(m, slot, d, locks, aim, n);
+    let n = Math.min(d.salvo ?? 1, gun.ammo);
+    if (SHOT_TUNE.carry && d.kind === 'bullet' && !d.salvo) {
+      gun.cd = Math.max(gun.cd, -dt) + iv;   // 多出來的時間留給下一發（放開扳機很久也不會一次噴一堆）
+      let k = 1;
+      while (gun.cd <= 0 && k < 4 && k < gun.ammo) { gun.cd += iv; k++; }
+      for (let j = 1; j < k; j++) fire(m, slot, d, locks, aim, 1);
+      n = k;
+      fire(m, slot, d, locks, aim, 1);
+    } else {
+      gun.cd = iv;
+      fire(m, slot, d, locks, aim, n);
+    }
     log('fire', { m: m.id, slot, w: d.id, n });
     // 飛彈逐發鎖定（BAL.relock）：要鎖定的飛彈射出去就把鎖定清掉，下一發要重新鎖
     if (BAL.relock !== 'off' && (d.kind === 'missile' || d.kind === 'vmissile' || d.kind === 'split')) { m.lockBreak = true; if (BAL.relock === 'after') m.relockUntil = G.now + gun.cd; }
@@ -88,7 +101,7 @@ function fire(m, slot, d, locks, aim, salvoN = d.salvo ?? 1) {
   if (d.kind === 'napalm') { lobNapalm(m, d, mz, aim, f); return; }
   if (d.kind === 'bullet' || d.kind === 'beam') {
     const n = d.pellets ?? 1;
-    const spMul = enemy ? (d === WEAPONS.sniper ? 0.5 : ENEMY_SPEED) : 1;
+    const spMul = enemy ? (d === WEAPONS.sniper ? SHOT_TUNE.sniper : SHOT_TUNE.enemy) : 1;
     for (let i = 0; i < n; i++) {
       const a = base + (Math.random() - 0.5) * 2 * d.spread * spreadK;
       spawnShot(m, d, mz.x, mz.y, mz.z, Math.sin(a), Math.cos(a), d.speed * spMul * (n > 1 ? R(0.85, 1.1) : 1));

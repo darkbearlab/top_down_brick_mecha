@@ -6,6 +6,7 @@ import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayer
 import { THEMES, rng } from './mapgen.js';
 import { TERRAINS, genStage, terrainOf } from './stagegen.js';
 import { genBlocks } from './blockgen.js';
+import { HEAVY, applyHeavy, clearHeavy } from './heavy.js';
 import { flowDist, flyDist, updateFlow } from './pathing.js';
 import { addProp, clearProps, nearProp, props, removeProp, setPortal, setPropLayer, spendProp, updateProps } from './props.js';
 import { RADIUS, exploredAt, fogActive, fogOff, initFogLayers, setFogLayer, setHeightFog, updateFog, visibleAt } from './fog.js';
@@ -79,6 +80,7 @@ function fxHide(id, now = false) {
 const ARENA = arenaMap();
 function resetWorld(map = null) {
   clearEnemies();
+  clearHeavy();   // 重火力測試的數值覆蓋：任何模式重設場地都先還原（startStage 再視需要套上）
   const want = map ?? ARENA;
   if (want.layers) {
     // 多層地圖：每層的地板、岩壁、建築都蓋好（蓋建築要先切到那層），再回到第 0 層
@@ -530,7 +532,7 @@ let EX = null;
 const costOf = base => Math.round(base * (1 + 0.35 * (EN.stage - 1)));
 function exDiff(depth) {
   const D = DIFFS.easy, L = depth * 0.6 + (EN.stage - 1) * 1.2;
-  return { ...D, dmg: D.dmg * (1 + 0.2 * L), hp: D.hp * (1 + 0.15 * L), rest: Math.max(1.2, D.rest - 0.12 * L), err: Math.max(0.05, D.err - 0.02 * L) };
+  return { ...D, dmg: D.dmg * (1 + 0.2 * L), hp: D.hp * (1 + 0.15 * L) * (EN.heavy ? HEAVY.enemyHpK : 1), rest: Math.max(1.2, D.rest - 0.12 * L), err: Math.max(0.05, D.err - 0.02 * L) };
 }
 const PLAYER_WEAPONS = Object.keys(WEAPONS).filter(k => !WEAPONS[k].low);
 // stage > 1：直接從那關開始（測試 / 選關用）：空的掛點補隨機武器（最多 2 把）、每跳過一關 2 個隨機強化模組和 30 零件
@@ -564,12 +566,13 @@ function startStage(seed) {
   const zones = map.zones.map((Z, k) => ({ ...Z, squads: [pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R, map.terrain), pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R, map.terrain)], reinforce: !EN.heavy && k !== map.startZ && Z.depth >= 2 && R() < 0.35, n: 0 }));
   const squads = map.sites.map(S => {
     const Z = zones[S.zone], key = Z.squads[Z.n++ % 2], D = SQUADS[key];
-    const units = D.units.slice(0, 3);   // 每隊最多 3 台（深處也不加人）
+    const units = D.units.slice(0, EN.heavy ? HEAVY.squadMax : 3);   // 每隊最多 3 台（深處也不加人；重火力測試 2 台）
     return { ...S, layer: S.layer ?? 0, key, name: D.name, units: units.map(k => ({ key: k, hp: null, dead: false })), members: [], awake: false, found: false, cleared: false, hold: D.hold ?? 0, patrol: !!D.patrol, wp: 0, legT: 0,
       entry: !D.hold && !D.patrol && R() < DROP_CHANCE && units.every(k => canEnter(k, 'drop')) ? 'drop' : 'spread' };   // 登場方式：散開站著 / 玩家靠近才整隊空投
   });
   for (const S of squads) if (S.hold) fortify(map.layers[S.layer], map.W, map.H, S, R);
   resetWorld(map);
+  if (EN.heavy) applyHeavy();   // 要在玩家、敵人生出來之前（彈藥量在 makeGuns 時決定）
   MODE.name = 'explore';
   AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.easy;
   spawnRunPlayer(map.spawn.x, map.spawn.z, Math.PI / 2);
@@ -659,6 +662,7 @@ function spawnUnit(S, u, i, at, drop) {
   const e = spawnEnemy(look, P, at, { team: facTeam(P), colors: GRUNT_COLORS, diff: exDiff(S.depth), grunt: true, noDrop: !drop });
   e.dormant = !S.awake; e.squad = S; e.unit = u; e.enElite = u.key.endsWith('*'); e.lvl = S.depth; e.fixed = !!P.fixed;
   e.chase = chaseOf(e);
+  if (EN.heavy && e.ai.want >= 6) e.ai.want *= HEAVY.wantK;   // 重火力測試：射擊型站遠一點打
   if (S.hold) e.hold = { x: S.x, z: S.z, r: S.hold };
   e.slot = i;
   if (u.hp != null) { e.parts.torso.hp = Math.min(u.hp, e.parts.torso.max); syncWear(e, 'torso', 0, 0, true); }
