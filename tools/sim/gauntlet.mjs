@@ -1,5 +1,5 @@
 // ---------- 雜魚關卡（狼群測試） ----------
-// 一台參賽作品（配裝 + 大腦）打 5 組雜魚包（跟遊戲觀戰「AI vs 雜魚」同一組，main.js BRAIN_PACKS），每組 n 場，印勝率
+// 一台參賽作品（配裝 + 大腦）打幾組雜魚包，每組 n 場，印勝率；--packs ace = 遊戲觀戰「王牌 vs 雜魚包」那份（main.js ACE_PACKS），不加是第三階段當時的舊清單
 // node --import ./tools/sim/register.mjs tools/sim/gauntlet.mjs --entry <名字> [--n 10] [--seed 1]
 //   <名字>：tools/sim/entries/<名字>/loadout.json + src/brains/<名字>.js；也可以 --a <配裝或預設機名字> --brain <大腦>
 //   門檻：總勝率 ≥ 80%（第三階段個性機體的規定）
