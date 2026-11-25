@@ -4,6 +4,7 @@
 //   已知敵人：看得到的 = 紅框；推估的（記憶裡的位置往王牌推）= 黃框，越淡越不確定
 //   出現點：看不到敵人時，推估最近那台會從哪裡冒出來 = 青色菱形（王牌預瞄那裡）
 //   撤退：要被包圍 / 站的地方太危險 → 綠線指向撤退點
+//   掩體：換血虧了要退去的點 = 白色方框（ai.js updateCover）
 //   包圍角度：王牌腳下一圈弧線，橘色那段 = 已知敵人圍住的角度（超過 120° 就開始撤）
 // 只看第一台有 e.ai.tac 的機體（觀戰的王牌、重火力測試的頭目）；每 0.2 秒重畫；關著完全不花效能
 import * as THREE from 'three';
@@ -69,6 +70,8 @@ export function updateTacView(dt) {
     for (const s of [-1, 1]) seg(T.retreat.x, T.retreat.z, T.retreat.x - Math.sin(a + s * 0.5) * 1.2, T.retreat.z - Math.cos(a + s * 0.5) * 1.2, 0x40ff70);
   }
   if (T.emerge) { const { x, z } = T.emerge, r = 0.9; seg(x - r, z, x, z - r, 0x40e0ff); seg(x, z - r, x + r, z, 0x40e0ff); seg(x + r, z, x, z + r, 0x40e0ff); seg(x, z + r, x - r, z, 0x40e0ff); seg(ace.x, ace.z, x, z, 0x206070); }
+  const CV = ace.ai.cover;   // 減員紀律：退去的掩體（白色方框 + 虛線）
+  if (CV) { const { x, z } = CV, r = 0.8; seg(x - r, z - r, x + r, z - r, 0xffffff); seg(x + r, z - r, x + r, z + r, 0xffffff); seg(x + r, z + r, x - r, z + r, 0xffffff); seg(x - r, z + r, x - r, z - r, 0xffffff); seg(ace.x, ace.z, x, z, 0x909090); }
   lines.geometry.dispose();
   lines.geometry = new THREE.BufferGeometry();
   lines.geometry.setAttribute('position', new THREE.Float32BufferAttribute(P, 3));

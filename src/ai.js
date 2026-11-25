@@ -41,7 +41,7 @@ export const AI = { passive: false, count: 2, diff: DIFFS.normal, sandbox: false
 //   ace：王牌（非雜魚、沒有大腦）用新戰術（aceTarget / kiteFrom / pickSpot 的曝光扣分 / 看不到目標時照路走）
 //   memory：感知與最後已知位置（REALISM_REPORT A2）：看不到目標時不再全知，去最後看到 / 聽到的地方、預瞄那邊、到了搜索，跟丟才慢慢掃過去
 //   spotter：迫擊砲要有觀測者（A1）：有隊友看得到才照實際位置打（第一發偏 3.5 格、同一個觀測者持續看著每發 ×0.55），沒人看到就打記憶裡的位置（偏更多）
-export const AI_TUNE = { gruntErrK: 1, gruntRestK: 1, gruntChassis: false, wantK: 1, indirectWant: 0, leadReal: false, ace: false, memory: false, spotter: false, aware: false };   // aware：王牌的戰場意識（aceAware）
+export const AI_TUNE = { gruntErrK: 1, gruntRestK: 1, gruntChassis: false, wantK: 1, indirectWant: 0, leadReal: false, ace: false, memory: false, spotter: false, aware: false, discipline: false };   // aware：王牌的戰場意識（aceAware）；discipline：武器 / 推進 / 減員紀律（見「紀律」那段）
 const gruntHpK = P => !AI_TUNE.gruntChassis ? 1 : P.fly || P.legs === 'hover' ? 0.8 : P.legs === 'tread' ? 1.3 : 1;
 const DROP_TIME = 1.1, DROP_H = 16;
 const RING_GEO = new THREE.RingGeometry(0.8, 0.95, 36);
@@ -76,6 +76,8 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   if (P.bomber || P.charger || P.swarm || P.melee) e.ai.want = 0;
   if (P.fly && !P.swarm) e.ai.want = 9;
   if (P.vehicle) { e.vehicle = true; e.trackHp = e.parts.torso.max * 0.35; }   // 載具：履帶耐久（mech.js hitMech）
+  // 紀律（新數值王牌）：霰彈槍配背部火箭 / 飛彈 / 加農砲的，主力是背上那把 → 站中距離打，霰彈槍留給貼上來的（以前當近戰型，每 4～8 秒往目標噴）
+  if (AI_TUNE.discipline && !opts.grunt && e.ai.want === 3 && has('shotgun') && !has('saber') && !has('pile') && !has('flamer') && ['backL', 'backR'].some(s => ['rocket', 'missile', 'split', 'vmissile', 'cannon'].includes(P[s]))) e.ai.want = 8;
   if (AI_TUNE.wantK !== 1 && e.ai.want >= 6) e.ai.want *= AI_TUNE.wantK;
   if (AI_TUNE.indirectWant && Object.values(e.guns).some(g => g.def.indirect)) e.ai.want = AI_TUNE.indirectWant;
   if (P.scout) e.ai.want = 16;   // 偵察無人機：站遠看著（迫擊砲的觀測者）
@@ -188,7 +190,8 @@ export function updateEnemy(e, dt, player) {
   if (e.brain && brainHook.run) { brainHook.run(e, dt, player); return; }
   const tac = (AI_TUNE.ace === true || AI_TUNE.ace === e.team) && !e.grunt;   // 新數值的王牌戰術（ace 也可以是隊伍名字：只給那一隊用，模擬比較新舊戰術用）
   if (tac) { if (AI_TUNE.aware) aceAware(e, dt); player = aceTarget(e, player, dt); }   // 戰場意識（已知 / 推估的敵人、威脅、包圍、出現點）
-  const A = e.ai, DF = e.diff ?? AI.diff;
+  const A = e.ai, DF = e.diff ?? AI.diff, disc = tac && AI_TUNE.discipline;
+  if (disc) trackPain(e, dt);
   const dx = player.x - e.x, dz = player.z - e.z, dist = Math.hypot(dx, dz) || 1;
   const nx = dx / dist, nz = dz / dist;
   const los = rayBlock(e.x, e.z, nx, nz, dist) >= dist - 0.9 && !smokeBlocks(e.x, e.z, player.x, player.z);   // 煙霧彈：看不穿
@@ -226,6 +229,7 @@ export function updateEnemy(e, dt, player) {
   const indR = AI_TUNE.spotter && !e.fixed ? Object.values(e.guns).reduce((r, g) => g.def.indirect ? Math.max(r, reachOf(g.def)) : r, 0) : 0;   // 有迫擊砲的：射程
   const W = tac && AI_TUNE.aware ? A.tac : null;
   const AM = W && ranged && !e.fixed ? W.mel : null;
+  if (disc && ranged && !e.fixed) updateCover(e, dt, player, los);
   if (!player.alive) { mx = 0; mz = 0; }
   else if (AM && AM.d < 9) {
     // 反近戰（遠程王牌）：近戰型衝過來 → 往側後方斜著退（直線後退跑不贏），選比較空、離其他敵人遠的那一側；
@@ -241,12 +245,19 @@ export function updateEnemy(e, dt, player) {
     const R = W.retreat, rx = R.x - e.x, rz = R.z - e.z, rd = Math.hypot(rx, rz) || 1;
     const f = (!e.fly && rd > 1.5 && routeDir(`r${e.id}`, G.now, e.x, e.z, R.x, R.z)) || { x: rx / rd, z: rz / rd };
     mx = f.x; mz = f.z; A.spot = null;
-    if (W.n >= 3 || W.spread > 2.7) A.reposition = Math.min(A.reposition, 0);
+    if (W.n >= 3 || W.spread > 2.7) { A.reposition = Math.min(A.reposition, 0); A.urgent = true; }
+  }
+  else if (disc && A.cover && !e.fixed) {
+    // 減員紀律：這一輪換血虧了 / 血少還在挨打 → 退到看不到目標的掩體喘一下，時間到再探頭（updateCover）
+    const C = A.cover, cx = C.x - e.x, cz = C.z - e.z, cd = Math.hypot(cx, cz) || 1;
+    const f = cd > 1.2 ? ((!e.fly && cd > 2 && routeDir(`c${e.id}`, G.now, e.x, e.z, C.x, C.z)) || { x: cx / cd, z: cz / cd }) : null;
+    if (f) { mx = f.x; mz = f.z; } else { mx = 0; mz = 0; }
+    A.spot = null;
   }
   else if (tac && ranged && !e.fixed && (kite = kiteFrom(e))) {
     // 被包夾（近距離有兩台以上、或有近戰型貼上來）：往反方向退，順便左右晃；三台以上直接推進拉開
     mx = kite.x - kite.z * A.strafe * 0.3; mz = kite.z + kite.x * A.strafe * 0.3; A.spot = null;
-    if (kite.n >= 3) A.reposition = Math.min(A.reposition, 0);
+    if (kite.n >= 3) { A.reposition = Math.min(A.reposition, 0); A.urgent = true; }
   }
   else if (indR && dist > 6 && dist < indR) {
     // 迫擊砲（新數值）：射程內就躲在看不到目標的地方打，靠觀測者；看不到也不往目標走
@@ -336,7 +347,21 @@ export function updateEnemy(e, dt, player) {
     const f = PC.phase === 'dash' ? { x: PC.dx, z: PC.dz } : facing(player), ox = e.x - player.x, oz = e.z - player.z, t = ox * f.x + oz * f.z;
     if (t > 0 && t < 10 && Math.abs(ox * f.z - oz * f.x) < 1.6 && Math.random() < dt * 5) { boost = true; const side = ox * f.z - oz * f.x > 0 ? 1 : -1; bx = f.z * side; bz = -f.x * side; }
   }
-  if (A.reposition <= 0 && player.alive) { A.reposition = e.preset?.elite?.jumpy ? 1.8 + Math.random() * 2 : 4 + Math.random() * 4; boost = true; if (A.want <= 3 && dist > 4) { bx = nx; bz = nz; } }
+  if (A.reposition <= 0 && player.alive) {
+    A.reposition = e.preset?.elite?.jumpy ? 1.8 + Math.random() * 2 : 4 + Math.random() * 4;
+    if (disc && ranged) {
+      // 紀律：換位置的推進要有理由（被包圍 / 撤退、正在挨打、站的地方被兩台以上盯著）；
+      //   方向去掉往目標的分量（遠程機不往前噴），剩下太小就往橫的噴
+      const why = A.urgent || A.painK > 0.04 || (W ? W.here : exposure(e, player)) >= 2;
+      if (why) {
+        boost = true;
+        const fw = bx * nx + bz * nz;
+        if (fw > 0) { bx -= nx * fw; bz -= nz * fw; }
+        if (Math.hypot(bx, bz) < 0.3) { bx = -nz * A.strafe; bz = nx * A.strafe; }
+      }
+    } else { boost = true; if (A.want <= 3 && dist > 4) { bx = nx; bz = nz; } }
+  }
+  A.urgent = false;
   if (A.dodgeDir) { bx = A.dodgeDir.x; bz = A.dodgeDir.z; boost = true; A.dodgeDir = null; }   // 反近戰：往側面閃開突進
   if (boost && !DF.dodge && !(A.reposition > 3.9)) boost = false;
   if (e.fixed || Hd) boost = false;
@@ -345,6 +370,7 @@ export function updateEnemy(e, dt, player) {
     const d = Math.hypot(bx, bz) || 1, ux = bx / d, uz = bz / d;
     for (const [cx, cz] of [[ux, uz], [ux * 0.7 - uz * 0.7, uz * 0.7 + ux * 0.7], [ux * 0.7 + uz * 0.7, uz * 0.7 - ux * 0.7], [-ux, -uz]]) {
       const bd = boostDirOf(e, cx, cz), len = boostLen(e, bd.x, bd.z);
+      if (disc && ranged && closesOn(e, bd.x, bd.z, W, player)) continue;   // 紀律：遠程機不往任何一台（理想距離 + 4 格內的）敵人噴
       if (clearAhead(e, bd.x, bd.z, len) >= len) { if (tryBoost(e, cx, cz)) A.lastBoost = { x: e.x, z: e.z, len, t: G.now }; break; }
     }
   }
@@ -358,7 +384,7 @@ export function updateEnemy(e, dt, player) {
   // 鎖定玩家（給飛彈用）：在範圍內、看得到就慢慢鎖上
   const H = headStats(e);   // 頭受損鎖定也會變差（sensors.js）
   if (e.lockBreak) { A.lockT = 0; e.lockBreak = false; }   // 失衡：鎖定被打斷
-  updateReadyChoice(e, dt, dist, canShoot, player);
+  updateReadyChoice(e, dt, dist, canShoot, player, disc);
   // 長距鎖定頭：隔著牆也能鎖；頭被打掉還是能鎖（距離短、慢）
   const lockable = player.alive && !AI.passive && (los || (H.radarLock && !smokeBlocks(e.x, e.z, player.x, player.z)));
   A.lockT = lockable && wantsLock(e) && dist < H.lockRange && !(G.now < (e.relockUntil ?? 0)) ? A.lockT + dt / (los ? 1 : BAL.wallLockK) : Math.max(0, A.lockT - dt * 2);   // 隔牆鎖得慢（BAL.wallLockK）
@@ -409,6 +435,8 @@ export function updateEnemy(e, dt, player) {
       else A.snipeT = Math.max(0, A.snipeT - dt);
     } else if (d.interval >= 1) t = onTarget && inRange && Math.random() < dt * 1.2 / DF.rest;
     else t = A.burst > 0 && onTarget && inRange;
+    // 紀律：彈藥少的無導引武器（火箭、加農砲、霰彈）命中機會太低就先不打，留到打得中再打
+    if (t && disc && d.ammo && d.ammo <= 60 && !GUIDED.has(d.kind) && !d.indirect && hitEst(e, d, player, dist) < 0.3) t = false;
     trig[side] = t;
   }
   // 連續一陣子所有武器都被擋 → 移動時去讓出射線
@@ -442,7 +470,7 @@ function backUseful(e, slot, d, dist, canShoot, head, tgt) {
   if (d.kind === 'vmissile') return dist > 5 && dist < head.lockRange;
   return dist < reachOf(d);
 }
-function updateReadyChoice(e, dt, dist, canShoot, tgt) {
+function updateReadyChoice(e, dt, dist, canShoot, tgt, disc = false) {
   const A = e.ai;
   for (const side of ['L', 'R']) {
     const back = e.guns['back' + side], arm = e.guns['arm' + side];
@@ -450,6 +478,18 @@ function updateReadyChoice(e, dt, dist, canShoot, tgt) {
     if (e.deployT[side] > 0) continue;
     const melee = (arm.def.kind === 'saber' || arm.def.kind === 'pile') && dist < 5 || arm.def.kind === 'lance' && dist < 9;
     if (e.ready[side] && melee) { toggleReady(e, side); A.hold[side] = 1.5; continue; }
+    if (disc) {
+      // 紀律：照「這把現在打出去的期望傷害」選（weaponScore），另一把要明顯比較好（×1.6）才換；
+      //   換了至少用 4 秒；正在鎖定的飛彈不收；盾牌那一邊不換（盾牌不能收）
+      if (arm.def.kind === 'shield' || melee) continue;
+      A.commit ??= { L: 0, R: 0 };
+      if ((A.commit[side] -= dt) > 0) continue;
+      const on = e.ready[side], cs = on ? 'back' + side : 'arm' + side, as = on ? 'arm' + side : 'back' + side;
+      const sc = weaponScore(e, cs, dist, canShoot, tgt), sa = weaponScore(e, as, dist, canShoot, tgt);
+      if (sc > 0 && GUIDED.has(e.guns[cs].def.kind) && A.lockT > 0.15) continue;
+      if (sa > sc * 1.6 + 1 && toggleReady(e, side)) A.commit[side] = 4;
+      continue;
+    }
     if ((A.hold[side] -= dt) > 0) continue;
     const useful = back.ammo > 0 && backUseful(e, 'back' + side, back.def, dist, canShoot, headStats(e), tgt);
     if (!e.ready[side]) {
@@ -530,12 +570,67 @@ function aceTarget(e, cur, dt) {
   for (const o of H) {
     const d = Math.hypot(o.x - e.x, o.z - e.z), hpK = o.parts.torso.hp / o.parts.torso.max;
     let s = d - (sees(e, o) ? 8 : 0) - (1 - hpK) * 6 - (o === A.tgt ? 3 : 0);
+    // 減員紀律：殘血的權重加倍、現在的目標更黏（快打死的那台不換）→ 一台一台收掉，不要每台都打一半
+    if (AI_TUNE.discipline) s -= (1 - hpK) * 8 + (o === A.tgt ? 3 + (hpK < 0.45 ? 8 : 0) : 0);
     if (!melee && d < 9 && foeInfo(o).melee) s -= 6;   // 貼上來的近戰型先處理
     if (melee) for (const q of H) if (q !== o && Math.hypot(q.x - o.x, q.z - o.z) < 6) s += 4;
     if (s < bs) { bs = s; best = o; }
   }
   return A.tgt = best;
 }
+// ---------- 紀律（AI_TUNE.discipline，新數值的王牌）----------
+// 武器：hitEst 估這一發打不打得中（散布 × 距離、目標橫移 × 飛行時間；導引武器當 0.8）；
+//   weaponScore = 每秒傷害 × 命中 × 彈藥餘量（剩越少越省著用）；打不到 / 射線被擋 = 0
+// 減員：trackPain 記最近 2.5 秒吃了多少傷害（painK = 佔全身耐久的比例）；updateCover 換血虧了就退去掩體
+const GUIDED = new Set(['missile', 'split', 'vmissile']);
+const MELEE_K = new Set(['saber', 'pile', 'lance', 'stream', 'flame', 'pulse']);
+function hitEst(e, d, tgt, dist) {
+  if (GUIDED.has(d.kind) || MELEE_K.has(d.kind) || d.indirect) return 0.8;
+  const spd = d.maxSpeed ? (d.speed + d.maxSpeed) / 2 : (d.speed ?? 30) * SHOT_TUNE.enemy;
+  const ux = (tgt.x - e.x) / dist, uz = (tgt.z - e.z) / dist, lat = Math.abs((tgt.vx ?? 0) * uz - (tgt.vz ?? 0) * ux);
+  const miss = (d.spread ?? 0) * dist + lat * dist / spd * 0.35 + 0.05;
+  return Math.min(1, ((tgt.r ?? 1) + 0.3 + (d.splash ?? 0) * 0.6) / miss);
+}
+function weaponScore(e, slot, dist, canShoot, tgt) {
+  const g = e.guns[slot];
+  if (!g || slotBroken(e, slot) || g.ammo <= 0) return 0;
+  const d = g.def, H = headStats(e);
+  if (d.kind === 'shield' || d.kind === 'module') return 0;
+  const reach = GUIDED.has(d.kind) ? H.lockRange : reachOf(d);
+  if (dist > reach || d.kind === 'vmissile' && dist < 6) return 0;
+  if (!(d.kind === 'vmissile' && H.radarLock) && !d.indirect && (!canShoot || !lineClear(e, slot, d, tgt))) return 0;
+  const dmg = d.kind === 'lance' ? d.dmgMax : d.dmg * (d.pellets || 1) * (d.salvo || 1) * (d.bomblets || 1);
+  const ammoK = g.max === Infinity ? 1 : 0.55 + 0.45 * Math.min(1, g.ammo / g.max);
+  return dmg / (d.interval || 1) * hitEst(e, d, tgt, dist) * ammoK;
+}
+// 往 (ux, uz) 噴會不會衝向敵人：已知看得到的敵人（沒有戰場意識就只看目標）在理想距離 + 4 格內、方向夾角 60° 內
+function closesOn(e, ux, uz, W, tgt) {
+  const L = W ? W.foes.filter(f => f.vis).map(f => f.m) : [tgt], lim = e.ai.want + 4;
+  for (const o of L) { const dx = o.x - e.x, dz = o.z - e.z, d = Math.hypot(dx, dz) || 1; if (d < lim && (dx * ux + dz * uz) / d > 0.5) return true; }
+  return false;
+}
+function trackPain(e, dt) {
+  const A = e.ai;
+  let hp = 0, max = 0;
+  for (const p of Object.values(e.parts)) { hp += Math.max(0, p.hp); max += p.max; }
+  A.pain = (A.pain ?? 0) * Math.exp(-dt / 2.5) + Math.max(0, (A.hpPrev ?? hp) - hp);
+  A.hpPrev = hp; A.painK = A.pain / (max || 1);
+}
+// 換血虧了（最近 2.5 秒吃掉全身 10% 以上、軀幹不到 75%）/ 軀幹不到 40% 還在挨打 → 找 9 格內看不到目標、威脅低的點躲 2～3.5 秒，
+//   之後冷卻 3 秒才會再躲（不會一直縮著）
+function updateCover(e, dt, tgt, los) {
+  const A = e.ai, T = e.parts.torso, hpK = T.hp / T.max;
+  A.coverCd = (A.coverCd ?? 0) - dt;
+  if (A.cover) { if ((A.cover.t -= dt) <= 0 || !tgt.alive) { A.cover = null; A.coverCd = 3; } return; }
+  if (!tgt.alive || !los || A.coverCd > 0) return;
+  if (!(A.painK > 0.1 && hpK < 0.75 || hpK < 0.4 && A.painK > 0.03)) return;
+  const s = pickSpot(e, tgt, true, A.want + 8), sx = s.x - e.x, sz = s.z - e.z, sd = Math.hypot(sx, sz);
+  const dx = tgt.x - s.x, dz = tgt.z - s.z, d = Math.hypot(dx, dz) || 1;
+  if (sd > 9 || sd < 1 || rayBlock(s.x, s.z, dx / d, dz / d, d) >= d - 1) { A.coverCd = 1; return; }   // 附近沒掩體：照打
+  A.cover = { x: s.x, z: s.z, t: hpK < 0.4 ? 3.5 : 2.2 };
+  if (sd > 4) { A.urgent = true; A.reposition = 0; }   // 掩體有點遠：推進過去
+}
+
 // ---------- 感知（AI_TUNE.memory）、迫擊砲觀測（AI_TUNE.spotter） ----------
 // 記憶：小隊共享（遠征的 e.squad），沒有小隊的照隊伍共享；{ 目標 id: { x, z, t } }
 const TEAM_MEM = {};
