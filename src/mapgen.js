@@ -3,14 +3,65 @@
 //   座標先用幾個正弦扭一下再算距離 → 邊界彎彎曲曲；離兩個種子差不多近的格子（在邊界上）就是岩壁（厚 4～8 格、打不壞）
 // 隘口：相鄰的區域（共用的岩壁夠長）先連成一棵樹（每個區域都走得到），再多開三成左右，讓路線有選擇
 // 每個區域一種地形主題，決定建築怎麼蓋：
-//   city 街區：棋盤格街道（路寬 6～7 格）、街廓裡 2～4 棟建築，視線短、轉角多
-//   open 荒野：荒地、幾塊岩石和泥地當掩體、零星建築，視線長
+//   city 街區：跟觀戰場地同一套（fillBlocks）：街道 3～4 格、街廓 7～13 格塞滿 1～4 層的建築、中間小巷，約一成半空地 / 一成廣場；
+//     視線短、轉角多、平行的街道多（雜魚小隊分路包抄、找掩體用）（2026-11-26 新數值：原本路寬 6～7 格、街廓裡只有 2～4 棟，太空曠）
+//   open 荒野：荒地、幾塊岩石和泥地當掩體、零星建築、幾處矮掩體群，視線長
 //   ruins 廢墟：一堆矮小的建築散落，中等視線
-//   plaza 廣場：中間一大片空地、外圍一圈建築
+//   plaza 廣場：中間一大片空地、外圍一圈建築，中間和外圈之間幾處矮掩體群
+//   矮掩體群（cover）：3～5 段 1 層樓的矮牆 / 箱子（打得壞、不擋迷霧），新數值的子彈快到躲不掉 → 空曠的區域也要有地方躲
 // 遭遇點：每個區域（出發區除外）2～4 個（看面積），離隘口和彼此有一段距離；離出發區越遠（要穿過幾個隘口）越難
 // 補給箱：大約七成的區域有一個（強化模組）、另外 4 個武器箱、3 個修復站、3 個彈藥補給站（傳送門附近另外保證一個，stagegen.js）；傳送門：最深的那一半區域裡挑一個
 // 回傳 { id, seed, W, H, grid, buildings: [[c, r, w, h, 樓層, 風格]], spawn, zones, zoneOf, sites, caches, portal, startZ }
 export const rng = seed => () => { seed |= 0; seed = seed + 0x6D2B79F5 | 0; let t = Math.imul(seed ^ seed >>> 15, 1 | seed); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
+
+// 街廓填建築（遠征的街區區域、觀戰場地 bigArena、genBlocks 共用）：cols / rows = [起點, 長度] 的街廓切線；near(c, r) = 不要當廣場的地方（出發點附近）
+// 每塊：約五分之一是廣場（零星 1～2 格矮房），其他沿長邊切成 3～6 格寬的幾棟（深的街廓前後分兩棟），中間 1～2 格小巷，一成多留空
+export function fillBlocks(R, cols, rows, addB, grid, near, plazaP = 0.2, skipP = 0.12) {
+  const ri = (a, b) => a + Math.floor(R() * (b - a + 1));
+  const blocks = [];
+  for (const [bc, bw] of cols) for (const [br, bh] of rows) {
+    const plaza = !near(bc + bw / 2, br + bh / 2) && R() < plazaP;
+    blocks.push({ c: bc, r: br, w: bw, h: bh, plaza });
+    if (plaza) {
+      const n = ri(2, 4);
+      for (let i = 0; i < n; i++) {
+        const w = ri(1, 2), h = ri(1, 2), c = ri(bc + 1, bc + bw - w - 1), r = ri(br + 1, br + bh - h - 1);
+        if (grid[r][c] === '.') addB(c, r, w, h, 1, ri(0, 2));
+      }
+      continue;
+    }
+    const along = bw >= bh;
+    const len = along ? bw : bh, side = along ? bh : bw;
+    let p = 0;
+    while (p < len) {
+      let L = Math.min(len - p, ri(3, 6));
+      if (len - p - L < 3) L = len - p;   // 剩下太短就併進這棟
+      const split = side >= 8 && R() < 0.5;
+      const parts = split ? [[0, Math.floor((side - 1) / 2)], [Math.floor((side - 1) / 2) + 1, side - Math.floor((side - 1) / 2) - 1]] : [[0, side]];
+      for (const [o, s] of parts) {
+        if (s < 2 || R() < skipP) continue;   // 留空（空地、停車場）
+        const f = R() < 0.15 ? 1 : R() < 0.5 ? 2 : R() < 0.7 ? 3 : 4, st = ri(0, 2);
+        if (along) addB(bc + p, br + o, L, s, f, st); else addB(bc + o, br + p, s, L, f, st);
+      }
+      p += L + ri(1, 2);   // 1～2 格小巷
+    }
+  }
+  return blocks;
+}
+// 街道切線：from 起、到 to 為止（最後一塊貼著 to）；街道 s0～s1 格、街廓 7～13 格 → [起點, 長度] 的清單
+export function streetCuts(R, from, to, s0 = 4, s1 = 5, flush = false) {
+  const ri = (a, b) => a + Math.floor(R() * (b - a + 1));
+  const out = [];
+  let p = from + ri(s0, s1);
+  while (p <= to - 4) {
+    const L = Math.min(ri(7, 13), to - p);   // 最後一塊貼到 to（大道 / 邊牆旁邊）
+    if (L < 4) break;
+    out.push([p, L]);
+    p += L + ri(s0, s1);
+  }
+  if (flush && out.length) { const q = out[out.length - 1]; q[1] = to - q[0]; }   // flush：最後一塊一直延伸到 to（貼著大道，中間不留一大片空地）
+  return out;
+}
 
 export const THEMES = { city: '街區', open: '荒野', ruins: '廢墟', plaza: '廣場', chasm: '崩塌區', under: '地下' };
 
@@ -143,6 +194,15 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 312, H = 
       }
     });
   };
+  // 矮掩體群：(cx, cy) 周圍 4 格內 3～5 段 1 層樓的矮牆（1 × 2 / 2 × 1 / 1 × 1），彼此至少隔 1 格（走得過去）、離隘口遠一點
+  const cover = (cx, cy, k, st) => {
+    if (nearPass(cx, cy, 12)) return;
+    for (let q = 0, n = ri(3, 5); q < 24 && n > 0; q++) {
+      const a = rand() * Math.PI * 2, d = 1.5 + rand() * 3, s = ri(0, 2), w = s === 1 ? 2 : 1, h = s === 2 ? 2 : 1;
+      const x = Math.round(cx + Math.cos(a) * d), y = Math.round(cy + Math.sin(a) * d);
+      if (free(x, y, w, h, 1, k)) { addB(x, y, w, h, 1, st); n--; }
+    }
+  };
   const rndIn = (k, m = 10) => { const B = box[k]; for (let t = 0; t < 200; t++) { const c = ri(B.c0, B.c1), r = ri(B.r0, B.r1); if (inZone(c, r, k, m)) return [c, r]; } return [Math.round(seeds[k].c), Math.round(seeds[k].r)]; };
 
   for (let k = 0; k < NZ; k++) {
@@ -150,21 +210,10 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 312, H = 
     // 地面：荒野、廢墟是荒地，街區、廣場是混凝土
     if (th === 'open' || th === 'ruins' || th === 'chasm') for (let r = B.r0; r <= B.r1; r++) for (let c = B.c0; c <= B.c1; c++) if (grid[r][c] === '.' && zoneOf[r * W + c] === k) grid[r][c] = 'd';
     if (th === 'city') {
-      // 棋盤格：街廓 9～13 格、路寬 6～7 格；每個街廓裡 2～4 棟，只蓋在這個區域裡面
-      let r = B.r0 + ri(2, 6);
-      while (r < B.r1 - 6) {
-        const bh = ri(9, 13); let c = B.c0 + ri(2, 6);
-        while (c < B.c1 - 6) {
-          const bw = ri(9, 13);
-          let n = ri(2, 4);
-          for (let q = 0; q < 24 && buildings.length < 2000; q++) {
-            const w = ri(2, 5), h = ri(2, 5), x = c + ri(0, Math.max(0, bw - w)), y = r + ri(0, Math.max(0, bh - h));
-            if (free(x, y, w, h, 1, k)) { addB(x, y, w, h, ri(1, 4), rand() < 0.8 ? style : ri(0, 2)); if (--n <= 0) break; }
-          }
-          c += bw + ri(6, 7);
-        }
-        r += bh + ri(6, 7);
-      }
+      // 街區（fillBlocks）：只蓋在這個區域裡面（離邊界 5 格以上）、不擋隘口；蓋不下的那棟直接不蓋（貼著岩壁那圈變成空地）
+      //   外圍 1 格不能是岩壁 / 懸崖（貼著岩壁的話旁邊走不過去）；建築之間的小巷由 fillBlocks 自己留
+      const fits = (c0, r0, w, h) => { for (let r = r0 - 1; r < r0 + h + 1; r++) for (let c = c0 - 1; c < c0 + w + 1; c++) { const t = grid[r]?.[c], body = r >= r0 && r < r0 + h && c >= c0 && c < c0 + w; if (t === undefined || t === '#' || t === 'v' || (body && t === 'B') || !inZone(c, r, k, 5)) return false; } return !nearPass(c0 + w / 2, r0 + h / 2, 10); };
+      fillBlocks(rand, streetCuts(rand, B.c0, B.c1, 3, 4), streetCuts(rand, B.r0, B.r1, 3, 4), (c, r, w, h, f, st) => { if (buildings.length < 4000 && fits(c, r, w, h)) addB(c, r, w, h, f, rand() < 0.8 ? style : st); }, grid, () => false, 0.1, 0.15);
     } else if (th === 'ruins') {
       const want = Math.round(B.area / 260);
       for (let q = 0, n = 0; q < 300 && n < want; q++) {
@@ -181,6 +230,7 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 312, H = 
       }
       // 廣場中間幾塊低矮掩體（岩塊）
       for (let q = 0; q < 4; q++) { const a = q * Math.PI / 2 + rand(), d = ri(5, 9); blob(Math.round(cx + Math.cos(a) * d), Math.round(cy + Math.sin(a) * d), 1.2, '#', k); }
+      for (let q = 0; q < 5; q++) { const a = rand() * Math.PI * 2, d = ri(10, 14); cover(Math.round(cx + Math.cos(a) * d), Math.round(cy + Math.sin(a) * d), k, style); }
     } else if (th === 'chasm') {
       // 崩塌區：兩三個大坑 + 一條裂谷（不會整個切斷區域，連不到的角落最後會被填平），零星矮建築和岩塊
       for (let q = 0, n = ri(2, 3); q < n; q++) { const [x, y] = rndIn(k, 14); pit(x, y, ri(6, 10), k); }
@@ -191,11 +241,13 @@ export function genWorld(seed = Math.floor(Math.random() * 1e9), { W = 312, H = 
         } }); }
       for (let q = 0; q < 3; q++) { const [x, y] = rndIn(k); if (!nearPass(x, y, 12)) blob(x, y, 1 + rand() * 1.5, '#', k); }
       for (let q = 0, m = 0, want = ri(3, 5); q < 120 && m < want; q++) { const w = ri(2, 3), h = ri(2, 3), [x, y] = rndIn(k, 8); if (free(x, y, w, h, 3, k)) { addB(x, y, w, h, 1, style); m++; } }
+      for (let q = 0, n = Math.round(B.area / 900); q < n; q++) { const [x, y] = rndIn(k, 9); cover(x, y, k, style); }
     } else {
       const n = Math.round(B.area / 450);
       for (let q = 0; q < n; q++) { const [x, y] = rndIn(k); if (!nearPass(x, y, 12)) blob(x, y, 1 + rand() * 1.8, '#', k); }
       for (let q = 0; q < ri(2, 4); q++) { const [x, y] = rndIn(k); blob(x, y, ri(3, 6), 'm', k); }
       for (let q = 0, m = 0, want = ri(2, 4); q < 80 && m < want; q++) { const w = ri(2, 3), h = ri(2, 3), [x, y] = rndIn(k); if (free(x, y, w, h, 4, k)) { addB(x, y, w, h, ri(1, 2), style); m++; } }
+      for (let q = 0, n = Math.round(B.area / 650); q < n; q++) { const [x, y] = rndIn(k, 9); cover(x, y, k, style); }
     }
   }
 

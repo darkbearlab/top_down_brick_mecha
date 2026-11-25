@@ -3,7 +3,7 @@
 // 外圍一圈打不壞的牆；裡面的建築全部可以打爛（buildings.js）
 // 輸出格式跟 stagegen.js 的 genStage 一樣（layers、zones、sites、caches、portal、spawn），走遠征模式同一套流程
 // 區域（zones）：把地圖切成 3 × 2 塊，離出發點越遠 depth 越高；每個區域放幾支小隊（sites）
-import { rng } from './mapgen.js';
+import { fillBlocks, rng, streetCuts } from './mapgen.js';
 
 export function genBlocks(seed = Math.floor(Math.random() * 1e9), { W = 96, H = 72 } = {}) {
   const R = rng(seed * 5 + 77), BORDER = 2;
@@ -70,55 +70,6 @@ export function genBlocks(seed = Math.floor(Math.random() * 1e9), { W = 96, H = 
     spawn: { x: toX(spawnC), z: toZ(spawnR), layer: 0 },
     layers: [{ name: '街區', grid, buildings, deep, zoneOf }],
   };
-}
-
-// 街廓填建築（genBlocks、bigArena 共用）：cols / rows = [起點, 長度] 的街廓切線；near(c, r) = 不要當廣場的地方（出發點附近）
-// 每塊：約五分之一是廣場（零星 1～2 格矮房），其他沿長邊切成 3～6 格寬的幾棟（深的街廓前後分兩棟），中間 1～2 格小巷，一成多留空
-function fillBlocks(R, cols, rows, addB, grid, near, plazaP = 0.2, skipP = 0.12) {
-  const ri = (a, b) => a + Math.floor(R() * (b - a + 1));
-  const blocks = [];
-  for (const [bc, bw] of cols) for (const [br, bh] of rows) {
-    const plaza = !near(bc + bw / 2, br + bh / 2) && R() < plazaP;
-    blocks.push({ c: bc, r: br, w: bw, h: bh, plaza });
-    if (plaza) {
-      const n = ri(2, 4);
-      for (let i = 0; i < n; i++) {
-        const w = ri(1, 2), h = ri(1, 2), c = ri(bc + 1, bc + bw - w - 1), r = ri(br + 1, br + bh - h - 1);
-        if (grid[r][c] === '.') addB(c, r, w, h, 1, ri(0, 2));
-      }
-      continue;
-    }
-    const along = bw >= bh;
-    const len = along ? bw : bh, side = along ? bh : bw;
-    let p = 0;
-    while (p < len) {
-      let L = Math.min(len - p, ri(3, 6));
-      if (len - p - L < 3) L = len - p;   // 剩下太短就併進這棟
-      const split = side >= 8 && R() < 0.5;
-      const parts = split ? [[0, Math.floor((side - 1) / 2)], [Math.floor((side - 1) / 2) + 1, side - Math.floor((side - 1) / 2) - 1]] : [[0, side]];
-      for (const [o, s] of parts) {
-        if (s < 2 || R() < skipP) continue;   // 留空（空地、停車場）
-        const f = R() < 0.15 ? 1 : R() < 0.5 ? 2 : R() < 0.7 ? 3 : 4, st = ri(0, 2);
-        if (along) addB(bc + p, br + o, L, s, f, st); else addB(bc + o, br + p, s, L, f, st);
-      }
-      p += L + ri(1, 2);   // 1～2 格小巷
-    }
-  }
-  return blocks;
-}
-// 街道切線：from 起、到 to 為止（最後一塊貼著 to）；街道 s0～s1 格、街廓 7～13 格 → [起點, 長度] 的清單
-function streetCuts(R, from, to, s0 = 4, s1 = 5, flush = false) {
-  const ri = (a, b) => a + Math.floor(R() * (b - a + 1));
-  const out = [];
-  let p = from + ri(s0, s1);
-  while (p <= to - 4) {
-    const L = Math.min(ri(7, 13), to - p);   // 最後一塊貼到 to（大道 / 邊牆旁邊）
-    if (L < 4) break;
-    out.push([p, L]);
-    p += L + ri(s0, s1);
-  }
-  if (flush && out.length) { const q = out[out.length - 1]; q[1] = to - q[0]; }   // flush：最後一塊一直延伸到 to（貼著大道，中間不留一大片空地）
-  return out;
 }
 
 // ---------- 觀戰場地（新數值用）：96 × 72，街區、點對稱 ----------
