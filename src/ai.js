@@ -527,13 +527,11 @@ function boostLen(e, ux, uz) {
 function laneGoal(e, T, dist, nx, nz) {
   const A = e.ai;
   if (!AI_TUNE.gruntLanes || !e.grunt || e.fixed || dist < 12) return null;
-  if (A.lane === undefined) {
-    A.mates = enemies.filter(o => o.alive && o.grunt && o.team === e.team && (e.squad ? o.squad === e.squad : A.flank != null && o.ai?.flank === A.flank)).sort((a, b) => a.id - b.id);
-    A.lane = A.mates.length > 1 ? A.mates.indexOf(e) - (A.mates.length - 1) / 2 : 0;
-  }
-  if (!A.lane) return null;
-  const live = A.mates.filter(o => o.alive);
+  // 同伴每次重新數（遠征的空投小隊一台一台降、有人陣亡 → 分路跟著重排）：遠征照 e.squad.members，觀戰 / 模擬照集結點 flank
+  const live = (e.squad?.members ?? enemies.filter(o => o.grunt && o.team === e.team && A.flank != null && o.ai?.flank === A.flank)).filter(o => o.alive && !o.drop && !o.dormant).sort((a, b) => a.id - b.id);
   if (live.length < 2) return null;
+  A.lane = live.indexOf(e) - (live.length - 1) / 2;
+  if (!A.lane) return null;
   let cx = 0, cz = 0;
   for (const o of live) { cx += o.x / live.length; cz += o.z / live.length; }
   const dC = Math.hypot(cx - T.x, cz - T.z);
@@ -589,6 +587,7 @@ const sees = (e, o) => { const dx = o.x - e.x, dz = o.z - e.z, d = Math.hypot(dx
 // 挑目標（每 0.35 秒）：近的、看得到的、快死的優先；近戰型避開擠在一起的（不衝進一群裡）；現在的目標有 3 格優勢
 function aceTarget(e, cur, dt) {
   const A = e.ai;
+  if (e.boss) return cur;   // 遠征頭目：只打玩家（pickFoes 決定）
   if ((A.tgtT = (A.tgtT ?? 0) - dt) > 0 && A.tgt?.alive && !A.tgt.drop) return A.tgt;
   A.tgtT = 0.35;
   const H = hostilesOf(e);
@@ -691,6 +690,7 @@ function recall(e, tgt, dist, dt) {
     }
   }
   const Q = e.squad;
+  if (Q?.hunt && tgt.team === 'player') return { x: tgt.x, z: tgt.z };   // 遠征的增援：被叫來的，知道大概在哪 → 直接找過去
   if (Q && Q.x != null && tgt.team === 'player') return { x: Q.x, z: Q.z, slow: true, free: true };
   return { x: tgt.x, z: tgt.z, slow: true, free: true };
 }

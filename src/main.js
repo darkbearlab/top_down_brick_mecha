@@ -5,9 +5,9 @@ import { clearPressed, input, padUi, updateInput } from './input.js';
 import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayers, loadMap, mapId, randomOpenSpot, spreadPack, rayBlock, setLayer, tileC, tileR } from './arena.js';
 import { THEMES, rng } from './mapgen.js';
 import { TERRAINS, genStage, terrainOf } from './stagegen.js';
-import { bigArena, genBlocks } from './blockgen.js';
+import { bigArena } from './blockgen.js';
 import { updateTacView } from './tacview.js';
-import { HEAVY, applyHeavy, clearHeavy, heavyOn, packUnits, squadUnits } from './heavy.js';
+import { HEAVY, applyHeavy, clearHeavy, heavyOn, packUnits } from './heavy.js';
 import { flowDist, flyDist, updateFlow } from './pathing.js';
 import { addProp, clearProps, nearProp, props, removeProp, setPortal, setPropLayer, spendProp, updateProps } from './props.js';
 import { RADIUS, exploredAt, fogActive, fogOff, initFogLayers, setFogLayer, setHeightFog, updateFog, visibleAt } from './fog.js';
@@ -29,7 +29,7 @@ import { CHIPS, DEVICES, hasChip, smokeBlocks, techName } from './tech.js';
 import { clearDevices, deviceReady, updateDeviceCd, updateDevices, useDevice } from './devices.js';
 import { updateStatus } from './status.js';
 import { closeReasm, openReasm, reasmActive, renderReasm, updateReasm } from './reasm.js';
-import { ARMORS, DMG_TYPES, ELITES, ENEMY_PRESETS, NEW_ACES, GRUNTS, GRUNTS_LOW, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, SQUADS, WEAPONS, gruntOf, loadLoadout, pickSquad, randomGrunt, randomLoadout, canEnter, pickEntry, REINFORCE_ENTRIES } from './parts.js';
+import { ARMORS, DMG_TYPES, ELITES, ENEMY_PRESETS, NEW_ACES, GRUNTS, GRUNTS_LOW, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, SQUADS, WEAPONS, gruntOf, loadLoadout, pickSquad, pickSupport, randomGrunt, randomLoadout, canEnter, pickEntry, REINFORCE_ENTRIES } from './parts.js';
 import { clearPickups, pickups, restorePickups, spawnPickup, stashPickups, updatePickups } from './pickups.js';
 import { sensors, setSensorsVisible, updateSensors } from './sensors.js';
 import { closeGarage, garage, openGarage } from './garage.js';
@@ -577,7 +577,7 @@ let EX = null;
 const costOf = base => Math.round(base * (1 + 0.35 * (EN.stage - 1)));
 function exDiff(depth) {
   const D = DIFFS.easy, L = depth * 0.6 + (EN.stage - 1) * 1.2;
-  return { ...D, dmg: D.dmg * (1 + 0.2 * L), hp: D.hp * (1 + 0.15 * L) * (EN.heavy ? HEAVY.enemyHpK : 1), rest: Math.max(1.2, D.rest - 0.12 * L), err: Math.max(0.05, D.err - 0.02 * L) };
+  return { ...D, dmg: D.dmg * (1 + 0.2 * L), hp: D.hp * (1 + 0.15 * L), rest: Math.max(1.2, D.rest - 0.12 * L), err: Math.max(0.05, D.err - 0.02 * L) };
 }
 const PLAYER_WEAPONS = Object.keys(WEAPONS).filter(k => !WEAPONS[k].low);
 // stage > 1：直接從那關開始（測試 / 選關用）：空的掛點補隨機武器（最多 2 把）、每跳過一關 2 個隨機強化模組和 30 零件
@@ -595,35 +595,47 @@ function startRun(seed, stage = 1) {
   }
   startStage(seed);
 }
-// 重火力測試（docs/HEAVY_TEST_PLAN.md）：遠征的流程，地圖換成街區（blockgen.js）；沒有箱子、不叫增援
 // 觀戰一律用新數值（heavy.js）；切回舊數值的選項已經從觀戰選單撤掉（watchOld 留著，程式要用可以改）
 let watchOld = false;
 const watchNumbers = () => { if (!watchOld) applyHeavy(); };
 // 新數值的觀戰場地：96 × 72 的街區（blockgen.js bigArena，固定種子、點對稱）；舊數值用原本的 64 × 48 競技場
 const BIG_ARENA = bigArena();
 const watchMap = () => watchOld ? null : BIG_ARENA;
-function startHeavy(seed) {
-  EN = { t: 0, kills: 0, mods: {}, scrap: 0, stage: 1, explore: true, heavy: true, loadout: structuredClone(loadout), inv: [] };
-  startStage(seed);
-}
 function spawnRunPlayer(x, z, yaw) {
   spawnPlayer(x, z, yaw, EN.loadout);
   for (const [k, n] of Object.entries(EN.mods)) for (let i = 0; i < n; i++) MODS[k].apply(player);
 }
+// 遠征一律用新數值（2026-11-26，跟觀戰同一套：heavy.js）：挑小隊之前就要套上（小隊表、雜魚池都會被改），
+//   resetWorld 會先還原 → 之後再套一次（要在玩家、敵人生出來之前：彈藥量在 makeGuns 時決定）
 function startStage(seed) {
-  const map = EN.heavy ? genBlocks(seed) : genStage(seed, EN.stage, window.__dbg?.terrain);
+  applyHeavy();
+  const map = genStage(seed, EN.stage, window.__dbg?.terrain);
   // 每個區域：兩種駐軍輪流排、三成五是增援據點（出發區、第一圈除外）；用地圖的種子決定 → 同一張圖一樣
   const R = rng(map.seed * 7 + 13);
-  const zones = map.zones.map((Z, k) => ({ ...Z, squads: [pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R, map.terrain), pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R, map.terrain)], reinforce: !EN.heavy && k !== map.startZ && Z.depth >= 2 && R() < 0.35, n: 0 }));
-  const squads = map.sites.map(S => {
-    const Z = zones[S.zone], key = Z.squads[Z.n++ % 2], D = SQUADS[key];
-    const units = D.units.slice(0, EN.heavy ? HEAVY.squadMax : 3);   // 每隊最多 3 台（深處也不加人；重火力測試 2 台）
-    return { ...S, layer: S.layer ?? 0, key, name: D.name, units: units.map(k => ({ key: k, hp: null, dead: false })), members: [], awake: false, found: false, cleared: false, hold: D.hold ?? 0, patrol: !!D.patrol, wp: 0, legT: 0,
-      entry: !D.hold && !D.patrol && R() < DROP_CHANCE && units.every(k => canEnter(k, 'drop')) ? 'drop' : 'spread' };   // 登場方式：散開站著 / 玩家靠近才整隊空投
-  });
+  const zones = map.zones.map((Z, k) => ({ ...Z, squads: [pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R, map.terrain), pickSquad(Z.squadTheme ?? Z.theme, Z.depth, R, map.terrain)], reinforce: k !== map.startZ && Z.depth >= 2 && R() < 0.35, n: 0 }));
+  const mkSquad = (S, key, support = false) => {
+    const D = SQUADS[key], units = D.units.slice(0, HEAVY.packSquadMax);   // 每隊最多 3 台（深處也不加人；跟觀戰的雜魚包一樣）
+    return { ...S, layer: S.layer ?? 0, key, name: D.name, units: units.map(k => ({ key: k, hp: null, dead: false })), members: [], awake: false, found: false, cleared: false, hold: D.hold ?? 0, patrol: !support && !!D.patrol, wp: 0, legT: 0, link: [],
+      entry: !support && !D.hold && !D.patrol && R() < DROP_CHANCE && units.every(k => canEnter(k, 'drop')) ? 'drop' : 'spread' };   // 登場方式：散開站著 / 玩家靠近才整隊空投
+  };
+  const squads = map.sites.map(S => { const Z = zones[S.zone]; return mkSquad(S, Z.squads[Z.n++ % 2]); });
+  // 支援隊（SQUADS 的 support：砲擊陣地、狙擊組、突擊隊、旋停機隊）：單獨打不出傷害 → 不自己出現，
+  //   跟同區的一隊主力搭在一起（主力後面 9～14 格，背對出發點那一側），兩隊互相連動（一隊醒、另一隊也醒）
+  //   出發區、第一圈不放；越深越常有（第二圈 40%，每深一圈 +10%，最多 70%）
+  for (const [k, Z] of zones.entries()) {
+    if (k === map.startZ || Z.depth < 2 || R() > Math.min(0.7, 0.2 + 0.1 * Z.depth)) continue;
+    const mains = squads.filter(S => S.zone === k && !S.hold && !S.support);
+    if (!mains.length) continue;
+    const M = mains[Math.floor(R() * mains.length)], key = pickSupport(Z.squadTheme ?? Z.theme, Z.depth, R);
+    const at = key && supportSpot(map, M, R);
+    if (!at) continue;
+    const S = mkSquad({ ...M, ...at }, key, true);
+    S.support = true; S.link = [M]; M.link.push(S);
+    squads.push(S);
+  }
   for (const S of squads) if (S.hold) fortify(map.layers[S.layer], map.W, map.H, S, R);
   resetWorld(map);
-  if (EN.heavy) applyHeavy();   // 要在玩家、敵人生出來之前（彈藥量在 makeGuns 時決定）
+  applyHeavy();
   MODE.name = 'explore';
   AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.easy;
   spawnRunPlayer(map.spawn.x, map.spawn.z, Math.PI / 2);
@@ -657,6 +669,20 @@ function startStage(seed) {
   showHud();
   $('endless').classList.remove('hidden');
   toast(`第 ${EN.stage} 關・${TERRAINS[map.terrain]}・清除 ${EX.need} 支小隊後就能啟動傳送門`);
+}
+// 支援隊的位置：主力據點往「背對出發點」那一側 9～14 格（±50°），同一區、同一層、周圍 2 格都是空地（不是岩壁、懸崖、建築）
+function supportSpot(map, M, R) {
+  const L = map.layers[M.layer ?? 0], W = map.W, H = map.H, zoneOf = L.zoneOf ?? map.zoneOf;
+  const inB = (c, r) => L.buildings.some(([bc, br, bw, bh]) => c >= bc - 1 && c <= bc + bw && r >= br - 1 && r <= br + bh);
+  const free = (c, r) => { for (let y = r - 2; y <= r + 2; y++) for (let x = c - 2; x <= c + 2; x++) { if (x < 1 || y < 1 || x >= W - 1 || y >= H - 1) return false; const t = L.grid[y][x]; if (t === '#' || t === 'v') return false; } return !inB(c, r); };
+  const base = Math.atan2(M.z - map.spawn.z, M.x - map.spawn.x);
+  for (let t = 0; t < 60; t++) {
+    const a = base + (R() - 0.5) * 1.75, d = 9 + R() * 5, x = M.x + Math.cos(a) * d, z = M.z + Math.sin(a) * d;
+    const c = Math.floor(x + W / 2), r = Math.floor(z + H / 2);
+    if (c < 3 || r < 3 || c >= W - 3 || r >= H - 3 || (zoneOf && zoneOf[r * W + c] !== M.zone) || !free(c, r)) continue;
+    return { x, z, c, r };
+  }
+  return null;
 }
 // 守備據點的工事：據點周圍半徑 5 格一圈 6 段矮掩體（1 層樓的建築，打得壞），中間留缺口
 function fortify(L, W, H, S, R) {
@@ -758,7 +784,7 @@ function callReinforcements(groups, n, depth, pool) {
       if (openAround(x, z) && flowDist(x, z) < rad * 2) spot = { x, z };
     }
     if (!spot) continue;
-    const W = { wave: true, members: [], awake: true, x: spot.x, z: spot.z, depth, layer: EX.layer };
+    const W = { wave: true, hunt: true, members: [], awake: true, x: spot.x, z: spot.z, depth, layer: EX.layer };   // hunt：看不到也直接找玩家（ai.js recall）
     for (let i = 0; i < n; i++) {
       const key = pool[Math.floor(Math.random() * pool.length)], a = i / n * Math.PI * 2;
       const P = gruntOf(key), e = spawnEnemy(player, P, { x: spot.x + Math.sin(a) * 1.6, z: spot.z + Math.cos(a) * 1.6 }, { team: facTeam(P), colors: GRUNT_COLORS, diff: exDiff(depth), grunt: true });
@@ -785,6 +811,22 @@ function callFor(S) {
   S.called = true; Z.lastCall = EN.t;
   EX.pending.push({ t: 5, groups: 1 + (S.depth >= 3 ? 1 : 0), n: 2, depth: S.depth, pool: Z.squads.flatMap(k => SQUADS[k].units).filter(k => pickEntry(k, REINFORCE_ENTRIES)) });
 }
+// 小隊被玩家驚動：連動的支援隊 / 主力，和同區 ALERT_R 格內還在待命的小隊一起醒來（被玩家驚動），
+//   而且共享這隊對玩家的記憶（ai.js memOf 照小隊）→ 去最後知道的位置找、找不到就回據點（staleOn → 回到待命）
+const ALERT_R = 30;
+function alertNear(S) {
+  remember(S);
+  for (const O of EX.squads) {
+    if (O === S || O.cleared || O.layer !== S.layer || (O.awake && O.byPlayer !== false)) continue;
+    if (!S.link.includes(O) && !(O.zone === S.zone && Math.hypot(O.x - S.x, O.z - S.z) < ALERT_R)) continue;
+    O.awake = true; O.byPlayer = true; O.found ||= S.link.includes(O);
+    O.mem = { ...O.mem, [player.id]: { ...S.mem[player.id] } };
+    for (const e of O.members) if (e.alive) e.dormant = false;
+  }
+}
+// 這隊對玩家的記憶：醒來那一刻記下玩家位置；staleOn = 12 秒沒更新（跟丟了）
+function remember(S) { S.mem ??= {}; const r = S.mem[player.id]; if (!r || G.now - r.t > 0.5) S.mem[player.id] = { x: player.x, z: player.z, t: G.now, src: 'sight' }; }
+const staleOn = S => { const r = S.mem?.[player.id]; return !r || G.now - r.t > 12 || r.t > G.now; };
 // 每台醒著的挑目標（e.foe；updateEnemy 用 e.foe ?? player）：玩家、或看得到的 INFIGHT_R 格內別派系，挑最近的
 //   玩家有 PLAYER_BIAS 格的優勢、現在的目標有 3 格的優勢（不會一直換）；頭目只打玩家
 function pickFoes() {
@@ -859,12 +901,15 @@ function updateExplore(dt) {
       const byP = seeP || (hit && !rival && player.alive);
       if (byP || rival) {
         S.awake = true; S.byPlayer = byP; for (const e of live) e.dormant = false;
-        if (byP) { S.found = true; callFor(S); }
+        if (byP) { S.found = true; callFor(S); alertNear(S); }
       }
     } else if (S.byPlayer === false) {
       // 被別派系驚動的：看到玩家就改成追玩家；別派系打完（大家都沒目標了）回到待命
-      if (player.alive && live.some(e => sees(e, player, WAKE_R))) { S.byPlayer = true; S.found = true; for (const e of live) e.dormant = false; callFor(S); }
+      if (player.alive && live.some(e => sees(e, player, WAKE_R))) { S.byPlayer = true; S.found = true; for (const e of live) e.dormant = false; callFor(S); alertNear(S); }
       else if (live.length && live.every(e => e.dormant)) { S.awake = false; for (const e of live) e.seenHp = e.parts.torso.hp; }
+    } else if (live.length && S.x != null && !S.hold && staleOn(S) && live.every(e => Math.hypot(e.x - S.x, e.z - S.z) < 6)) {
+      // 跟丟、搜完、走回據點了（ai.js recall）→ 回到待命（巡邏隊繼續巡邏；要再被看到 / 被打才會醒）
+      S.awake = false; for (const e of live) { e.dormant = true; e.seenHp = e.parts.torso.hp; }
     } else if (live.length && !live.some(e => e.foe && e.foe !== player && e.foe.alive) && live.every(e => (e.fly ? flyDist(e.x, e.z) : flowDist(e.x, e.z)) > LOSE_R)) {   // 用實際要走的路程算（繞岩壁追過來的不算跟丟）；還在跟別派系打的不算
       S.awake = false; for (const e of live) { e.dormant = true; e.seenHp = e.parts.torso.hp; }
     }
@@ -1289,7 +1334,7 @@ function showPanel(title, html, buttons) {
 }
 function hidePanel() { $('panel').classList.add('hidden'); }
 const panelOpen = () => !$('panel').classList.contains('hidden');
-function restart() { MODE.name === 'explore' ? (EN.heavy ? startHeavy() : startRun()) : MODE.name === 'endless' ? startEndless() : MODE.name === 'duel' ? startDuel(MODE.duel.preset, MODE.duel.diffKey) : MODE.name === 'watch' ? nextWatch() : startSandbox(); }
+function restart() { MODE.name === 'explore' ? startRun() : MODE.name === 'endless' ? startEndless() : MODE.name === 'duel' ? startDuel(MODE.duel.preset, MODE.duel.diffKey) : MODE.name === 'watch' ? nextWatch() : startSandbox(); }
 const WATCH_LIMIT = 180;   // 觀戰一場最多幾秒（遊戲時間）
 const nextWatch = () => MODE.kind === 'teams' ? startTeamWatch() : MODE.kind === 'horde' ? startHorde() : MODE.kind === 'skirmish' ? startSkirmish() : MODE.kind === 'brains' ? startBrainWatch() : MODE.kind === 'brainpack' ? startBrainPack() : startWatch();
 function pause() {
@@ -1343,7 +1388,6 @@ $('mExplore').onclick = () => {
   showSub('遠征・選關', [
     { label: '第 1 關', desc: `${TERRAINS[terrainOf(1)]}・從機槍和飛彈出發`, primary: true, run: () => startRun() },
     ...[2, 3, 4, 5, 6].map(n => ({ label: `第 ${n} 關`, desc: `${TERRAINS[terrainOf(n)]}・直接從這關開始：補 ${Math.min(2, n - 1)} 把隨機武器、${(n - 1) * 2} 個強化模組、${(n - 1) * 30} 零件`, run: () => startRun(undefined, n) })),
-    { label: '重火力測試', desc: '街區地圖・整備裡的配裝・沒有箱子和增援（測試中）', run: () => startHeavy() },
   ]);
 };
 $('mWatchMenu').onclick = () => {
@@ -1827,7 +1871,7 @@ addEventListener('pointerdown', unlockAudio);
 // 面板上的按鈕可以用數字鍵選（1 = 第一個）
 addEventListener('keydown', e => { if (panelOpen() && !settingsOpen() && /^Digit[1-9]$/.test(e.code)) $('pButtons').children[+e.code.slice(5) - 1]?.click(); });
 addEventListener('keydown', unlockAudio);
-window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, startHorde, startSkirmish, startEndless, startRun, startStage, startHeavy, callReinforcements, warpOut, startBoss, useLink, switchLayer, props, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
+window.__dbg = { get player() { return player; }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startWatch, startHorde, startSkirmish, startEndless, startRun, startStage, callReinforcements, warpOut, startBoss, useLink, switchLayer, props, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
 showMenu();
 camTarget.set(player.x, 0, player.z);
 nextFrame(frame);

@@ -296,10 +296,19 @@ export const SQUADS = {
   elite: { name: '精英小隊', faction: 'base', units: ['rocket*', 'blade*', 'rifle*'], themes: { city: 1, open: 1, ruins: 1, plaza: 1 }, minDepth: 3 },
 };
 // terrain：這張地圖的地形（stagegen.js），只挑主題合得來的小隊（factionFits）
+//   sealed（封存，新數值：蟲族、縱火隊）、support（支援隊，只跟主力一起出現：pickSupport）不會被挑到
 export function pickSquad(theme, depth, rand = Math.random, terrain = null) {
-  const ok = Object.entries(SQUADS).filter(([, S]) => (S.minDepth ?? 0) <= depth && S.themes[theme] && factionFits(S.faction, terrain));
+  const ok = Object.entries(SQUADS).filter(([, S]) => !S.sealed && !S.support && (S.minDepth ?? 0) <= depth && S.themes[theme] && factionFits(S.faction, terrain));
   let r = rand() * ok.reduce((a, [, S]) => a + S.themes[theme], 0);
   return (ok.find(([, S]) => (r -= S.themes[theme]) < 0) ?? ok[0])[0];
+}
+// 支援隊：照主題權重挑一個（沒有合的主題就用全部支援隊平均挑）；沒有支援隊 → null
+export function pickSupport(theme, depth, rand = Math.random) {
+  const all = Object.entries(SQUADS).filter(([, S]) => S.support && !S.sealed && (S.minDepth ?? 0) <= depth);
+  if (!all.length) return null;
+  const ok = all.filter(([, S]) => S.themes[theme]), w = ([, S]) => ok.length ? S.themes[theme] : 1, list = ok.length ? ok : all;
+  let r = rand() * list.reduce((a, e) => a + w(e), 0);
+  return (list.find(e => (r -= w(e)) < 0) ?? list[0])[0];
 }
 // 連射多久會打光（秒）：總彈藥 ÷ 一次幾發 × 射擊間隔；能量武器 Infinity
 export const fireTime = W => W.ammo ? W.ammo / (W.salvo ?? 1) * W.interval : Infinity;

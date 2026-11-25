@@ -1,10 +1,9 @@
 // ---------- 新數值（重火力，docs/HEAVY_TEST_PLAN.md） ----------
 // 叛擊士式的節奏：子彈快到躲不掉、機槍彈量大但燒得快、雜魚攻擊慾和準度高、拿重武器的雜魚比較耐打、交戰距離拉長、迫擊砲
-// 套用的地方：重火力測試模式（startStage 時 EN.heavy）、所有觀戰模式（main.js watchNumbers；觀戰選單可以切回舊數值）
-// 不套用：遠征、無盡、對戰、試玩場（遊戲本體還是舊數值）；無頭模擬預設也是舊的，加 --patch tools/sim/patches/heavy.mjs 才是新的
+// 套用的地方：遠征（main.js startStage，2026-11-26 起）、觀戰（main.js watchNumbers）
+// 不套用：無盡、對戰、試玩場（還是舊數值）；無頭模擬預設也是舊的，加 --patch tools/sim/patches/heavy.mjs 才是新的
 // 做法：applyHeavy() 直接改 WEAPONS / HEADS / GRUNTS_LOW / SQUADS / SHOT_TUNE / AI_TUNE 的欄位並記下原值；clearHeavy() 一個一個放回去
 //   任何模式重設場地（resetWorld）都先 clearHeavy() → 離開後完全還原
-// 只有重火力測試模式才用的（敵人總耐久、每隊台數）在 HEAVY 裡，由 main.js 自己讀
 import { GRUNTS, GRUNTS_LOW, GRUNT_WEIGHT, HEADS, HEAVY_GRUNTS, SQUADS, WEAPONS } from './parts.js';
 import { SHOT_TUNE } from './weapons.js';
 import { AI_TUNE } from './ai.js';
@@ -24,10 +23,7 @@ export const HEAVY = {
     autocannon_l: { interval: 0.18, spread: 0.035 },
     shotgun_l: { interval: 0.85 },
   },
-  // 只在重火力測試模式（遠征流程）用
-  enemyHpK: 2.5,        // 敵人耐久倍率
-  squadMax: 2,          // 每隊最多幾台（平常 3）：重火力測試的遠征小隊
-  packSquadMax: 3,      // 雜魚包（觀戰 AI vs 雜魚、模擬 squad:）每隊最多幾台；2026-11-26 從 2 拉回 3（散開部署之後一包 9 台）
+  packSquadMax: 3,      // 每隊最多幾台：遠征的小隊、雜魚包（觀戰、模擬 squad:）；2026-11-26 從 2 拉回 3（散開部署之後一包 9 台）
 };
 
 // 雜魚重整（新數值）：照射程分
@@ -84,6 +80,11 @@ export function applyHeavy() {
   for (const S of Object.values(SQUADS)) if (S.units.some(u => GRUNT_MERGE[u])) set(S, 'units', S.units.map(u => GRUNT_MERGE[u] ?? u));
   // 飛彈小隊（2026-11-25）：機砲兵 ×2 + 射手 單獨對王牌只打得出 76 → 射手換成巡邏兵（火箭莢艙壓制），模擬 222
   set(SQUADS.missile, 'units', ['trooper', 'trooper', 'scout']);
+  // 遠征的隊伍池（2026-11-26）：蟲族封存（之後重設計）、縱火隊封存（衝進來只是送分）；
+  //   單獨對王牌打不出傷害的（砲擊陣地、狙擊組、突擊隊、旋停機隊）改成支援隊：只跟同區的一隊主力一起出現（main.js startStage）
+  for (const k of ['hive', 'stampede', 'swarm', 'arson']) set(SQUADS[k], 'sealed', true);
+  for (const k of ['mortar', 'snipers', 'rush', 'gunships']) set(SQUADS[k], 'support', true);
+  set(SQUADS.snipers, 'hold', 4);   // 狙擊組：守著自己的位置（掩護主力），不跟著衝
   // AI
   set(AI_TUNE, 'gruntErrK', HEAVY.grunt.errK);
   set(AI_TUNE, 'gruntRestK', HEAVY.grunt.restK);
@@ -104,6 +105,5 @@ export function clearHeavy() {
   saved = null;
 }
 export const heavyOn = () => !!saved;
-// 小隊的成員：新數值下每隊最多 squadMax 台（敵人少而耐打；遠征的重火力測試、觀戰的雜魚包、模擬的 squad: 都用這個）
-export const squadUnits = (SQ, k, max = HEAVY.squadMax) => saved ? SQ[k].units.slice(0, max) : SQ[k].units;
-export const packUnits = (SQ, k) => squadUnits(SQ, k, HEAVY.packSquadMax);   // 雜魚包用
+// 雜魚包（觀戰、模擬 squad:）的成員：新數值下每隊最多 packSquadMax 台
+export const packUnits = (SQ, k) => saved ? SQ[k].units.slice(0, HEAVY.packSquadMax) : SQ[k].units;
