@@ -54,7 +54,7 @@ export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, h
   const shieldSlot = ['armL', 'armR'].find(s => loadout[s] && WEAPONS[loadout[s]].kind === 'shield');
   if (grunt && shieldSlot) { spec.turn *= 0.35; spec.legTurn *= 0.5; }   // 盾兵：轉得非常慢 → 繞背打得到
   const M = buildMechModel(loadout, colors);
-  const k = grunt ? GRUNT_SCALE : E?.scale ?? 1;
+  const k = grunt ? (loadout.gscale ?? GRUNT_SCALE) : E?.scale ?? 1;   // gscale：比較大台的雜魚（戰車）
   M.root.scale.setScalar(k);
   // 雜魚腳下一圈派系色的光環：一群混在一起時一眼分得出誰是哪邊
   if (grunt) {
@@ -193,6 +193,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   // 失衡：腳不出力、轉不太動
   if (m.staggerT > 0) { if ((m.staggerT -= dt) <= 0) m.staggerImm = STAGGER_IMM; mx = 0; mz = 0; m.charge = null; }
   else if (m.staggerImm > 0) m.staggerImm -= dt;
+  if (m.immobile) { mx = 0; mz = 0; }   // 履帶斷了（載具）：不能動，炮塔照轉
   // 騎槍衝鋒（weapons.js 開的頭）：點火時站住不動、衝刺時整台鎖在一個方向；兩段都不吃移動指令
   const C = m.charge;
   if (C && C.phase === 'thrust') { if ((C.t -= dt) <= 0) m.charge = null; }   // 刺擊（平衡實驗）：照常走路 / 推進，下面撞到才算
@@ -224,6 +225,8 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   } else if (ml > 0.1 && m.boostT <= 0) m.legYaw = approachAngle(m.legYaw, Math.atan2(mx, mz), S.legTurn * lk * dt);
   // 站著不動：上半身跟腳差超過 60° → 腳慢慢跟上（車身方向 BAL.hullFacing 用；不然站定射擊會被算成側面中彈）
   else if (BAL.hullFacing && ml <= 0.1 && m.boostT <= 0 && Math.abs(angleDiff(m.legYaw, m.torsoYaw)) > 1.05) m.legYaw = approachAngle(m.legYaw, m.torsoYaw, S.legTurn * lk * 0.5 * dt);
+  // 載具停著（還能動）：車身慢慢轉向炮塔 → 正面裝甲朝著敵人
+  if (m.vehicle && L.type === 'tread' && ml <= 0.1 && !m.immobile) m.legYaw = approachAngle(m.legYaw, m.torsoYaw, S.legTurn * lk * dt);
 
   if (C && m.charge && C.phase !== 'thrust') {
     const f = facing(m);
@@ -454,7 +457,13 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null,
     const P = m.parts[part];
     if (P.core && !P.broken && coreOpen(m, part, fromX, fromZ)) { m.vx += dx * kb; m.vz += dz * kb; if (CL.on) log('hit', { tgt: m.id, ...srcOf(), part, raw: Math.round(dmg), eff: 2, dir, core: true }); coreBreak(m, part, dx, dz); return { part, eff: 2, core: true }; }
   }
-  const mul = part === 'torso' && !forced && !m.grunt ? TORSO_MUL[hdir] : 1;
+  let mul = part === 'torso' && !forced && !m.grunt ? TORSO_MUL[hdir] : 1;
+  // 載具（戰車）：整台一條血，但裝甲照車身方向；背面偶爾打到彈藥艙 ×2；側面 / 背面三成打到履帶 → 履帶斷了不能動
+  if (m.vehicle && !forced) {
+    mul = TORSO_MUL[hdir];
+    if (hdir === 'rear' && Math.random() < 0.15) mul *= 2;
+    if (hdir !== 'front' && !m.immobile && Math.random() < 0.3 && (m.trackHp -= dmg) <= 0) { m.immobile = true; smoke(m.x, 0.5, m.z, 8, 1.4, 0x55585f); sparks(m.x, 0.4, m.z, 0xffc070, 12, dx, dz); if (CL.on) log('break', { tgt: m.id, part: 'tracks', ...srcOf() }); }
+  }
   const eff = EFFECT[type][m.parts[part].armor] ?? 1;
   m.vx += dx * kb; m.vz += dz * kb;
   // 反應裝甲：每個部位每 8 秒，第一次被打中傷害減半

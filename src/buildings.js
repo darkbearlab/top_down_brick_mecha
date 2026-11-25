@@ -10,7 +10,7 @@
 import { fogMaterial } from './fog.js';
 import * as THREE from 'three';
 import { UNIT_BOX, scene } from './core.js';
-import { H, W, grid, tileC, tileR, toWorldX, toWorldZ } from './arena.js';
+import { H, W, bumpGrid, grid, tileC, tileR, toWorldX, toWorldZ } from './arena.js';
 import { burnAt, burst, chipDebris, explosion, fire, smoke, spawnPuff } from './fx.js';
 import { sfx } from './audio.js';
 
@@ -132,6 +132,7 @@ export function resetBuildings() {
   sets = [st]; useSet(st);
   for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) if (grid[r][c] === 'r') grid[r][c] = '.';
   build();
+  bumpGrid();
 }
 
 // 打中建築：x, y, z = 命中點；dx, dz = 子彈方向（往裡面找方塊）；dmg = 傷害
@@ -191,6 +192,7 @@ export function blastBuildings(x, y, z, dmg, splash) {
 function collapse(t, dx, dz) {
   t.down = true;
   grid[t.r][t.c] = 'r';
+  bumpGrid();
   const cx = toWorldX(t.c), cz = toWorldZ(t.r);
   // 剩下的方塊：一部分炸飛、其他垮成一堆瓦礫
   const live = t.vox.filter(v => v.alive);

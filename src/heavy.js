@@ -5,7 +5,7 @@
 // 做法：applyHeavy() 直接改 WEAPONS / HEADS / GRUNTS_LOW / SQUADS / SHOT_TUNE / AI_TUNE 的欄位並記下原值；clearHeavy() 一個一個放回去
 //   任何模式重設場地（resetWorld）都先 clearHeavy() → 離開後完全還原
 // 只有重火力測試模式才用的（敵人總耐久、每隊台數）在 HEAVY 裡，由 main.js 自己讀
-import { GRUNTS_LOW, HEADS, SQUADS, WEAPONS } from './parts.js';
+import { GRUNTS, GRUNTS_LOW, GRUNT_WEIGHT, HEADS, HEAVY_GRUNTS, SQUADS, WEAPONS } from './parts.js';
 import { SHOT_TUNE } from './weapons.js';
 import { AI_TUNE } from './ai.js';
 
@@ -30,7 +30,7 @@ export const HEAVY = {
 };
 
 let saved = null;   // [[物件, 欄位, 原值]]
-const set = (o, k, v) => { saved.push([o, k, o[k]]); o[k] = v; };
+const set = (o, k, v) => { saved.push([o, k, o[k], k in o]); o[k] = v; };
 
 export function applyHeavy() {
   if (saved) return;
@@ -52,6 +52,10 @@ export function applyHeavy() {
   // 迫擊砲：迫擊砲車換成真的迫擊砲（拋射、落點預告、越過建築），砲擊陣地也會出現在街區
   set(GRUNTS_LOW.mortar, 'backR', 'mortar_l');
   set(SQUADS.mortar, 'themes', { ...SQUADS.mortar.themes, city: 3 });
+  // 戰車、偵察無人機（parts.js HEAVY_GRUNTS）：放進雜魚池；砲擊陣地 = 迫擊砲車 + 無人機（觀測者）；新的裝甲小隊 = 戰車 + 機砲兵
+  for (const [k, G] of Object.entries(HEAVY_GRUNTS)) { set(GRUNTS_LOW, k, G); set(GRUNTS, k, G); set(GRUNT_WEIGHT, k, k === 'tank' ? 1 : 0); }
+  set(SQUADS.mortar, 'units', ['mortar', 'spotter', 'mortar']);
+  set(SQUADS, 'armor', { name: '裝甲小隊', faction: 'base', units: ['tank', 'trooper', 'tank'], themes: { city: 2, open: 2, plaza: 1 }, minDepth: 1 });
   // AI
   set(AI_TUNE, 'gruntErrK', HEAVY.grunt.errK);
   set(AI_TUNE, 'gruntRestK', HEAVY.grunt.restK);
@@ -65,7 +69,7 @@ export function applyHeavy() {
 }
 export function clearHeavy() {
   if (!saved) return;
-  for (let i = saved.length - 1; i >= 0; i--) { const [o, k, v] = saved[i]; o[k] = v; }
+  for (let i = saved.length - 1; i >= 0; i--) { const [o, k, v, had] = saved[i]; if (had) o[k] = v; else delete o[k]; }   // 原本沒有的欄位（新加的雜魚、小隊）整個拿掉
   saved = null;
 }
 export const heavyOn = () => !!saved;

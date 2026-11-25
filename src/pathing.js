@@ -4,7 +4,7 @@
 // 貼牆的格子多算一點成本（機體有體積，盡量走路中間）；兩邊都是牆的一格寬縫當成過不去
 // 玩家換格子、或每 0.6 秒（建築被打掉、地形會變）重算一次；大地圖上約 2～6 ms
 // 兩份：地面（岩壁、建築、空洞都過不去）、飛行（空洞可以飛過去；有會飛的敵機在用才算）
-import { H, W, grid } from './arena.js';
+import { H, W, grid, gridVer } from './arena.js';
 
 const R = 80;                     // 只算玩家周圍這麼多格
 const INF = 0x7fffffff;
@@ -62,8 +62,9 @@ function makeField(isBlock) {
   F.update = (dt, x, z) => {
     const c = Math.floor(x + W / 2), r = Math.floor(z + H / 2);
     F.timer -= dt;
-    if (F.mapW !== W || F.mapH !== H || F.mapG !== grid) { F.mapW = W; F.mapH = H; F.mapG = grid; F.timer = 0; }
-    if ((c !== F.srcC || r !== F.srcR) && F.timer < 0.3 || F.timer <= 0) { F.srcC = c; F.srcR = r; F.timer = 0.6; F.compute(c, r); }
+    if (F.mapW !== W || F.mapH !== H || F.mapG !== grid || F.ver !== gridVer) { F.mapW = W; F.mapH = H; F.mapG = grid; F.ver = gridVer; F.timer = 0; }
+    // 目標換格子（最多每 0.3 秒一次）、地形變了（gridVer）才重算；保險起見最久 3 秒也重算一次
+    if ((c !== F.srcC || r !== F.srcR) && F.timer < 2.7 || F.timer <= 0) { F.srcC = c; F.srcR = r; F.timer = 3; F.compute(c, r); }
   };
   const at = (c, r) => { const lc = c - F.ox, lr = r - F.oy; return lc < 0 || lr < 0 || lc >= S || lr >= S ? INF : F.dist[lr * S + lc]; };
   // 到玩家的路程（格）；算不到 = Infinity
@@ -108,10 +109,15 @@ export function updateFlow(dt, x, z) {
 const routes = new Map();
 export function routeDir(key, now, fx, fz, tx, tz) {
   let F = routes.get(key);
-  if (!F) { if (routes.size > 16) routes.clear(); F = makeField(t => t === '#' || t === 'v'); F.t = -99; routes.set(key, F); }
+  if (!F) {
+    if (routes.size >= 24) { let ok = null, ot = Infinity; for (const [k, R] of routes) if (R.used < ot) { ot = R.used; ok = k; } routes.delete(ok); }   // 滿了丟最久沒用的那份
+    F = makeField(t => t === '#' || t === 'v'); F.t = -99; routes.set(key, F);
+  }
+  F.used = now;
   const c = Math.floor(tx + W / 2), r = Math.floor(tz + H / 2);
-  if (F.mapG !== grid || F.mapW !== W || F.mapH !== H || now < F.t || ((c !== F.srcC || r !== F.srcR) && now - F.t > 0.3) || now - F.t > 0.6) {
-    F.mapG = grid; F.mapW = W; F.mapH = H; F.srcC = c; F.srcR = r; F.t = now; F.compute(c, r);
+  // 重算：地形變了（gridVer）、目標換格子（最多每 0.3 秒）、保險最久 3 秒
+  if (F.mapG !== grid || F.mapW !== W || F.mapH !== H || F.ver !== gridVer || now < F.t || ((c !== F.srcC || r !== F.srcR) && now - F.t > 0.3) || now - F.t > 3) {
+    F.mapG = grid; F.mapW = W; F.mapH = H; F.ver = gridVer; F.srcC = c; F.srcR = r; F.t = now; F.compute(c, r);
   }
   return F.dirAt(fx, fz);
 }

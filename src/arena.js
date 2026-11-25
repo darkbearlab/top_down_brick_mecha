@@ -21,6 +21,9 @@ export const SURF = {
 //   'v' = 懸空 / 空洞：走不過去（撞到 = 撞牆）、但子彈和視線都過得去；地板在那裡挖空：多層地圖看得到下面那層，不然是看不到底的深坑（坑邊一圈淺色的裂石）
 //   會飛的（旋停機、蟲群）可以飛過 / 停在上面
 export let W = 64, H = 48, grid = [], mapId = '', layerNo = 0;
+// 地形版本：建築倒塌 / 蓋回來就 +1（pathing.js 的流場看到版本變了才重算，不用每 0.6 秒強制重算）
+export let gridVer = 0;
+export const bumpGrid = () => { gridVer++; };
 export const SINK = 5;   // 下面那層畫在多低的地方（往下看的高度感）
 // 競技場：64 × 48，兩片泥地對中心點對稱（建築另外蓋，見 buildings.js）
 export function arenaMap() {

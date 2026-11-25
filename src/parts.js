@@ -165,7 +165,8 @@ for (const k in WEAPONS) WEAPONS[k].id = k;
 // massImpulse：後座、被擊退照自己的重量縮放（輕的被推得遠），騎槍衝撞傷害照自己的重量（M2）
 // hullFacing：軀幹的裝甲方向看車身（下半身）而不是上半身（REALISM_REPORT 第二輪 F3）
 // lobHitsBuildings：拋射彈（燒夷 / 酸液 / 榴彈 / 迫擊砲）和垂直飛彈飛得比建築低就撞上那棟，不再穿過去
-export const BAL = { lobHitsBuildings: true, massMove: true, massImpulse: true, hullFacing: true, wallLockK: 2, relock: 'off', staggerAccum: false, staggerDecay: 0.6, missileK: 0.8, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4, clearAheadK: 1, lanceWallK: 1 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
+// bldByWeapon：武器打建築的倍率照類型（小口徑 ×0.25、機砲 ×0.6、能量 ×0.5、高爆爆風 ×1.5、打樁 ×2；REALISM_REPORT H2）
+export const BAL = { bldByWeapon: true, lobHitsBuildings: true, massMove: true, massImpulse: true, hullFacing: true, wallLockK: 2, relock: 'off', staggerAccum: false, staggerDecay: 0.6, missileK: 0.8, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4, clearAheadK: 1, lanceWallK: 1 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
 export const HP_MUL = 1.35;
 
 // ---------- 敵人的主題（派系） ----------
@@ -226,6 +227,14 @@ export const GRUNTS_LOW = {
 };
 // 雜魚的專屬外型（src/gruntbodies.js）：body 掛上去，model.js 照菁英那套蓋（elite:<名字>:<部位>）
 for (const [k, B] of Object.entries(GRUNT_BODIES)) { const G = GRUNTS[k] ?? GRUNTS_LOW[k]; if (G) G.body = B; }
+// 新數值才有的敵人（heavy.js 套用時放進 GRUNTS_LOW / GRUNTS / SQUADS，還原時拿掉；REALISM_REPORT 第四輪）
+//   tank 戰車：履帶、重軀幹（炮塔轉得慢）、主砲（全威力加農砲）；vehicle：裝甲照車身方向（正面 ×0.6、背面 ×1.35，背面偶爾打到彈藥艙 ×2）、
+//     側面 / 背面的命中有機會打斷履帶 → 不能動但炮塔照打；體型比雜魚大（gscale）；停下來會把車身轉向上半身（正面裝甲朝敵）
+//   spotter 偵察無人機：旋停機外型、沒有武器、站遠（16 格）看著目標 → 迫擊砲的觀測者；先打掉它迫擊砲就瞎了
+export const HEAVY_GRUNTS = {
+  tank: { name: '戰車', faction: 'base', head: 'dome', core: 'heavy', legs: 'tread', armL: null, armR: null, backL: null, backR: 'cannon', hp: 300, vehicle: true, gscale: 1.15, speedMul: 0.85, body: GRUNT_BODIES.tank },
+  spotter: { name: '偵察無人機', faction: 'base', head: 'hunter', core: 'light', legs: 'hover', armL: null, armR: null, backL: null, backR: null, hp: 45, fly: true, quad: true, scout: true },
+};
 // ---------- 登場方式 ----------
 // stand = 一開始就站在地上（遠征小隊散開站著）；drop = 從天上空投（空投小隊、增援、追到別層、無盡 / 觀戰模式）
 // 雜魚定義裡 entries 列出牠能用哪幾種，沒寫 = ['stand', 'drop']（蟲群只能 stand → 不會出現在空投小隊和增援裡）
@@ -240,7 +249,7 @@ export const canEnter = (k, how) => entriesOf(k).includes(how);
 // 從 allowed 裡挑一個這台能用的登場方式（照 allowed 的順序；之後有好幾種可以改成隨機）；都不行 = null
 export const pickEntry = (k, allowed) => allowed.find(h => canEnter(k, h)) ?? null;
 // 出場比例：步兵最多，砲車 / 狙擊兵少
-const GRUNT_WEIGHT = { rifle: 5, rocket: 3, heavy: 2, gun: 1.2, sniper: 1.2, blade: 2,
+export const GRUNT_WEIGHT = { rifle: 5, rocket: 3, heavy: 2, gun: 1.2, sniper: 1.2, blade: 2,
   turret: 0, scout: 5, trooper: 3, launcher: 2.5, brawler: 2, stick: 1.8, marksman: 1.2, mortar: 1, bazooka: 1.5,
   bomber: 0, charger: 0, gunship: 0, swarm: 0, shielder: 0, pyro: 0, igniter: 0, warrior: 0, ram: 0, spitter: 0 };   // 新的特殊雜魚只在遠征的小隊裡出現
 export function randomGrunt(pool = GRUNTS) {

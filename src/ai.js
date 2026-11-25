@@ -13,10 +13,10 @@ import { G, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { isBlock, isSolid, randomOpenSpot, rayBlock, rayWalk, tileAt, tileC, tileR } from './arena.js';
 import { headStats } from './sensors.js';
 import { BOOST_DV, BOOST_PUSH, BOOST_TIME, ENEMY_COLORS, activeSlot, boostDirOf, boostKOf, legK, damagePart, facing, hitMech, makeMech, muzzleOf, mechs, removeMech, slotBroken, stagger, toggleReady, tryBoost, wantsLock } from './mech.js';
-import { SHOT_TUNE, makeGuns, shots, updateGuns } from './weapons.js';
+import { LOB_G, NAPALM_T, SHOT_TUNE, makeGuns, shots, updateGuns } from './weapons.js';
 import { BAL, ENEMY_PRESETS, SLOTS, WEAPONS } from './parts.js';
 import { burst, explosion, hitSparks, makeLaser, setLaser, shatterSmall, smoke, sparks } from './fx.js';
-import { blastBuildings } from './buildings.js';
+import { blastBuildings, buildingTop } from './buildings.js';
 import { sfx } from './audio.js';
 import { flowDir, flyDir, routeDir } from './pathing.js';
 import { smokeBlocks } from './tech.js';
@@ -75,8 +75,10 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   if (P.bug) setupBug(e, P.bug, P);
   if (P.bomber || P.charger || P.swarm || P.melee) e.ai.want = 0;
   if (P.fly && !P.swarm) e.ai.want = 9;
+  if (P.vehicle) { e.vehicle = true; e.trackHp = e.parts.torso.max * 0.35; }   // 載具：履帶耐久（mech.js hitMech）
   if (AI_TUNE.wantK !== 1 && e.ai.want >= 6) e.ai.want *= AI_TUNE.wantK;
   if (AI_TUNE.indirectWant && Object.values(e.guns).some(g => g.def.indirect)) e.ai.want = AI_TUNE.indirectWant;
+  if (P.scout) e.ai.want = 16;   // 偵察無人機：站遠看著（迫擊砲的觀測者）
   // noDrop：直接站在地上（遠征模式的遭遇小隊），不然從天上降落
   if (opts.noDrop) { e.drive = { mx: 0, mz: 0 }; e.aimYaw = e.torsoYaw; }
   else {
@@ -371,9 +373,11 @@ export function updateEnemy(e, dt, player) {
       if (player.alive && !AI.passive && dist > 5 && dist < reachOf(d) && Math.random() < dt * 1.2 / DF.rest) {
         const P = AI_TUNE.spotter ? mortarPoint(e, player) : { x: player.x, z: player.z };
         const pd = P ? Math.hypot(P.x - e.x, P.z - e.z) : 0;
-        if (P && pd > 5 && pd < reachOf(d)) { t = true; ind = P; }   // 射程看實際要打的那一點
+        if (P && pd > 5 && pd < reachOf(d) && lobClear(e, d, P.x, P.z)) { t = true; ind = P; }   // 射程看實際要打的那一點；彈道會撞建築就不打
       }
     }
+    // 燒夷 / 酸液 / 榴彈：彈道會撞到建築（BAL.lobHitsBuildings）就不丟，換個位置（REALISM_REPORT H3）
+    else if (d.kind === 'napalm' && !lobClear(e, d, player.x, player.z)) { t = false; A.spotT = 0; }
     else if (d.speed / SHOT_TUNE.speedK > 50) {
       // 狙擊：瞄 0.8 秒（紅色雷射）才開槍
       if (onTarget && inRange && g.cd <= 0 && g.ammo > 0) { A.snipeT += dt; laserSlot = slot; if (A.snipeT >= 0.8) { t = true; A.snipeT = 0; } }
@@ -475,6 +479,16 @@ export function keepEnemies(player) {
   while (enemies.length < AI.count) spawnEnemy(player);
 }
 
+// 拋射彈從自己丟到 (tx, tz) 的弧線會不會撞到建築（照 weapons.js lobNapalm 的彈道，取 12 個點）；BAL.lobHitsBuildings 關著就一律可以
+function lobClear(e, d, tx, tz) {
+  if (!BAL.lobHitsBuildings) return true;
+  const T = d.lobT ?? NAPALM_T, y0 = e.model?.hipY != null ? e.model.hipY + 0.5 : 1.4, vy = (0.2 - y0 + 0.5 * LOB_G * T * T) / T;
+  for (let k = 1; k < 12; k++) {
+    const f = k / 12, t = T * f, y = y0 + vy * t - 0.5 * LOB_G * t * t;
+    if (y < buildingTop(e.x + (tx - e.x) * f, e.z + (tz - e.z) * f)) return false;
+  }
+  return true;
+}
 // ---------- 新數值的王牌戰術（AI_TUNE.ace） ----------
 // 敵對、活著、在場上的
 const hostilesOf = e => mechs.filter(o => o !== e && o.alive && !o.drop && o.team !== e.team && o.team !== 'none' && !o.dormant);

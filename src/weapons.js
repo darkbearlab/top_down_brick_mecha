@@ -274,7 +274,7 @@ function addPuddle(x, z, D, team) {
 
 // ---------- 燒夷彈 ----------
 // 拋物線 0.75 秒落到瞄準點（最遠 d.range），落地：小爆炸 + 火海（d.zone 半徑、燒 d.zoneT 秒）
-const NAPALM_T = 0.75, LOB_G = 22;
+export const NAPALM_T = 0.75, LOB_G = 22;
 const ZONE_GEO = new THREE.CircleGeometry(1, 28);
 export const fireZones = [];
 function lobNapalm(m, d, mz, aim, f) {
@@ -452,7 +452,7 @@ function updatePulses(m, dt) {
         sparks(ex, mz.y, ez, 0x60e0ff, 3, -f.x, -f.z);
         if (P.n % 3 === 0) { hitSparks(ex, mz.y, ez, -f.x, -f.z, 0.7, r && r.eff < 1); r && r.eff < 1 ? sfx.armorHit() : sfx.hit(); }
       } else if (wall < d.range - 0.05) {
-        damageBuilding(ex, mz.y, ez, P.per, f.x, f.z);
+        damageBuilding(ex, mz.y, ez, P.per * (BAL.bldByWeapon ? 0.5 : 1), f.x, f.z);   // 能量：打建築 ×0.5
         if (P.n % 4 === 0) { hitSparks(ex, mz.y, ez, -f.x, -f.z, 0.5); if (!isBuilding(ex + f.x * 0.05, ez + f.z * 0.05)) wallMark(wallFace(ex, ez, f.x, f.z), mz.y, 0.18); }
       }
     }
@@ -504,7 +504,7 @@ function updatePunch(m, dt) {
     addTrauma(enemy ? (o.team === 'player' ? 0.45 : 0) : 0.35);
   } else if (wall < d.reach + 0.3) {
     const hx = mz.x + f.x * wall, hz = mz.z + f.z * wall;
-    damageBuilding(hx, mz.y, hz, d.dmg * 1.5, f.x, f.z);
+    damageBuilding(hx, mz.y, hz, d.dmg * (BAL.bldByWeapon ? 2 : 1.5), f.x, f.z);   // 打樁：專門破牆
     hitSparks(hx, mz.y, hz, -f.x, -f.z, 1.6);
     if (!isBuilding(hx + f.x * 0.05, hz + f.z * 0.05)) wallMark(wallFace(hx, hz, f.x, f.z), mz.y, 0.5);
     sfx.crash();
@@ -529,7 +529,7 @@ function blast(s, x, y, z, direct) {
   explosion(x, y, z, shell ? 0.95 : 0.38);
   if (shell) { addTrauma(0.2); smoke(x, y, z, 6, 1.6, 0x55585f); }
   sfx.blast();
-  blastBuildings(x, y, z, s.dmg, s.splash);
+  blastBuildings(x, y, z, s.dmg * (BAL.bldByWeapon ? 1.5 : 1), s.splash);   // 高爆：打建築 ×1.5
   if (y < 1.8) scorch(x, z, Math.min(1.8, 0.5 + (s.splash ?? 1) * (shell ? 0.6 : 0.4)));   // 地上留一塊焦痕、噴土
   for (const o of mechs) {
     if (!o.alive || o.drop || o.team === s.team || o === direct) continue;
@@ -572,7 +572,7 @@ function stepBullet(s, i, dt) {
     hitSparks(s.x, s.y, s.z, -s.dx, -s.dz, s.heavy ? 1.6 : 0.6);
     if (s.splash) blast(s, s.x, s.y, s.z, null);          // 加農砲：打到牆也是一團爆風
     else if (s.heavy) blastBuildings(s.x, s.y, s.z, s.dmg * 1.5, 0.7);
-    else damageBuilding(s.x, s.y, s.z, s.dmg, s.dx, s.dz);
+    else damageBuilding(s.x, s.y, s.z, s.dmg * bulletBldK(s), s.dx, s.dz);
     if (!isBuilding(s.x + s.dx * 0.05, s.z + s.dz * 0.05)) wallMark(wallFace(s.x, s.z, s.dx, s.dz), s.y, s.splash ? 0.9 : s.heavy ? 0.6 : Math.min(0.45, 0.12 + Math.sqrt(s.dmg) * 0.06));   // 打不壞的牆：燻黑
     smoke(s.x, s.y, s.z, s.heavy ? 3 : 1, 0.7, 0x6a6c72);
     kill(i); return;
@@ -684,6 +684,13 @@ function trail(s) {
 }
 
 function kill(i) { const s = shots[i]; scene.remove(s.g); if (s.mark) { scene.remove(s.mark); s.mark.material.dispose(); } shots.splice(i, 1); }
+// 實彈打建築的倍率（BAL.bldByWeapon）：照每發原始威力分小口徑（< 6：機槍、霰彈）×0.25、機砲（< 20）×0.6、更大的 ×1；光束 ×0.5
+function bulletBldK(s) {
+  if (!BAL.bldByWeapon) return 1;
+  if (s.type === 'energy') return 0.5;
+  const p = s.power ?? s.dmg;
+  return p < 6 ? 0.25 : p < 20 ? 0.6 : 1;
+}
 export function clearShots() {
   while (shots.length) kill(shots.length - 1);
   for (const z of fireZones) { scene.remove(z.ring); z.ring.material.dispose(); }
