@@ -16,8 +16,8 @@ export const HEAVY = {
   lockRangeK: 1.5,      // 頭部鎖定距離倍率（16～34 格 → 24～51 格）
   wantK: 1.6,           // 射擊型的理想交戰距離倍率（8～13 格 → 13～20 格）
   indirectWant: 18,     // 迫擊砲站多遠
-  // 雜魚：攻擊慾、準度（DIFFS 的 err / rest 倍率）、依武器總重加耐久
-  grunt: { errK: 0.45, restK: 0.55, hpW: 0.07 },
+  // 雜魚：攻擊慾、準度（DIFFS 的 err / rest 倍率）、耐久照底盤
+  grunt: { errK: 0.45, restK: 0.55 },   // 耐久照底盤（AI_TUNE.gruntChassis：履帶 ×1.3、懸浮 / 飛行 ×0.8），跟武器無關
   // 低階武器：射速、散布往正規版靠（雜魚不再只是靶子）
   low: {
     mg_l: { interval: 0.075, spread: 0.06 },
@@ -85,7 +85,7 @@ export function applyHeavy() {
   // AI
   set(AI_TUNE, 'gruntErrK', HEAVY.grunt.errK);
   set(AI_TUNE, 'gruntRestK', HEAVY.grunt.restK);
-  set(AI_TUNE, 'gruntHpW', HEAVY.grunt.hpW);
+  set(AI_TUNE, 'gruntChassis', true);
   set(AI_TUNE, 'wantK', HEAVY.wantK);
   set(AI_TUNE, 'indirectWant', HEAVY.indirectWant);
   set(AI_TUNE, 'leadReal', true);   // 預判照實際子彈速度

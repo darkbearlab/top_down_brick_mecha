@@ -35,14 +35,14 @@ export const DIFFS = {
 export const AI = { passive: false, count: 2, diff: DIFFS.normal, sandbox: false };
 // 數值覆蓋（heavy.js 的新數值會改；平常是預設值 → 行為跟以前完全一樣）
 //   gruntErrK / gruntRestK：雜魚的瞄準誤差、兩陣射擊之間的休息時間倍率（小 = 準、攻擊慾高）
-//   gruntHpW：雜魚依武器總重加耐久：×(1 + gruntHpW × (總重 − 3))，最多 ×1.6（拿重武器的比較耐打）
+//   gruntChassis：雜魚的耐久照底盤（腳）：履帶 ×1.3、雙足 / 逆關節 ×1、懸浮 / 飛行 ×0.8；跟武器無關（雜魚整台一條血）
 //   wantK：射擊型（理想距離 ≥ 6）的交戰距離倍率；indirectWant：有迫擊砲（indirect）的站多遠（0 = 不管）
 //   leadReal：預判照實際的子彈速度算（舊的固定當 36 格/秒；子彈加倍後會瞄過頭）
 //   ace：王牌（非雜魚、沒有大腦）用新戰術（aceTarget / kiteFrom / pickSpot 的曝光扣分 / 看不到目標時照路走）
 //   memory：感知與最後已知位置（REALISM_REPORT A2）：看不到目標時不再全知，去最後看到 / 聽到的地方、預瞄那邊、到了搜索，跟丟才慢慢掃過去
 //   spotter：迫擊砲要有觀測者（A1）：有隊友看得到才照實際位置打（第一發偏 3.5 格、同一個觀測者持續看著每發 ×0.55），沒人看到就打記憶裡的位置（偏更多）
-export const AI_TUNE = { gruntErrK: 1, gruntRestK: 1, gruntHpW: 0, wantK: 1, indirectWant: 0, leadReal: false, ace: false, memory: false, spotter: false };
-const gruntHpK = P => { if (!AI_TUNE.gruntHpW) return 1; const w = SLOTS.reduce((a, s) => a + (P[s] ? WEAPONS[P[s]]?.weight ?? 0 : 0), 0); return Math.min(1.6, Math.max(1, 1 + AI_TUNE.gruntHpW * (w - 3))); };
+export const AI_TUNE = { gruntErrK: 1, gruntRestK: 1, gruntChassis: false, wantK: 1, indirectWant: 0, leadReal: false, ace: false, memory: false, spotter: false };
+const gruntHpK = P => !AI_TUNE.gruntChassis ? 1 : P.fly || P.legs === 'hover' ? 0.8 : P.legs === 'tread' ? 1.3 : 1;
 const DROP_TIME = 1.1, DROP_H = 16;
 const RING_GEO = new THREE.RingGeometry(0.8, 0.95, 36);
 
