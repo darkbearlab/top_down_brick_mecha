@@ -6,6 +6,7 @@ import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayer
 import { THEMES, rng } from './mapgen.js';
 import { TERRAINS, genStage, terrainOf } from './stagegen.js';
 import { bigArena, genBlocks } from './blockgen.js';
+import { updateTacView } from './tacview.js';
 import { HEAVY, applyHeavy, clearHeavy, heavyOn, packUnits, squadUnits } from './heavy.js';
 import { flowDist, flyDist, updateFlow } from './pathing.js';
 import { addProp, clearProps, nearProp, props, removeProp, setPortal, setPropLayer, spendProp, updateProps } from './props.js';
@@ -1803,6 +1804,7 @@ function step(t) {
     $('wNext').textContent = MODE.result && MODE.endT > 0 ? `${Math.ceil(MODE.endT)} 秒後下一場` : '';
   }
   updateHaze(raw, camTarget.x, camTarget.z);
+  updateTacView(raw);   // 戰場意識圖（I 鍵）
   // 零件工坊（src/workshop.js）：自己的場景和鏡頭
   if (workshopOpen()) { hideMech(scene, player?.model.root); updateWorkshop(raw); renderFrame(wsScene, wsCam); return; }
   // 主選單、整備：畫展示空間（src/showroom.js），機體搬過去

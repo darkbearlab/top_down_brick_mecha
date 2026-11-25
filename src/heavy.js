@@ -92,6 +92,7 @@ export function applyHeavy() {
   set(AI_TUNE, 'ace', true);        // 王牌新戰術
   set(AI_TUNE, 'memory', true);     // 感知與最後已知位置（REALISM_REPORT A2）
   set(AI_TUNE, 'spotter', true);    // 迫擊砲要有觀測者（A1）
+  set(AI_TUNE, 'aware', true);      // 王牌的戰場意識（威脅、包圍、出現點）
 }
 export function clearHeavy() {
   if (!saved) return;

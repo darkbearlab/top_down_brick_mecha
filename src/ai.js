@@ -41,7 +41,7 @@ export const AI = { passive: false, count: 2, diff: DIFFS.normal, sandbox: false
 //   ace：王牌（非雜魚、沒有大腦）用新戰術（aceTarget / kiteFrom / pickSpot 的曝光扣分 / 看不到目標時照路走）
 //   memory：感知與最後已知位置（REALISM_REPORT A2）：看不到目標時不再全知，去最後看到 / 聽到的地方、預瞄那邊、到了搜索，跟丟才慢慢掃過去
 //   spotter：迫擊砲要有觀測者（A1）：有隊友看得到才照實際位置打（第一發偏 3.5 格、同一個觀測者持續看著每發 ×0.55），沒人看到就打記憶裡的位置（偏更多）
-export const AI_TUNE = { gruntErrK: 1, gruntRestK: 1, gruntChassis: false, wantK: 1, indirectWant: 0, leadReal: false, ace: false, memory: false, spotter: false };
+export const AI_TUNE = { gruntErrK: 1, gruntRestK: 1, gruntChassis: false, wantK: 1, indirectWant: 0, leadReal: false, ace: false, memory: false, spotter: false, aware: false };   // aware：王牌的戰場意識（aceAware）
 const gruntHpK = P => !AI_TUNE.gruntChassis ? 1 : P.fly || P.legs === 'hover' ? 0.8 : P.legs === 'tread' ? 1.3 : 1;
 const DROP_TIME = 1.1, DROP_H = 16;
 const RING_GEO = new THREE.RingGeometry(0.8, 0.95, 36);
@@ -187,7 +187,7 @@ export function updateEnemy(e, dt, player) {
   }
   if (e.brain && brainHook.run) { brainHook.run(e, dt, player); return; }
   const tac = (AI_TUNE.ace === true || AI_TUNE.ace === e.team) && !e.grunt;   // 新數值的王牌戰術（ace 也可以是隊伍名字：只給那一隊用，模擬比較新舊戰術用）
-  if (tac) player = aceTarget(e, player, dt);
+  if (tac) { if (AI_TUNE.aware) aceAware(e, dt); player = aceTarget(e, player, dt); }   // 戰場意識（已知 / 推估的敵人、威脅、包圍、出現點）
   const A = e.ai, DF = e.diff ?? AI.diff;
   const dx = player.x - e.x, dz = player.z - e.z, dist = Math.hypot(dx, dz) || 1;
   const nx = dx / dist, nz = dz / dist;
@@ -224,7 +224,15 @@ export function updateEnemy(e, dt, player) {
   const ranged = A.want >= 6;
   let kite = null;
   const indR = AI_TUNE.spotter && !e.fixed ? Object.values(e.guns).reduce((r, g) => g.def.indirect ? Math.max(r, reachOf(g.def)) : r, 0) : 0;   // 有迫擊砲的：射程
+  const W = tac && AI_TUNE.aware ? A.tac : null;
   if (!player.alive) { mx = 0; mz = 0; }
+  else if (W?.retreat && !e.fixed) {
+    // 要被包圍了（敵人分布超過 120°）/ 站的地方太危險：在被包死之前往缺口撤，照路線走；三台以上或包得很死就推進拉開
+    const R = W.retreat, rx = R.x - e.x, rz = R.z - e.z, rd = Math.hypot(rx, rz) || 1;
+    const f = (!e.fly && rd > 1.5 && routeDir(`r${e.id}`, G.now, e.x, e.z, R.x, R.z)) || { x: rx / rd, z: rz / rd };
+    mx = f.x; mz = f.z; A.spot = null;
+    if (W.n >= 3 || W.spread > 2.7) A.reposition = Math.min(A.reposition, 0);
+  }
   else if (tac && ranged && !e.fixed && (kite = kiteFrom(e))) {
     // 被包夾（近距離有兩台以上、或有近戰型貼上來）：往反方向退，順便左右晃；三台以上直接推進拉開
     mx = kite.x - kite.z * A.strafe * 0.3; mz = kite.z + kite.x * A.strafe * 0.3; A.spot = null;
@@ -329,7 +337,7 @@ export function updateEnemy(e, dt, player) {
 
   // 瞄準：稍微預判
   const lead = AI_TUNE.leadReal ? dist / shotSpeedOf(e) : dist / 18 * 0.5;
-  e.aimYaw = K ? (K.free ? Math.atan2(e.drive?.mx || Math.sin(e.torsoYaw), e.drive?.mz || Math.cos(e.torsoYaw)) : Math.atan2(K.x - e.x, K.z - e.z)) : Math.atan2(player.x + player.vx * lead - e.x, player.z + player.vz * lead - e.z) + Math.sin(G.now * 1.7 + e.seed) * DF.err;   // 看不到：預瞄記憶裡的位置
+  e.aimYaw = !los && W?.emerge ? Math.atan2(W.emerge.x - e.x, W.emerge.z - e.z) : K ? (K.free ? Math.atan2(e.drive?.mx || Math.sin(e.torsoYaw), e.drive?.mz || Math.cos(e.torsoYaw)) : Math.atan2(K.x - e.x, K.z - e.z)) : Math.atan2(player.x + player.vx * lead - e.x, player.z + player.vz * lead - e.z) + Math.sin(G.now * 1.7 + e.seed) * DF.err;   // 看不到：預瞄記憶裡的位置
   const canShoot = los && player.alive && !AI.passive;
   const onTarget = Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.14 && canShoot;
   // 鎖定玩家（給飛彈用）：在範圍內、看得到就慢慢鎖上
@@ -507,6 +515,7 @@ function aceTarget(e, cur, dt) {
   for (const o of H) {
     const d = Math.hypot(o.x - e.x, o.z - e.z), hpK = o.parts.torso.hp / o.parts.torso.max;
     let s = d - (sees(e, o) ? 8 : 0) - (1 - hpK) * 6 - (o === A.tgt ? 3 : 0);
+    if (!melee && d < 9 && foeInfo(o).melee) s -= 6;   // 貼上來的近戰型先處理
     if (melee) for (const q of H) if (q !== o && Math.hypot(q.x - o.x, q.z - o.z) < 6) s += 4;
     if (s < bs) { bs = s; best = o; }
   }
@@ -567,6 +576,91 @@ function mortarPoint(e, tgt) {
   return { x: bx + Math.cos(a) * d, z: bz + Math.sin(a) * d };
 }
 export function clearMemory() { for (const k in TEAM_MEM) delete TEAM_MEM[k]; }
+// ---------- 戰場意識（新數值的王牌，AI_TUNE.ace）----------
+// 每 0.25 秒更新 e.ai.tac：
+//   foes：已知的敵人（看得到 = 實際位置；看不到 = 記憶裡的位置往自己這邊推估：敵人會照路線靠過來，推估 4 格/秒、最多 10 格），
+//         每台的射程（reach）、權重（王牌 2.5、雜魚 1）、近戰與否、可信度（看得到 1，記憶越久越低）
+//   spread：已知敵人（24 格內）圍在自己周圍的角度（最大空隙以外的部分）；超過 120° = 要被包圍了
+//   retreat：要撤去哪（往空隙的方向 10 格、走得通、威脅最低的那點）；被包圍或站的地方被三台以上看到才有
+//   emerge：看不到敵人時，推估離自己最近的那台會從哪裡冒出來（照路線從它往自己走，第一個看得到自己的點）→ 預瞄那裡
+// 畫面上的戰場意識圖（tacview.js）讀這些
+const TAC_DT = 0.25;
+function foeInfo(o) {
+  let reach = 0;
+  for (const g of Object.values(o.guns ?? {})) if (g.def.kind !== 'shield' && g.def.kind !== 'module') reach = Math.max(reach, Math.min(30, reachOf(g.def)));
+  const melee = (o.ai?.want ?? 8) < 6 || o.swarm || o.charger || o.bomber || !!o.preset?.melee;
+  return { reach: melee ? Math.max(reach, 3) : reach || 10, w: o.grunt ? 1 : 2.5, melee };
+}
+function aceAware(e, dt) {
+  const A = e.ai;
+  if ((A.tacT = (A.tacT ?? 0) - dt) > 0 && A.tac) return;
+  A.tacT = TAC_DT;
+  const mem = AI_TUNE.memory ? memOf(e) : null, foes = [];
+  for (const o of hostilesOf(e)) {
+    const d = Math.hypot(o.x - e.x, o.z - e.z);
+    if (d > 45) continue;
+    const vis = sees(e, o) || !mem;
+    let x = o.x, z = o.z, conf = 1;
+    if (!vis) {
+      const r = mem[o.id];
+      if (!r || r.t > G.now || G.now - r.t > 10) continue;   // 不知道在哪：不算
+      const age = G.now - r.t, rx = e.x - r.x, rz = e.z - r.z, rl = Math.hypot(rx, rz) || 1, step = Math.min(10, age * 4, Math.max(0, rl - 3));
+      x = r.x + rx / rl * step; z = r.z + rz / rl * step; conf = Math.max(0.3, 1 - age / 10);
+    }
+    foes.push({ m: o, x, z, vis, conf, ...foeInfo(o) });
+  }
+  // 包圍：24 格內已知敵人的角度，最大空隙以外就是被圍住的角度
+  const near = foes.filter(f => Math.hypot(f.x - e.x, f.z - e.z) < 24);
+  let spread = 0, gapDir = null;
+  if (near.length >= 2) {
+    const ang = near.map(f => Math.atan2(f.x - e.x, f.z - e.z)).sort((a, b) => a - b);
+    let gap = -1, at = 0;
+    for (let i = 0; i < ang.length; i++) { const a0 = ang[i], a1 = i + 1 < ang.length ? ang[i + 1] : ang[0] + Math.PI * 2, g = a1 - a0; if (g > gap) { gap = g; at = a0 + g / 2; } }
+    spread = Math.PI * 2 - gap; gapDir = at;
+  }
+  const hereT = threatAt(foes, e.x, e.z, null);
+  let retreat = null;
+  if (gapDir != null && spread > 2.1 || hereT >= 3) {
+    // 往空隙（沒有空隙就往威脅最低的方向）找 10 格外走得通、威脅最低的點
+    let cx = 0, cz = 0;
+    for (const f of foes) { cx += f.x - e.x; cz += f.z - e.z; }
+    const base = gapDir ?? Math.atan2(-cx, -cz);   // 沒有空隙可算（只有一台）：背對敵人的重心
+    let best = null, bs = Infinity;
+    for (const da of [0, 0.4, -0.4, 0.8, -0.8, 1.2, -1.2, 1.6, -1.6, 2.0, -2.0, 2.6, -2.6]) {   // 空隙那邊走不通就往旁邊找（路口、巷子）
+      const a = base + da, ux = Math.sin(a), uz = Math.cos(a), len = Math.min(10, clearAhead(e, ux, uz, 10));
+      if (len < 3) continue;
+      const x = e.x + ux * len, z = e.z + uz * len, s = threatAt(foes, x, z, null) * 3 + Math.abs(da) * 2 - len * 0.2;
+      if (s < bs) { bs = s; best = { x, z }; }
+    }
+    retreat = best;
+  }
+  // 出現點：看不到任何敵人時，最近那台（推估位置）照路線往自己走，第一個看得到自己的點
+  let emerge = null;
+  if (foes.length && !foes.some(f => f.vis && !f.m.dormant)) {
+    const f = foes.reduce((a, b) => Math.hypot(a.x - e.x, a.z - e.z) < Math.hypot(b.x - e.x, b.z - e.z) ? a : b);
+    let x = f.x, z = f.z;
+    for (let k = 0; k < 30; k++) {
+      const dx = e.x - x, dz = e.z - z, dd = Math.hypot(dx, dz);
+      if (dd < 2) break;
+      if (rayBlock(e.x, e.z, -dx / dd, -dz / dd, dd) >= dd - 0.5) { emerge = { x, z }; break; }
+      const dir = routeDir(`a${e.id}`, G.now, x, z, e.x, e.z);
+      if (!dir) break;
+      x += dir.x; z += dir.z;
+    }
+  }
+  A.tac = { foes, spread, gapDir, n: near.length, retreat, emerge, here: hereT };
+}
+// 某一點的威脅：已知敵人射程內（+1）而且看得到那點 → 權重 × 可信度；近戰型 7 格內再加（貼上來就危險）；except = 不算這台（現在的目標另外處理）
+export function threatAt(foes, x, z, except) {
+  let t = 0;
+  for (const f of foes) {
+    if (f.m === except) continue;
+    const dx = x - f.x, dz = z - f.z, d = Math.hypot(dx, dz) || 1;
+    if (f.melee && d < 7) t += f.w * f.conf * (7 - d) / 3;
+    if (d < f.reach + 1 && rayBlock(f.x, f.z, dx / d, dz / d, d) >= d - 1) t += f.w * f.conf;
+  }
+  return t;
+}
 // 目標以外、26 格內看得到自己的敵人數
 function exposure(e, tgt) { let n = 0; for (const o of hostilesOf(e)) if (o !== tgt && Math.hypot(o.x - e.x, o.z - e.z) < 26 && sees(o, e)) n++; return n; }
 // 被包夾：7.5 格內的敵人（近戰型算兩台）≥ 2 → 回傳往外退的方向（離他們的重心）和台數
@@ -614,10 +708,18 @@ function pickSpot(e, tgt, tac = false, indReach = 0) {   // indReach：間接射
     }
     let score = (indReach ? (see ? -6 : 8) - (d < 6 || d > indReach - 1 ? 30 : 0) : see ? 10 : -20) + sep * 1.3 - Math.hypot(x - e.x, z - e.z) * 0.3 + (e.fly && tileAt(tileC(x), tileR(z)) === 'v' ? 6 : 0);
     // 新戰術：別的敵人看得到這個點就扣分（一次只跟一台交火）、離任何敵人太近扣更多
-    if (foes) for (const o of foes) {
-      const ox = x - o.x, oz = z - o.z, od = Math.hypot(ox, oz) || 1;
-      if (od < 6) score -= 12;
-      if (od < 26 && rayBlock(o.x, o.z, ox / od, oz / od, od) >= od - 1) score -= 7;
+    if (foes) {
+      // 新戰術：照威脅（已知 / 推估的敵人射程內、看得到這點）扣分，離任何敵人太近扣更多；四周開口越少（轉角、背後有牆）越好
+      const kf = AI_TUNE.aware ? e.ai.tac?.foes : null;
+      if (kf) score -= threatAt(kf, x, z, tgt) * 7;
+      else for (const o of foes) {
+        const ox = x - o.x, oz = z - o.z, od = Math.hypot(ox, oz) || 1;
+        if (od < 26 && rayBlock(o.x, o.z, ox / od, oz / od, od) >= od - 1) score -= 7;
+      }
+      for (const o of foes) if (Math.hypot(x - o.x, z - o.z) < 6) score -= 12;
+      let open = 0;
+      for (let k = 0; k < 8; k++) { const a = k * Math.PI / 4; if (rayBlock(x, z, Math.sin(a), Math.cos(a), 6) >= 6) open++; }
+      score -= open * 0.8;
     }
     if (foes) { const td = Math.hypot(tgt.x - x, tgt.z - z); if (td > want + 4) score -= (td - want - 4) * 1.5; }   // 離目標太遠（打不到）扣分
     if (score > bs) { bs = score; best = { x, z }; }
