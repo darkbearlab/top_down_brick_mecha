@@ -238,9 +238,10 @@ function bpNextWave() {
   for (const u of W) { const g = spawnEnemy(SIDE_A, gruntOf(u.k), u.at, { team: 'red', colors: GRUNT_COLORS, diff: DIFFS.hard, grunt: true }); g.ai.flank = u.at.flank; g.foe = B.ace; B.reds.push(g); }
   toast(`第 ${B.wave} / ${B.waves} 隊投入`);
 }
-async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
-  let BA, E;
-  try {
+// who = 'ace'：觀戰唯一的模式「王牌 vs 雜魚包」—— 內建王牌 AI（新數值戰術 + 紀律）、配裝從 NEW_ACES 挑，打三個小隊（每隊 3 台、一次一隊）
+async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'ace') {
+  let BA = null, E;
+  if (who !== 'ace') try {
     BA = await import('./brainapi.js');
     E = { lo: await (await fetch(`tools/sim/entries/${who}/loadout.json`, { cache: 'no-cache' })).json(), brain: (await import(`./brains/${who}.js`)).default };
   } catch (err) {
@@ -250,6 +251,7 @@ async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
   }
   resetWorld(watchMap());
   watchNumbers();
+  if (who === 'ace') E = { lo: watchLoadout() };   // 套完新數值才挑（NEW_ACES 只在新數值下用）
   MODE.name = 'watch';
   if (fresh || MODE.kind !== 'brainpack') { MODE.round = 0; MODE.score = { blue: 0, red: 0 }; }
   MODE.kind = 'brainpack';
@@ -257,8 +259,9 @@ async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
   AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.hard;
   if (player) { removeMech(player); player.alive = false; }
   const packs = BRAIN_PACKS.filter(P => !P.heavy || heavyOn()), pack = packs[(MODE.round - 1) % packs.length], groups = pack.squads.map(k => packUnits(SQUADS, k)), units = groups.flat();   // 新數值每隊最多 3 台（HEAVY.packSquadMax）
-  const ace = spawnEnemy(SIDE_B, { ...E.lo, name: entryName(who), chips: [], device: null }, SIDE_A, { team: 'blue', colors: BLUE_COLORS });
-  BA.attachBrain(ace, E.brain);
+  const ace = who === 'ace' ? spawnEnemy(SIDE_B, E.lo, SIDE_A, { team: 'blue', colors: BLUE_COLORS, diff: DIFFS.hard })
+    : spawnEnemy(SIDE_B, { ...E.lo, name: entryName(who), chips: [], device: null }, SIDE_A, { team: 'blue', colors: BLUE_COLORS });
+  if (BA) BA.attachBrain(ace, E.brain);
   MODE.bpTools = BA;
   // 新數值：每個小隊各自的集結點沿著右側整個高度散開（spreadPack），路上也往自己那一側繞；舊數值照舊擠在右側出發點
   const spots = heavyOn() ? spreadPack(groups, SIDE_B.x) : null;
@@ -275,7 +278,7 @@ async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
   $('menu').classList.add('hidden'); $('duel').classList.add('hidden'); $('hud').classList.add('hidden');
   $('watch').classList.remove('hidden');
   setSensorsVisible(false);
-  $('wBName').textContent = entryName(who);
+  $('wBName').textContent = who === 'ace' ? ace.preset.name : entryName(who);
   $('wBGuns').innerHTML = SLOTS.map(s => E.lo[s]).filter(Boolean).map(id => `<span class="wt" style="--c:${DMG_TYPES[WEAPONS[id].type].css}">${WEAPONS[id].name}</span>`).join('') + `<span class="wt" style="--c:#8a96a6">${LEGS[E.lo.legs].name}</span>`;
   $('wRName').textContent = pack.name;
   toast(`第 ${MODE.round} 場・雜魚 ${reds.length} 台`);   // 小隊名字在右下的面板
@@ -578,7 +581,7 @@ function startRun(seed, stage = 1) {
   startStage(seed);
 }
 // 重火力測試（docs/HEAVY_TEST_PLAN.md）：遠征的流程，地圖換成街區（blockgen.js）；沒有箱子、不叫增援
-// 觀戰一律用新數值（heavy.js）；觀戰選單可以切回舊數值（封存，只在這次開啟有效）
+// 觀戰一律用新數值（heavy.js）；切回舊數值的選項已經從觀戰選單撤掉（watchOld 留著，程式要用可以改）
 let watchOld = false;
 const watchNumbers = () => { if (!watchOld) applyHeavy(); };
 // 新數值的觀戰場地：96 × 72 的街區（blockgen.js bigArena，固定種子、點對稱）；舊數值用原本的 64 × 48 競技場
@@ -1276,7 +1279,7 @@ const WATCH_LIMIT = 180;   // 觀戰一場最多幾秒（遊戲時間）
 const nextWatch = () => MODE.kind === 'teams' ? startTeamWatch() : MODE.kind === 'horde' ? startHorde() : MODE.kind === 'skirmish' ? startSkirmish() : MODE.kind === 'brains' ? startBrainWatch() : MODE.kind === 'brainpack' ? startBrainPack() : startWatch();
 function pause() {
   G.paused = true;
-  showPanel('暫停', MODE.name === 'explore' ? `遠征・地圖 #${EX.map.seed}<br>${runSummary()}` : MODE.name === 'endless' ? `無盡模式・${mmss(EN.t)}・擊破 ${EN.kills}` : MODE.name === 'duel' ? `對戰・${DIFFS[MODE.duel.diffKey].name}` : MODE.name === 'watch' ? `觀戰${MODE.kind === 'horde' ? '（王牌 vs 雜魚）' : MODE.kind === 'skirmish' ? '（雜魚 vs 雜魚）' : MODE.kind === 'brains' ? '（AI 對打）' : MODE.kind === 'brainpack' ? '（AI vs 雜魚）' : MODE.kind === 'teams' ? '（AI 2v2）' : ''}・第 ${MODE.round} 場` : '試玩場', [
+  showPanel('暫停', MODE.name === 'explore' ? `遠征・地圖 #${EX.map.seed}<br>${runSummary()}` : MODE.name === 'endless' ? `無盡模式・${mmss(EN.t)}・擊破 ${EN.kills}` : MODE.name === 'duel' ? `對戰・${DIFFS[MODE.duel.diffKey].name}` : MODE.name === 'watch' ? `觀戰${MODE.kind === 'horde' ? '（王牌 vs 雜魚）' : MODE.kind === 'skirmish' ? '（雜魚 vs 雜魚）' : MODE.kind === 'brains' ? '（AI 對打）' : MODE.kind === 'brainpack' ? (MODE.bp?.who === 'ace' ? '（王牌 vs 雜魚包）' : '（AI vs 雜魚）') : MODE.kind === 'teams' ? '（AI 2v2）' : ''}・第 ${MODE.round} 場` : '試玩場', [
     { label: '繼續', primary: true, run: () => { hidePanel(); G.paused = false; } },
     { label: MODE.name === 'watch' ? '下一場' : '重新開始', run: restart },
     ...(MODE.name === 'duel' ? [{ label: '換對手', run: openDuelSetup }] : []),
@@ -1330,20 +1333,9 @@ $('mExplore').onclick = () => {
 };
 $('mWatchMenu').onclick = () => {
   unlockAudio(); sfx.click();
+  // 觀戰只剩一個模式：王牌 vs 雜魚包（新數值）；舊的電腦對電腦、王牌 vs 18 台、雜魚 vs 雜魚、代理作品、舊數值切換都撤掉了（2026-11-25，程式還在、選單不放）
   showSub('觀戰', [
-    { label: `數值：${watchOld ? '舊數值（封存）' : '新數值（重火力）'}`, desc: '點一下切換・新數值：子彈快、雜魚攻擊慾和準度高、重武器雜魚較耐打、交戰距離長、迫擊砲', run: () => { watchOld = !watchOld; $('mWatchMenu').onclick(); } },
-    { label: '電腦對電腦', desc: '隨機配裝・打完自動換下一場', primary: true, run: () => startWatch(true) },
-    { label: '王牌 vs 雜魚', desc: '一台王牌機對上一批批空投的雜魚機（共 18 台）', run: () => startHorde(true) },
-    { label: '雜魚 vs 雜魚', desc: '藍紅兩隊雜魚各 12 台，從兩側空投，先全滅的輸', run: () => startSkirmish(true) },
-    { label: 'AI vs 雜魚…', desc: '代理設計的機體 + 大腦打一群雜魚（三個小隊一起），每場換一組，最後一組是精英包', run: () => showSub('AI vs 雜魚：選一台', [...PERSONAS, 'alpha', 'beta', ...Object.keys(ENTRY_INFO).filter(n => /^[ab]-/.test(n))].map((n, i) => ({ label: entryName(n), desc: PERSONAS.includes(n) ? '個性機體' : /^[ab]-/.test(n) ? '2v2 團隊版（單獨也過雜魚關卡）' : '第一輪作品（盾 + 脈衝）', primary: i === 0, run: () => startBrainPack(true, n) }))) },
-    { label: 'AI 2v2…', desc: '代理設計的 2v2 組合（tools/sim/teams）・每場交換左右・打完自動下一場', run: () => showSub('AI 2v2', [
-      { label: '隨機配對', desc: '每場從六個組合裡隨機挑兩隊', primary: true, run: () => startTeamWatch(true, null) },
-      ...TEAM_IDS.map(id => ({ label: TEAM_NAMES[id], desc: '這一隊固定，對手每場隨機', run: () => startTeamWatch(true, id) })),
-    ]) },
-    { label: 'AI 對打…', desc: '代理設計的機體和大腦互打・每場交換左右・打完自動下一場', run: () => showSub('AI 對打', [
-      { label: '個性機體隨機配對', desc: '每場從六台個性機體裡隨機挑兩台', primary: true, run: () => startBrainWatch(true, 'random') },
-      { label: 'alpha vs beta', desc: '第一輪的兩台（盾 + 脈衝）', run: () => startBrainWatch(true, ['alpha', 'beta']) },
-    ]) },
+    { label: '王牌 vs 雜魚包', desc: '一台王牌機（測試前幾名的配裝）對上三個雜魚小隊（每隊 3 台，一次空投一隊，全滅才來下一隊）・每場換一組小隊・打完自動下一場', primary: true, run: () => startBrainPack(true, 'ace') },
   ]);
 };
 $('mGarage').onclick = () => { unlockAudio(); sfx.click(); openGarageFrom('menu'); };
