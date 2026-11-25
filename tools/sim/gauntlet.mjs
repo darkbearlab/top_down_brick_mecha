@@ -12,12 +12,12 @@ const N = +(args.n ?? 10), SEED = +(args.seed ?? 1);
 const A = args.entry ? join('tools', 'sim', 'entries', args.entry, 'loadout.json') : args.a, BRAIN = args.entry ?? args.brain ?? 'default';
 // --packs ace：觀戰「王牌 vs 雜魚包」那份（main.js ACE_PACKS；要新數值 --patch tools/sim/patches/heavy.mjs）
 const PACKS = args.packs === 'ace' ? [
-  ['衝鋒 + 自爆 + 縱火', 'breakers+kamikaze+arson'],
-  ['飛彈 + 自爆 + 縱火', 'missile+kamikaze+arson'],
-  ['巡邏 + 衝鋒 + 縱火', 'patrol+breakers+arson'],
+  ['衝鋒 + 自爆 + 砲車', 'breakers+kamikaze+gunline'],
+  ['飛彈 + 自爆 + 遊獵', 'missile+kamikaze+hunters'],
+  ['巡邏 + 衝鋒 + 砲車', 'patrol+breakers+gunline'],
   ['巡邏 + 遊獵 + 精英', 'patrol+hunters+elite'],
   ['精英 ×2 + 重裝（難）', 'elite+elite+heavy'],
-  ['裝甲 + 自爆 + 縱火（難）', 'armor+kamikaze+arson'],
+  ['裝甲 + 自爆 + 遊獵（難）', 'armor+kamikaze+hunters'],
 ] : [
   ['突擊 + 伏擊 + 精英', 'rush+ambush+elite'],
   ['狙擊 + 飛彈 + 砲擊', 'snipers+missile+mortar'],
