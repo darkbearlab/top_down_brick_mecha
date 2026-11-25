@@ -14,7 +14,7 @@ import { isBlock, isSolid, randomOpenSpot, rayBlock, rayWalk, tileAt, tileC, til
 import { headStats } from './sensors.js';
 import { BOOST_DV, BOOST_PUSH, BOOST_TIME, ENEMY_COLORS, activeSlot, boostDirOf, boostKOf, legK, damagePart, facing, hitMech, makeMech, muzzleOf, mechs, removeMech, slotBroken, stagger, toggleReady, tryBoost, wantsLock } from './mech.js';
 import { LOB_G, NAPALM_T, SHOT_TUNE, makeGuns, shots, updateGuns } from './weapons.js';
-import { BAL, ENEMY_PRESETS, SLOTS, WEAPONS } from './parts.js';
+import { BAL, ENEMY_PRESETS, SLOTS, WEAPONS, fcsOn } from './parts.js';
 import { burst, explosion, hitSparks, makeLaser, setLaser, shatterSmall, smoke, sparks } from './fx.js';
 import { blastBuildings, buildingTop } from './buildings.js';
 import { sfx } from './audio.js';
@@ -394,11 +394,11 @@ export function updateEnemy(e, dt, player) {
   // 長距鎖定頭：隔著牆也能鎖；頭被打掉還是能鎖（距離短、慢）
   const lockable = player.alive && !AI.passive && (los || (H.radarLock && !smokeBlocks(e.x, e.z, player.x, player.z)));
   const lockNeed = H.lockTime * DF.lock * burnLockK(e);
-  // FCS 提案（被動追蹤、鎖定保持、鎖定熱度）只給玩家；電腦照舊（BAL.fcsAI 打開才一起用）
+  // 新火控（被動追蹤、鎖定保持、鎖定熱度）：王牌級（不是雜魚）照 BAL.fcsAI 決定用不用（fcsOn）；雜魚照舊
   if (e.lockFire) { e.lockFire = false; if (A.lockT >= lockNeed) A.lockT = lockNeed * (1 - BAL.lockHeat); }   // 鎖定熱度（BAL.relock 'heat'）
-  const canLock = lockable && ((BAL.fcsAI && BAL.fcsPassive) || wantsLock(e)) && dist < H.lockRange && !(G.now < (e.relockUntil ?? 0));
+  const canLock = lockable && ((fcsOn(e) && BAL.fcsPassive) || wantsLock(e)) && dist < H.lockRange && !(G.now < (e.relockUntil ?? 0));
   if (canLock) A.lockSeenT = G.now;
-  const held = BAL.fcsAI && !canLock && A.lockT >= lockNeed && BAL.lockHold > 0 && G.now - (A.lockSeenT ?? -99) < BAL.lockHold;   // 鎖定保持（BAL.lockHold）
+  const held = fcsOn(e) && !canLock && A.lockT >= lockNeed && BAL.lockHold > 0 && G.now - (A.lockSeenT ?? -99) < BAL.lockHold;   // 鎖定保持（BAL.lockHold）
   A.lockT = canLock ? A.lockT + dt / (los ? 1 : BAL.wallLockK) : held ? A.lockT : Math.max(0, A.lockT - dt * 2);   // 隔牆鎖得慢（BAL.wallLockK）
   const locks = A.lockT >= lockNeed ? [player] : [];
   e.lockOn = A.lockT > 0 && player.alive ? { tgt: player, k: Math.min(1, A.lockT / lockNeed) } : null;   // 給玩家的被鎖定警示（lockwarn.js）

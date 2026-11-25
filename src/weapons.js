@@ -23,7 +23,7 @@ import { isBlock, rayBlock, wallFace } from './arena.js';
 import { blastBuildings, buildingTop, damageBuilding, isBuilding } from './buildings.js';
 import { facing, hasModule, hitMech, impulseK, mechs, muzzleOf, slotBroken, slotLive, updateReady, useEnergy } from './mech.js';
 import { RAMP, burnAt, explosion, flame, hitSparks, makeLaser, muzzleFlash, rampOf, scorch, setLaser, smoke, wallMark, sparks, spawnGlow, spawnPuff } from './fx.js';
-import { BAL, DMG_TYPES, SLOTS, WEAPONS } from './parts.js';
+import { BAL, DMG_TYPES, SLOTS, WEAPONS, fcsOn } from './parts.js';
 import { sfx } from './audio.js';
 import { chipDmgK, chipRateK, chipSpreadK, empOff } from './tech.js';
 import { applyStatus, burnSpreadK } from './status.js';
@@ -68,7 +68,7 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
     if (d.energy && !useEnergy(m, d.energy * (hasModule(m, 'power') ? WEAPONS.power.costK : 1))) continue;   // 供能模組：耗能 ×0.7
     const iv = d.interval * (m.rateMul ?? 1) * chipRateK(m);   // rateMul：無盡模式的射速強化
     // 飛彈 / 火箭一次好幾發，剩不夠就只射剩下的
-    let n = Math.min(((m.team === 'player' && d.playerSalvo) || d.salvo || 1) * (BAL.missilePerLock && d.kind === 'missile' ? Math.max(1, locks.length) : 1), gun.ammo);
+    let n = Math.min(((fcsOn(m) && d.playerSalvo) || d.salvo || 1) * (BAL.missilePerLock && d.kind === 'missile' ? Math.max(1, locks.length) : 1), gun.ammo);
     if (SHOT_TUNE.carry && d.kind === 'bullet' && !d.salvo) {
       gun.cd = Math.max(gun.cd, -dt) + iv;   // 多出來的時間留給下一發（放開扳機很久也不會一次噴一堆）
       let k = 1;
@@ -83,7 +83,7 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
     log('fire', { m: m.id, slot, w: d.id, n });
     m.firedT = G.now;   // 開火會暴露位置（ai.js 感知：24 格內的敵人聽得到）
     // 飛彈逐發鎖定（BAL.relock）：要鎖定的飛彈射出去就把鎖定清掉，下一發要重新鎖
-    if (BAL.relock === 'heat' && (m.team === 'player' || BAL.fcsAI) && (d.kind === 'missile' || d.kind === 'vmissile' || d.kind === 'split')) m.lockFire = true;   // 鎖定熱度：扣一段，不清掉
+    if (BAL.relock === 'heat' && fcsOn(m) && (d.kind === 'missile' || d.kind === 'vmissile' || d.kind === 'split')) m.lockFire = true;   // 鎖定熱度：扣一段，不清掉
     else if (BAL.relock !== 'off' && (d.kind === 'missile' || d.kind === 'vmissile' || d.kind === 'split')) { m.lockBreak = true; if (BAL.relock === 'after') m.relockUntil = G.now + gun.cd; }
     gun.ammo -= n;
     if (gun.ammo <= 0 && m.team === 'player') sfx.reload();
@@ -649,7 +649,7 @@ function stepMissile(s, i, dt) {
     if (tgt) {
       const want = Math.atan2(tgt.x - s.x, tgt.z - s.z);
       const diff = Math.atan2(Math.sin(want - dir), Math.cos(want - dir));
-      const tk = d.id === 'missile' && BAL.missileTurnK !== 1 && (s.team === 'player' || BAL.fcsAI) && Math.hypot(tgt.x - s.x, tgt.z - s.z) < 8 ? BAL.missileTurnK : 1;   // 末段轉向加強（BAL.missileTurnK）
+      const tk = d.id === 'missile' && BAL.missileTurnK !== 1 && fcsOn(s.owner) && Math.hypot(tgt.x - s.x, tgt.z - s.z) < 8 ? BAL.missileTurnK : 1;   // 末段轉向加強（BAL.missileTurnK）
       dir += Math.max(-d.turn * tk * dt, Math.min(d.turn * tk * dt, diff));
     }
     s.speed = Math.min((d.maxSpeed ?? 20) * (s.vk ?? 1), s.speed + (d.accel ?? 10) * (s.vk ?? 1) * dt);
