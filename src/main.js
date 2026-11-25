@@ -2,11 +2,11 @@ import * as THREE from 'three';
 import { sfx, unlockAudio } from './audio.js';
 import { CAM_PITCH, G, addMat, angleDiff, camDist, camTarget, camera, hemi, renderer, scene, sun } from './core.js';
 import { clearPressed, input, padUi, updateInput } from './input.js';
-import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayers, loadMap, mapId, randomOpenSpot, rayBlock, setLayer, tileC, tileR } from './arena.js';
+import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayers, loadMap, mapId, randomOpenSpot, spreadPack, rayBlock, setLayer, tileC, tileR } from './arena.js';
 import { THEMES, rng } from './mapgen.js';
 import { TERRAINS, genStage, terrainOf } from './stagegen.js';
 import { bigArena, genBlocks } from './blockgen.js';
-import { HEAVY, applyHeavy, clearHeavy, squadUnits } from './heavy.js';
+import { HEAVY, applyHeavy, clearHeavy, heavyOn, packUnits, squadUnits } from './heavy.js';
 import { flowDist, flyDist, updateFlow } from './pathing.js';
 import { addProp, clearProps, nearProp, props, removeProp, setPortal, setPropLayer, spendProp, updateProps } from './props.js';
 import { RADIUS, exploredAt, fogActive, fogOff, initFogLayers, setFogLayer, setHeightFog, updateFog, visibleAt } from './fog.js';
@@ -227,6 +227,7 @@ const BRAIN_PACKS = [
   { name: '蟲巢守衛 + 衝鋒蟲群 + 蟲群', squads: ['hive', 'stampede', 'swarm'] },
   { name: '衝鋒隊 + 自爆小隊 + 縱火隊', squads: ['breakers', 'kamikaze', 'arson'] },
   { name: '精英小隊 ×2 + 重裝隊（難）', squads: ['elite', 'elite', 'heavy'] },
+  { name: '裝甲小隊 + 砲擊陣地 + 突擊隊', squads: ['armor', 'mortar', 'rush'], heavy: true },   // 新數值才有（戰車、偵察無人機）
 ];
 async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
   let BA, E;
@@ -246,11 +247,13 @@ async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
   MODE.round++;
   AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.hard;
   if (player) { removeMech(player); player.alive = false; }
-  const pack = BRAIN_PACKS[(MODE.round - 1) % BRAIN_PACKS.length], units = pack.squads.flatMap(k => squadUnits(SQUADS, k));   // 新數值每隊最多 2 台
+  const packs = BRAIN_PACKS.filter(P => !P.heavy || heavyOn()), pack = packs[(MODE.round - 1) % packs.length], groups = pack.squads.map(k => packUnits(SQUADS, k)), units = groups.flat();   // 新數值每隊最多 3 台（HEAVY.packSquadMax）
   const ace = spawnEnemy(SIDE_B, { ...E.lo, name: entryName(who), chips: [], device: null }, SIDE_A, { team: 'blue', colors: BLUE_COLORS });
   BA.attachBrain(ace, E.brain);
   MODE.bpTools = BA;
-  const reds = units.map((k, j) => { const g = spawnEnemy(SIDE_A, gruntOf(k), { x: SIDE_B.x - 2 + (j % 2) * 3, z: (j - (units.length - 1) / 2) * 2.6 }, { team: 'red', colors: GRUNT_COLORS, diff: DIFFS.hard, grunt: true }); g.foe = ace; return g; });
+  // 新數值：每個小隊各自的集結點沿著右側整個高度散開（spreadPack），路上也往自己那一側繞；舊數值照舊擠在右側出發點
+  const spots = heavyOn() ? spreadPack(groups, SIDE_B.x) : null;
+  const reds = units.map((k, j) => { const at = spots ? spots[j] : { x: SIDE_B.x - 2 + (j % 2) * 3, z: (j - (units.length - 1) / 2) * 2.6 }; const g = spawnEnemy(SIDE_A, gruntOf(k), at, { team: 'red', colors: GRUNT_COLORS, diff: DIFFS.hard, grunt: true }); if (spots) g.ai.flank = at.flank; g.foe = ace; return g; });
   ace.foe = reds[0];
   MODE.bp = { who, ace, reds, total: reds.length, pack };
   $('menu').classList.add('hidden'); $('duel').classList.add('hidden'); $('hud').classList.add('hidden');

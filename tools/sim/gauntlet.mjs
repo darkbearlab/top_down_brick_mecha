@@ -16,6 +16,7 @@ const PACKS = [
   ['蟲巢 + 衝鋒蟲 + 蟲群', 'hive+stampede+swarm'],
   ['衝鋒 + 自爆 + 縱火', 'breakers+kamikaze+arson'],
   ['精英 ×2 + 重裝（難）', 'elite+elite+heavy'],
+  ...(/heavy/.test(args.patch ?? '') ? [['裝甲 + 砲擊 + 突擊（新數值）', 'armor+mortar+rush']] : []),   // 戰車、無人機只有新數值有
 ];
 const out = join('tools', 'sim', 'out', `gauntlet-${args.entry ?? BRAIN}-${Date.now()}`);
 mkdirSync(out, { recursive: true });

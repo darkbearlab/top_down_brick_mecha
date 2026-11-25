@@ -57,8 +57,10 @@ const presetOf = s => {
   if (!P) throw new Error(`找不到機體「${s}」；可用：${[...ENEMY_PRESETS, ...ELITES].map(p => p.name).join('、')}`);
   return P;
 };
-const { squadUnits } = await import('../../src/heavy.js');
-const PACK = typeof args.b === 'string' && args.b.startsWith('squad:') ? args.b.slice(6).split('+').flatMap(k => { if (!SQUADS[k]) throw new Error(`沒有小隊「${k}」；可用：${Object.keys(SQUADS).join('、')}`); return squadUnits(SQUADS, k); }) : null;   // 新數值（heavy.mjs）每隊最多 2 台
+const { packUnits, heavyOn } = await import('../../src/heavy.js');
+const { spreadPack } = await import('../../src/arena.js');
+const PACK_G = typeof args.b === 'string' && args.b.startsWith('squad:') ? args.b.slice(6).split('+').map(k => { if (!SQUADS[k]) throw new Error(`沒有小隊「${k}」；可用：${Object.keys(SQUADS).join('、')}`); return packUnits(SQUADS, k); }) : null;   // 新數值（heavy.mjs）每隊最多 3 台（HEAVY.packSquadMax）
+const PACK = PACK_G ? PACK_G.flat() : null;
 const gruntDef = k => gruntOf(k);   // 跟遊戲一樣：裝甲每台隨機
 const PA = args.teamA ? null : presetOf(args.a), PB = PACK ? { name: args.b } : args.teamB ? null : presetOf(args.b);
 const diff = DIFFS[args.diff ?? 'hard'];
@@ -102,7 +104,9 @@ function battle(i) {
   });
   const blues = spawnSide(UA, -SIDE, 'blue', 'A', Math.PI / 2);
   // 雜魚小隊：在右邊散開站
-  const reds = PACK ? PACK.map((k, j) => { const g = spawnEnemy(dummy, gruntDef(k), { x: SIDE - 2 + (j % 2) * 3, z: (j - (PACK.length - 1) / 2) * 3 }, { team: 'red', diff, noDrop: true, grunt: true }); g.side = 'B'; g.unitName = g.preset.name; g.brainName = 'default'; g.torsoYaw = g.legYaw = g.aimYaw = -Math.PI / 2; return g; })
+  // 新數值：每個小隊各自的集結點沿著右側整個高度散開（跟觀戰一樣，arena.js spreadPack）
+  const spots = PACK && heavyOn() ? spreadPack(PACK_G, SIDE) : null;
+  const reds = PACK ? PACK.map((k, j) => { const g = spawnEnemy(dummy, gruntDef(k), spots ? spots[j] : { x: SIDE - 2 + (j % 2) * 3, z: (j - (PACK.length - 1) / 2) * 3 }, { team: 'red', diff, noDrop: true, grunt: true }); if (spots) g.ai.flank = spots[j].flank; g.side = 'B'; g.unitName = g.preset.name; g.brainName = 'default'; g.torsoYaw = g.legYaw = g.aimYaw = -Math.PI / 2; return g; })
     : spawnSide(UB, SIDE, 'red', 'B', -Math.PI / 2);
   const all = [...blues, ...reds];
   // 每台都打最近的敵人（每幀重新挑）

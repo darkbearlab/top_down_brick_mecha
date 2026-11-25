@@ -267,6 +267,22 @@ export function rayWalk(ox, oz, dx, dz, max) {
 }
 
 // 隨機一塊空地（離 (fx, fz) 至少 minD）
+// 雜魚包散開部署（新數值）：每個小隊一個集結點，沿著那一側的整個高度平均分開（x 在 side 往內 0～12 格之間隨機），
+//   每台在集結點 2.5 格內找空地；回傳 [{ x, z, flank }]（flank = 集結點的 z × 0.5：路上往那一側繞，不會一出發就擠成一條）
+export function spreadPack(groups, side) {
+  const out = [], G = groups.length, span = H - 16, sgn = Math.sign(side) || 1;
+  const open = (x, z) => { for (let dz = -1; dz <= 1; dz++) for (let dx = -1; dx <= 1; dx++) { const t = tileAt(tileC(x + dx * 1.1), tileR(z + dz * 1.1)); if (t === '#' || t === 'v') return false; } return true; };
+  groups.forEach((units, g) => {
+    let ax = side, az = ((g + 0.5) / G - 0.5) * span;
+    for (let t = 0; t < 60; t++) { const x = side - sgn * Math.random() * 12, z = az + (Math.random() - 0.5) * 8; if (open(x, z)) { ax = x; az = z; break; } }
+    units.forEach((k, j) => {
+      let p = { x: ax, z: az };
+      for (let t = 0; t < 30; t++) { const a = Math.random() * 6.283, r = 1.2 + Math.random() * 1.6, x = ax + Math.cos(a) * r, z = az + Math.sin(a) * r; if (open(x, z) && !out.some(q => Math.hypot(q.x - x, q.z - z) < 1.6)) { p = { x, z }; break; } }
+      out.push({ ...p, k, flank: az * 0.5 });
+    });
+  });
+  return out;
+}
 export function randomOpenSpot(fx, fz, minD) {
   for (let k = 0; k < 400; k++) {
     const c = 3 + Math.floor(Math.random() * (W - 6)), r = 3 + Math.floor(Math.random() * (H - 6));

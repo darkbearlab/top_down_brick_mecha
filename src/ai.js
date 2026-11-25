@@ -243,6 +243,8 @@ export function updateEnemy(e, dt, player) {
     let f;
     if (K) {
       // 看不到：照路線走去記憶裡的位置（聽到 / 最後看到 / 搜索點），會飛的直線過去
+      //   散開部署的雜魚（A.flank）：離目標還遠（> 16 格）時目的地往自己那一側偏，從不同的街道包過來
+      if (A.flank && dist > 16 && !isSolid(K.x, K.z + A.flank)) K = { ...K, z: K.z + A.flank };
       const kx = K.x - e.x, kz = K.z - e.z, kd = Math.hypot(kx, kz) || 1;
       f = (!e.fly && kd > 1.5 && routeDir(`k${Math.round(K.x / 3)},${Math.round(K.z / 3)}`, G.now, e.x, e.z, K.x, K.z)) || { x: kx / kd, z: kz / kd };
       if (K.slow) f = { x: f.x * 0.55, z: f.z * 0.55 };   // 搜索 / 跟丟：慢慢走

@@ -123,7 +123,7 @@ function streetCuts(R, from, to, s0 = 4, s1 = 5, flush = false) {
 
 // ---------- 觀戰場地（新數值用）：96 × 72，街區、點對稱 ----------
 // 左半邊照街區產生（街道 3～4 格，比重火力測試的街區密一點；中間留一條 6 格寬的大道），右半邊是左半邊對中心點轉 180°（兩邊條件一樣）
-// 兩邊出發點（x = ±side, z = 0）周圍清出一塊空地（11 × 25 格），放得下一整隊；大道上兩小棟掩體、正中央一棟 2 × 18 的長條建築擋火力巷
+// 兩邊出發點（x = ±side, z = 0）周圍清出一塊空地（11 × 25 格），放得下一整隊；正中央一棟 2 × 10 的長條建築擋火力巷
 // 固定種子 → 每次都是同一張圖（觀戰、無頭模擬一樣）
 export const BIG_ARENA_SEED = 4;   // 挑過的：建築約 24%
 export function bigArena(seed = BIG_ARENA_SEED) {
@@ -136,10 +136,10 @@ export function bigArena(seed = BIG_ARENA_SEED) {
   const clearC = [1, sc + 5], clearR = [sr - 12, sr + 12];
   const inClear = (c, r, w = 1, h = 1) => c < clearC[1] + 1 && c + w > clearC[0] && r < clearR[1] + 1 && r + h > clearR[0];
   fillBlocks(R, streetCuts(R, 1, AVE, 3, 4, true), streetCuts(R, 1, H - 1, 3, 4), (c, r, w, h, f, st) => { if (!inClear(c, r, w, h)) addB(c, r, w, h, f, st); }, grid, (c, r) => inClear(Math.floor(c), Math.floor(r)), 0.1, 0.3);
-  addB(AVE + 1, 18, 2, 2, 1, 0);   // 大道上的掩體（對稱過去是另一棟）
+  // （大道上原本有兩棟 2 × 2 的矮房當掩體：貼著街廓只留 1 格縫、卡尋路，2026-11-26 拿掉，掩體改由正中央的長條建築負責）
   const buildings = [...half, ...half.map(([c, r, w, h, f, st]) => [W - c - w, H - r - h, w, h, f, (st + 1) % 3])];
   // 正中央一棟南北長、東西窄的建築（自己就對中心點對稱）：擋住大道上的直線火力巷，兩邊不會一直在中間對射；兩側各留 2 格通道
-  buildings.push([W / 2 - 1, H / 2 - 9, 2, 18, 3, 1]);
+  buildings.push([W / 2 - 1, H / 2 - 5, 2, 10, 3, 1]);   // 10 格長：兩端跟大道上的矮房之間留得出路（18 格時剛好卡住，尋路得繞一大圈）
   for (const [c, r, w, h] of buildings) for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) grid[y][x] = 'B';
   return { id: 'bigarena' + seed, W, H, grid, buildings, side };
 }

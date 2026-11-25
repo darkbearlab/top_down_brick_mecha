@@ -26,7 +26,8 @@ export const HEAVY = {
   },
   // 只在重火力測試模式（遠征流程）用
   enemyHpK: 2.5,        // 敵人耐久倍率
-  squadMax: 2,          // 每隊最多幾台（平常 3）
+  squadMax: 2,          // 每隊最多幾台（平常 3）：重火力測試的遠征小隊
+  packSquadMax: 3,      // 雜魚包（觀戰 AI vs 雜魚、模擬 squad:）每隊最多幾台；2026-11-26 從 2 拉回 3（散開部署之後一包 9 台）
 };
 
 let saved = null;   // [[物件, 欄位, 原值]]
@@ -53,7 +54,7 @@ export function applyHeavy() {
   set(GRUNTS_LOW.mortar, 'backR', 'mortar_l');
   set(SQUADS.mortar, 'themes', { ...SQUADS.mortar.themes, city: 3 });
   // 戰車、偵察無人機（parts.js HEAVY_GRUNTS）：放進雜魚池；砲擊陣地 = 迫擊砲車 + 無人機（觀測者）；新的裝甲小隊 = 戰車 + 機砲兵
-  for (const [k, G] of Object.entries(HEAVY_GRUNTS)) { set(GRUNTS_LOW, k, G); set(GRUNTS, k, G); set(GRUNT_WEIGHT, k, k === 'tank' ? 1 : 0); }
+  for (const [k, G] of Object.entries(HEAVY_GRUNTS)) { set(GRUNTS_LOW, k, G); set(GRUNTS, k, G); set(GRUNT_WEIGHT, k, k === 'tank' ? 1 : 0.6); }
   set(SQUADS.mortar, 'units', ['mortar', 'spotter', 'mortar']);
   set(SQUADS, 'armor', { name: '裝甲小隊', faction: 'base', units: ['tank', 'trooper', 'tank'], themes: { city: 2, open: 2, plaza: 1 }, minDepth: 1 });
   // AI
@@ -74,4 +75,5 @@ export function clearHeavy() {
 }
 export const heavyOn = () => !!saved;
 // 小隊的成員：新數值下每隊最多 squadMax 台（敵人少而耐打；遠征的重火力測試、觀戰的雜魚包、模擬的 squad: 都用這個）
-export const squadUnits = (SQ, k) => saved ? SQ[k].units.slice(0, HEAVY.squadMax) : SQ[k].units;
+export const squadUnits = (SQ, k, max = HEAVY.squadMax) => saved ? SQ[k].units.slice(0, max) : SQ[k].units;
+export const packUnits = (SQ, k) => squadUnits(SQ, k, HEAVY.packSquadMax);   // 雜魚包用
