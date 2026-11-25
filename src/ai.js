@@ -221,11 +221,19 @@ export function updateEnemy(e, dt, player) {
   let mx, mz;
   const ranged = A.want >= 6;
   let kite = null;
+  const indR = AI_TUNE.spotter && !e.fixed ? Object.values(e.guns).reduce((r, g) => g.def.indirect ? Math.max(r, reachOf(g.def)) : r, 0) : 0;   // 有迫擊砲的：射程
   if (!player.alive) { mx = 0; mz = 0; }
   else if (tac && ranged && !e.fixed && (kite = kiteFrom(e))) {
     // 被包夾（近距離有兩台以上、或有近戰型貼上來）：往反方向退，順便左右晃；三台以上直接推進拉開
     mx = kite.x - kite.z * A.strafe * 0.3; mz = kite.z + kite.x * A.strafe * 0.3; A.spot = null;
     if (kite.n >= 3) A.reposition = Math.min(A.reposition, 0);
+  }
+  else if (indR && dist > 6 && dist < indR) {
+    // 迫擊砲（新數值）：射程內就躲在看不到目標的地方打，靠觀測者；看不到也不往目標走
+    A.spotT = (A.spotT ?? 0) - dt;
+    if (!A.spot || A.spotT <= 0) { A.spot = pickSpot(e, player, false, indR); A.spotT = 3 + Math.random() * 2; }
+    const sx = A.spot.x - e.x, sz = A.spot.z - e.z, sd = Math.hypot(sx, sz);
+    if (sd > 1.2) { mx = sx / sd; mz = sz / sd; } else { mx = 0; mz = 0; }
   }
   else if (!los || dist > A.want + (ranged ? 6 : 4)) {
     // 看不到玩家：照流場繞過去（pathing.js；會飛的用飛行流場）；看得到就直線靠近
@@ -234,7 +242,7 @@ export function updateEnemy(e, dt, player) {
     if (K) {
       // 看不到：照路線走去記憶裡的位置（聽到 / 最後看到 / 搜索點），會飛的直線過去
       const kx = K.x - e.x, kz = K.z - e.z, kd = Math.hypot(kx, kz) || 1;
-      f = (!e.fly && kd > 1.5 && routeDir(`k${Math.round(K.x)},${Math.round(K.z)}`, G.now, e.x, e.z, K.x, K.z)) || { x: kx / kd, z: kz / kd };
+      f = (!e.fly && kd > 1.5 && routeDir(`k${Math.round(K.x / 3)},${Math.round(K.z / 3)}`, G.now, e.x, e.z, K.x, K.z)) || { x: kx / kd, z: kz / kd };
       if (K.slow) f = { x: f.x * 0.55, z: f.z * 0.55 };   // 搜索 / 跟丟：慢慢走
     } else f = !los && player.team === 'player' ? (e.fly ? flyDir(e.x, e.z) : flowDir(e.x, e.z)) : !los && tac && !e.fly ? routeDir(player.id, G.now, e.x, e.z, player.x, player.z) : null;
     if (f) { mx = f.x; mz = f.z; } else { mx = nx; mz = nz; }
@@ -499,6 +507,7 @@ function remember(e, tgt, src = 'sight', dist = 0) {
   if (src === 'sound') { const a = Math.random() * 6.283, d = (2 + dist * 0.1) * Math.sqrt(Math.random()); x += Math.cos(a) * d; z += Math.sin(a) * d; }
   const M = memOf(e), old = M[tgt.id];
   if (src === 'sound' && old?.src === 'sight' && fresh(old, 1)) return old;   // 剛親眼看過就不用聽的蓋掉
+  if (src === 'sound' && old?.src === 'sound' && fresh(old, 0.5)) return old;   // 聲音 0.5 秒內只更新一次（不然連射時每幀重抽位置，路線每幀重算、移動會抖）
   M[tgt.id] = { x, z, t: G.now, src };
   e.ai.search = null;
   return M[tgt.id];
@@ -569,7 +578,7 @@ function shotSpeedOf(e) {
 // ---------- 射擊位置 ----------
 // 在玩家周圍偏好距離附近抽 12 個點打分：從那裡看得到玩家（最重要）、離其他同伴（和它們的射擊位置）遠、離自己現在的位置近、
 //   會飛的停在空洞上加分（地面機體過不去）；站不住的點不要
-function pickSpot(e, tgt, tac = false) {
+function pickSpot(e, tgt, tac = false, indReach = 0) {   // indReach：間接射擊（迫擊砲）的射程 → 反過來找看不到目標的點
   const base = Math.atan2(e.x - tgt.x, e.z - tgt.z), want = e.ai.want;
   const foes = tac ? hostilesOf(e).filter(o => o !== tgt && Math.hypot(o.x - e.x, o.z - e.z) < 32) : null;
   let best = null, bs = -1e9;
@@ -587,7 +596,7 @@ function pickSpot(e, tgt, tac = false) {
       sep = Math.min(sep, Math.hypot(o.x - x, o.z - z));
       if (o.ai?.spot) sep = Math.min(sep, Math.hypot(o.ai.spot.x - x, o.ai.spot.z - z));
     }
-    let score = (see ? 10 : -20) + sep * 1.3 - Math.hypot(x - e.x, z - e.z) * 0.3 + (e.fly && tileAt(tileC(x), tileR(z)) === 'v' ? 6 : 0);
+    let score = (indReach ? (see ? -6 : 8) - (d < 6 || d > indReach - 1 ? 30 : 0) : see ? 10 : -20) + sep * 1.3 - Math.hypot(x - e.x, z - e.z) * 0.3 + (e.fly && tileAt(tileC(x), tileR(z)) === 'v' ? 6 : 0);
     // 新戰術：別的敵人看得到這個點就扣分（一次只跟一台交火）、離任何敵人太近扣更多
     if (foes) for (const o of foes) {
       const ox = x - o.x, oz = z - o.z, od = Math.hypot(ox, oz) || 1;

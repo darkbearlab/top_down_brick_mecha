@@ -298,7 +298,8 @@ function startHorde(fresh = false) {
   MODE.round++;
   AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.hard;
   if (player) { removeMech(player); player.alive = false; }
-  const ace = spawnEnemy({ x: 0, z: -10 }, watchLoadout(), { x: 0, z: 6 }, { team: 'blue', colors: BLUE_COLORS, diff: DIFFS.hard });
+  const at0 = isSolid(0, 6) ? randomOpenSpot(0, 0, 0) : { x: 0, z: 6 };   // 新觀戰場地正中央是建築 → 找空地
+  const ace = spawnEnemy({ x: 0, z: -10 }, watchLoadout(), at0, { team: 'blue', colors: BLUE_COLORS, diff: DIFFS.hard });
   MODE.horde = { ace, spawned: 0, killed: 0, t: 1.5 };
   for (let i = 0; i < HORDE_FIRST; i++) dropGrunt();
   $('menu').classList.add('hidden'); $('duel').classList.add('hidden'); $('hud').classList.add('hidden');

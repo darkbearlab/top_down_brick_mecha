@@ -222,6 +222,8 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
     const sp = ml * vmax * (back ? -0.6 : Math.max(0, dot));
     tx = lf.x * sp; tz = lf.z * sp;
   } else if (ml > 0.1 && m.boostT <= 0) m.legYaw = approachAngle(m.legYaw, Math.atan2(mx, mz), S.legTurn * lk * dt);
+  // 站著不動：上半身跟腳差超過 60° → 腳慢慢跟上（車身方向 BAL.hullFacing 用；不然站定射擊會被算成側面中彈）
+  else if (BAL.hullFacing && ml <= 0.1 && m.boostT <= 0 && Math.abs(angleDiff(m.legYaw, m.torsoYaw)) > 1.05) m.legYaw = approachAngle(m.legYaw, m.torsoYaw, S.legTurn * lk * 0.5 * dt);
 
   if (C && m.charge && C.phase !== 'thrust') {
     const f = facing(m);
@@ -434,7 +436,10 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null,
   const dir = a < 0.7 ? 'front' : a < 2.27 ? 'side' : 'rear';
   // 車身方向（BAL.hullFacing）：軀幹的裝甲倍率看下半身（車身）朝向 —— 上半身轉得過來、車身轉不過來，繞到側面 / 背後才有回報
   //   打到哪個部位照舊看上半身（手臂、背部、頭跟著上半身）
-  const ah = BAL.hullFacing ? Math.abs(angleDiff(m.legYaw, Math.atan2(fromX, fromZ))) : a;
+  //   腳（履帶以外）可以倒退走：車身朝向取 legYaw 和反方向裡比較接近上半身的那個（邊退邊打不算背面中彈）
+  let hull = m.legYaw;
+  if (BAL.hullFacing && m.spec.legs.type !== 'tread' && Math.abs(angleDiff(m.torsoYaw, hull + Math.PI)) < Math.abs(angleDiff(m.torsoYaw, hull))) hull += Math.PI;
+  const ah = BAL.hullFacing ? Math.abs(angleDiff(hull, Math.atan2(fromX, fromZ))) : a;
   const hdir = ah < 0.7 ? 'front' : ah < 2.27 ? 'side' : 'rear';
   // 雜魚機整台算同一個部位
   let part = m.grunt ? 'torso' : forced ?? pickPart(m, dir, right);
