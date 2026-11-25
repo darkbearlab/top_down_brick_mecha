@@ -341,6 +341,15 @@ export const ENEMY_PRESETS = [
   { name: '汽油型', faction: 'base', head: 'std', core: 'std', legs: 'biped', armL: 'fuel', armR: 'autocannon', backL: 'napalm', backR: null,
     armor: { head: 'composite', torso: 'ceramic', arms: 'ceramic', legs: 'composite' } },
 ];
+// 新數值的觀戰王牌（2026-11-26）：模擬裡打雜魚包（6 包、一次一隊）前幾名的配裝；新數值的觀戰（電腦對電腦、王牌 vs 雜魚）只從這裡挑，
+//   原本的預設機 / 隨機配裝封存給舊數值（main.js watchLoadout）
+const SR_ARMOR = { head: 'composite', torso: 'composite', arms: 'composite', legs: 'composite' };
+export const NEW_ACES = [
+  ENEMY_PRESETS.find(p => p.name === '盾火箭型'),                                                                                                    // 81% / 92%
+  { name: '盾霰彈火箭型', faction: 'base', head: 'std', core: 'heavy', legs: 'biped', armL: 'shield', armR: 'shotgun', backL: 'rocket', backR: 'rocket', armor: SR_ARMOR },   // 81% / 58%
+  { name: '盾機砲火箭型', faction: 'base', head: 'std', core: 'heavy', legs: 'biped', armL: 'shield', armR: 'autocannon', backL: 'rocket', backR: 'rocket', armor: SR_ARMOR },   // 75%
+];
+
 
 // ---------- 菁英機 ----------
 // 介於雜魚和王牌之間：完整的部位破壞、體型比較大、武器少而專一；elite 欄位蓋掉零件算出來的數值

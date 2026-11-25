@@ -29,7 +29,7 @@ import { CHIPS, DEVICES, hasChip, smokeBlocks, techName } from './tech.js';
 import { clearDevices, deviceReady, updateDeviceCd, updateDevices, useDevice } from './devices.js';
 import { updateStatus } from './status.js';
 import { closeReasm, openReasm, reasmActive, renderReasm, updateReasm } from './reasm.js';
-import { ARMORS, DMG_TYPES, ELITES, ENEMY_PRESETS, GRUNTS, GRUNTS_LOW, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, SQUADS, WEAPONS, gruntOf, loadLoadout, pickSquad, randomGrunt, randomLoadout, canEnter, pickEntry, REINFORCE_ENTRIES } from './parts.js';
+import { ARMORS, DMG_TYPES, ELITES, ENEMY_PRESETS, NEW_ACES, GRUNTS, GRUNTS_LOW, LEGS, SLOTS, SLOT_KEYS, SLOT_NAMES, SQUADS, WEAPONS, gruntOf, loadLoadout, pickSquad, randomGrunt, randomLoadout, canEnter, pickEntry, REINFORCE_ENTRIES } from './parts.js';
 import { clearPickups, pickups, restorePickups, spawnPickup, stashPickups, updatePickups } from './pickups.js';
 import { sensors, setSensorsVisible, updateSensors } from './sensors.js';
 import { closeGarage, garage, openGarage } from './garage.js';
@@ -136,7 +136,8 @@ function startDuel(preset, diffKey) {
   toast(`對戰・${P.name}`);
 }
 // 觀戰：一半機率用現成配裝、一半隨機組裝
-const watchLoadout = () => Math.random() < 0.5 ? ENEMY_PRESETS[Math.floor(Math.random() * ENEMY_PRESETS.length)] : randomLoadout();
+const watchLoadout = () => heavyOn() ? NEW_ACES[Math.floor(Math.random() * NEW_ACES.length)]   // 新數值：只用測試前幾名的配裝（parts.js NEW_ACES）；舊的封存給舊數值
+  : Math.random() < 0.5 ? ENEMY_PRESETS[Math.floor(Math.random() * ENEMY_PRESETS.length)] : randomLoadout();
 // AI 對打觀戰（第三階段的代理作品）：tools/sim/entries/<名字>/loadout.json 的機體 + src/brains/<名字>.js 的大腦
 // 每場交換左右（場地有一點點不對稱）；打完自動下一場
 // 參賽作品：名字 → 顯示名稱；前六台是第二輪的個性機體（禁用脈衝、盾只有騎士）
