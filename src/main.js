@@ -348,8 +348,10 @@ const costOf = base => Math.round(base * (1 + 0.35 * (EN.stage - 1)));
 const exDiff = depth => expDiff(depth, EN.stage);
 const PLAYER_WEAPONS = Object.keys(WEAPONS).filter(k => !WEAPONS[k].low);
 // stage > 1：直接從那關開始（測試 / 選關用）：空的掛點補隨機武器（最多 2 把）、每跳過一關 2 個隨機強化模組和 30 零件
+// 遠征模式（出發時選，只記在這次開遊戲的記憶體裡）：'std' 標準 = 機體損毀可以從檢查點重組；'iron' 鐵人 = 損毀就結束
+let expMode = 'std';
 function startRun(seed, stage = 1) {
-  EN = { t: 0, kills: 0, mods: {}, scrap: (stage - 1) * 30, stage, explore: true, loadout: { ...structuredClone(loadout), ...START_WEAPONS }, inv: [] };   // inv：撿到的晶片 / 裝置（關卡之間重組時可以換上）
+  EN = { t: 0, kills: 0, mods: {}, scrap: (stage - 1) * 30, stage, explore: true, loadout: { ...structuredClone(loadout), ...START_WEAPONS }, inv: [], iron: expMode === 'iron', retries: 0 };   // inv：撿到的晶片 / 裝置（關卡之間重組時可以換上）
   if (stage > 1) {
     const keys = Object.keys(MODS);
     for (let i = 0; i < (stage - 1) * 2; i++) { const k = keys[Math.floor(Math.random() * keys.length)]; EN.mods[k] = (EN.mods[k] ?? 0) + 1; }
@@ -370,9 +372,12 @@ function spawnRunPlayer(x, z, yaw) {
 }
 // 遠征一律用新數值（2026-11-26，跟觀戰同一套：heavy.js）：挑小隊之前就要套上（小隊表、雜魚池都會被改），
 //   resetWorld 會先還原 → 之後再套一次（要在玩家、敵人生出來之前：彈藥量在 makeGuns 時決定）
-function startStage(seed) {
+// restore：從檢查點重組（retryRun）→ 不重新記錄這關的檢查點
+function startStage(seed, restore = false) {
+  const en0 = restore ? null : snapEN();
   applyHeavy();
   const map = genStage(seed, EN.stage, window.__dbg?.terrain);
+  if (!restore) { EN.cp = { seed: map.seed, en: en0 }; EN.bossCp = null; }   // 檢查點 1：每關開頭（同一個種子 = 同一張圖、同樣的駐軍）
   const R = rng(map.seed * 7 + 13);
   const { zones, squads } = planSquads(map, R);   // explan.js：每區的駐軍、支援隊、守備工事
   resetWorld(map);
@@ -399,6 +404,7 @@ function startStage(seed) {
       addProp('link', here.x, here.z, { layer: here.layer, link: L, end, up, style });
     }
   }
+  EX.nStatic = props.length;   // 到這裡為止的物件（傳送門、箱子、站、連接點）順序固定 → 頭目前的檢查點用索引記「開過了沒」
   // 迷霧：每層一份；1 層樓的建築不擋視線
   initFogLayers(map.layers.map((L, k) => {
     const low = new Set();
@@ -742,6 +748,7 @@ function rebuild(lo, fresh, repair) {
 const WARN_T = 3.2, INTRO_T = 1.8;
 const bossIntro = { t: 0, x: 0, z: 0 };
 function startBoss(p) {
+  EN.bossCp = snapBoss();   // 檢查點 2：啟動傳送門（頭目前）
   setPortal(p, 'boss');
   EX.pending = [];   // 頭目是完整機體、不比玩家差：啟動後所有增援都關掉（已經在場上的留著，不再新增）
   EX.warnT = WARN_T; EX.beepT = 0;
@@ -948,16 +955,65 @@ function fogVisibility(dt) {
   for (let i = n; i < blips.length; i++) blips[i].visible = false;
   for (const p of pickups) if (on && !visibleAt(p.x, p.z)) p.g.visible = false;
 }
+// ---------- 檢查點（標準模式）----------
+// 機體損毀 → 從最後的檢查點「重組」（故事：機體會自己重組；不是篝火：敵人不會因為休息復活、也不能刷零件）
+//   每關開頭：EN 的快照（配裝、強化、零件、晶片 / 裝置、時間、擊破數）+ 地圖種子 → 同一張圖重來，敵人、箱子全部重置
+//   頭目前（啟動傳送門那一刻）：再加上整張圖的進度（清掉的小隊、死掉的成員、開過的箱子 / 用過的站）和機體當下的狀態（耐久、彈藥、能量、位置）
+//   重組次數記在結算；鐵人模式沒有檢查點
+const snapEN = () => { const { cp, bossCp, ...rest } = EN; return structuredClone(rest); };
+function snapBoss() {
+  const parts = {}, ammo = {};
+  for (const k in player.parts) parts[k] = [player.parts[k].hp, player.parts[k].broken];
+  for (const s in player.guns) ammo[s] = player.guns[s].ammo;
+  return { en: snapEN(), cleared: EX.cleared, squads: EX.squads.map(S => ({ c: S.cleared, d: S.units.map(u => u.dead) })),
+    used: props.slice(0, EX.nStatic).flatMap((q, i) => q.used ? [i] : []),
+    pl: { layer: EX.layer, x: player.x, z: player.z, yaw: player.torsoYaw, parts, ammo, energy: player.energy, charges: player.device?.charges } };
+}
+function restoreBoss(B) {
+  EX.squads.forEach((S, i) => { const q = B.squads[i]; if (!q) return; S.cleared = q.c; S.found ||= q.c; q.d.forEach((d, j) => { if (S.units[j]) S.units[j].dead = d; }); });
+  EX.cleared = B.cleared;
+  for (const i of B.used) if (props[i]) spendProp(props[i]);
+  const P = B.pl;
+  if (P.layer !== EX.layer) enterLayer(P.layer);
+  player.x = P.x; player.z = P.z; player.vx = player.vz = 0; player.torsoYaw = player.legYaw = P.yaw;
+  for (const k in player.parts) {
+    const q = player.parts[k], o = P.parts[k];
+    if (!o) continue;
+    if (o[1] && k !== 'torso') { q.hp = 0; q.broken = true; if (k === 'legs') q.mat.color.setHex(0x5a5048); else q.g.visible = false; }
+    else { q.hp = Math.max(1, o[0]); syncWear(player, k, 0, 0, true); }
+  }
+  for (const s in player.guns) if (P.ammo[s] != null) player.guns[s].ammo = P.ammo[s];
+  player.energy = P.energy;
+  if (player.device && P.charges != null) player.device.charges = P.charges;
+  EX.portalKnown = true;
+  setPortal(EX.portal, 'ready');
+  updateFog(1, player.x, player.z);
+  startBoss(EX.portal);
+}
+// kind 'stage'：這關開頭；'boss'：頭目前
+function retryRun(kind) {
+  const cp = EN.cp, B = kind === 'boss' ? EN.bossCp : null, retries = (EN.retries ?? 0) + 1;
+  EN = { ...structuredClone(B ? B.en : cp.en), cp, bossCp: B, retries };
+  hidePanel(); G.paused = false;
+  startStage(cp.seed, true);
+  if (B) restoreBoss(B);
+  toast(`機體重組・${B ? '從頭目前' : `從第 ${EN.stage} 關開頭`}（第 ${retries} 次）`);
+}
 const runSummary = () => {
   const mods = Object.entries(EN.mods).map(([k, n]) => `${MODS[k].name}${n > 1 ? ' ×' + n : ''}`).join('、') || '無';
   const guns = SLOTS.map(s => EN.loadout[s]).filter(Boolean).map(id => WEAPONS[id].name).join('、') || '無';
-  return `第 <b>${EN.stage}</b> 關・${mmss(EN.t)}・擊破 <b>${EN.kills}</b> 台<br>武器：${guns}<br>強化：${mods}`;
+  return `第 <b>${EN.stage}</b> 關・${mmss(EN.t)}・擊破 <b>${EN.kills}</b> 台・${EN.iron ? '<b>鐵人</b>' : `標準・重組 ${EN.retries ?? 0} 次`}<br>武器：${guns}<br>強化：${mods}`;
 };
 function showExploreResult() {
   G.paused = true;
   sfx.click();
+  const cps = EN.iron || !EN.cp ? [] : [
+    ...(EN.bossCp ? [{ label: '從頭目前重組', primary: true, run: () => retryRun('boss') }] : []),
+    { label: `從第 ${EN.stage} 關開頭重組`, primary: !EN.bossCp, run: () => retryRun('stage') },
+  ];
   showPanel('機體損毀', runSummary(), [
-    { label: '再出發', primary: true, run: () => startRun() },
+    ...cps,
+    { label: '再出發', primary: !cps.length, run: () => startRun() },
     { label: '整備（換骨架）', run: () => { hidePanel(); openGarageFrom('result'); } },
     { label: '回主選單', run: showMenu },
   ]);
@@ -1073,6 +1129,7 @@ $('mSubBack').onclick = () => { sfx.click(); hideSub(); };
 $('mExplore').onclick = () => {
   unlockAudio(); sfx.click();
   showSub('遠征・選關', [
+    { label: `模式：${expMode === 'iron' ? '鐵人' : '標準'}`, desc: expMode === 'iron' ? '機體損毀就結束（按一下換成標準）' : '機體損毀可以從這關開頭 / 頭目前重組（按一下換成鐵人）', run: () => { expMode = expMode === 'iron' ? 'std' : 'iron'; $('mExplore').onclick(); } },
     { label: '第 1 關', desc: `${TERRAINS[terrainOf(1)]}・從機槍和飛彈出發`, primary: true, run: () => startRun() },
     ...[2, 3, 4, 5, 6].map(n => ({ label: `第 ${n} 關`, desc: `${TERRAINS[terrainOf(n)]}・直接從這關開始：補 ${Math.min(2, n - 1)} 把隨機武器、${(n - 1) * 2} 個強化模組、${(n - 1) * 30} 零件`, run: () => startRun(undefined, n) })),
   ]);
