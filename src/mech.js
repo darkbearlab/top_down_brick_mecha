@@ -39,8 +39,9 @@ export const GRUNT_SCALE = 0.8;
 const TEAM_RING = new THREE.RingGeometry(0.95, 1.2, 28);
 let MECH_ID = 0;
 export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, hpMul = 1, ace = true, grunt = null }) {
-  const spec = computeSpec(loadout);
+  const spec = computeSpec(loadout, !!grunt);
   if (grunt) spec.hp.torso = grunt.hp;
+  spec.mass = spec.total * (loadout.elite?.scale ?? 1) ** 2;   // 質量（衝量、騎槍用）：菁英照體型放大
   // 菁英：數值蓋掉零件算出來的
   const E = loadout.elite;
   if (E) {
@@ -290,7 +291,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   const hit = collideBlocks(m, m.r, 0, !!m.fly);
   // 騎槍衝刺撞牆 / 建築：撞敵機會給的那一下，全部吃在拿騎槍的那隻手上
   if (dashing && m.charge && hit.hit > 2) {
-    const C2 = m.charge, dmg = Math.min(C2.d.dmgMax, C2.v * C2.d.dmgK) * BAL.lanceWallK;
+    const C2 = m.charge, dmg = Math.min(C2.d.dmgMax, C2.v * C2.d.dmgK) * BAL.lanceWallK * lanceMassK(m);
     m.charge = null;
     // 拿騎槍的那隻手扛下撞擊（那隻手已經沒了就算軀幹）
     log('charge', { m: m.id, phase: 'wall', dmg: Math.round(dmg) });
@@ -336,7 +337,7 @@ function lanceHit(m) {
     const ox = o.x - m.x, oz = o.z - m.z, dist = Math.hypot(ox, oz);
     if (dist > m.r + o.r + 0.45 || ox * C.dx + oz * C.dz < 0) continue;
     const closing = Math.max(0, C.v - (o.vx * C.dx + o.vz * C.dz));
-    const dmg = Math.min(d.dmgMax, closing * d.dmgK) * (m.dmgMul ?? 1) * (BAL.massImpulse ? Math.max(0.7, Math.min(1.4, m.spec.total / 30)) : 1);   // 重的撞起來痛
+    const dmg = Math.min(d.dmgMax, closing * d.dmgK) * (m.dmgMul ?? 1) * lanceMassK(m);   // 重的撞起來痛
     log('charge', { m: m.id, phase: 'hit', tgt: o.id, speed: Math.round(closing * 10) / 10 });
     att(m, 'lance', () => hitMech(o, dmg, C.dx, C.dz, d.kb, 'kinetic', null, closing * d.dmgK));
     const hx = m.x + C.dx * (m.r + 0.3), hz = m.z + C.dz * (m.r + 0.3);
@@ -398,7 +399,8 @@ function pickPart(m, dir, right) {
 // power：拿來判斷失衡的武器原始威力（不吃難度倍率）；沒給就用 dmg
 // splash = 爆風（盾只擋一半、蟲群吃 ×1.8）
 // 衝量照重量（BAL.massImpulse）：總重 30 = ×1；輕的被推得遠、重的推不太動；懸浮沒有抓地再 ×1.3；最多 ×1.4（後座把自己推去撞牆不會超過撞擊速度）
-export const impulseK = m => !BAL.massImpulse || !m.spec?.total ? 1 : Math.max(0.6, Math.min(1.4, 30 / m.spec.total * (m.spec.legs.type === 'hover' ? 1.3 : 1)));
+export const impulseK = m => !BAL.massImpulse || !m.spec?.total ? 1 : Math.max(0.6, Math.min(1.4, 30 / (m.spec.mass ?? m.spec.total) * (m.spec.legs.type === 'hover' ? 1.3 : 1)));
+const lanceMassK = m => BAL.massImpulse ? Math.max(0.7, Math.min(1.4, (m.spec.mass ?? m.spec.total) / 30)) : 1;   // 騎槍：重的撞起來痛，撞牆也痛
 export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null, power = dmg, splash = false) {
   kb *= impulseK(m);
   if (!m.alive) return null;
@@ -430,6 +432,10 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null,
   const a = Math.abs(angleDiff(m.torsoYaw, Math.atan2(fromX, fromZ)));
   const right = fromX * -f.z + fromZ * f.x > 0;
   const dir = a < 0.7 ? 'front' : a < 2.27 ? 'side' : 'rear';
+  // 車身方向（BAL.hullFacing）：軀幹的裝甲倍率看下半身（車身）朝向 —— 上半身轉得過來、車身轉不過來，繞到側面 / 背後才有回報
+  //   打到哪個部位照舊看上半身（手臂、背部、頭跟著上半身）
+  const ah = BAL.hullFacing ? Math.abs(angleDiff(m.legYaw, Math.atan2(fromX, fromZ))) : a;
+  const hdir = ah < 0.7 ? 'front' : ah < 2.27 ? 'side' : 'rear';
   // 雜魚機整台算同一個部位
   let part = m.grunt ? 'torso' : forced ?? pickPart(m, dir, right);
   // 弱點標定：被標記的機體，大多打到軀幹以外還沒壞的部位
@@ -443,13 +449,13 @@ export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null,
     const P = m.parts[part];
     if (P.core && !P.broken && coreOpen(m, part, fromX, fromZ)) { m.vx += dx * kb; m.vz += dz * kb; if (CL.on) log('hit', { tgt: m.id, ...srcOf(), part, raw: Math.round(dmg), eff: 2, dir, core: true }); coreBreak(m, part, dx, dz); return { part, eff: 2, core: true }; }
   }
-  const mul = part === 'torso' && !forced && !m.grunt ? TORSO_MUL[dir] : 1;
+  const mul = part === 'torso' && !forced && !m.grunt ? TORSO_MUL[hdir] : 1;
   const eff = EFFECT[type][m.parts[part].armor] ?? 1;
   m.vx += dx * kb; m.vz += dz * kb;
   // 反應裝甲：每個部位每 8 秒，第一次被打中傷害減半
   let rk = 1;
   if (hasChip(m, 'reactive') && (m.parts[part].reactT ?? 0) <= G.now) { rk = 0.5; m.parts[part].reactT = G.now + 8; }
-  if (CL.on) log('hit', { tgt: m.id, ...srcOf(), part, raw: Math.round(dmg * 10) / 10, eff, dir });
+  if (CL.on) log('hit', { tgt: m.id, ...srcOf(), part, raw: Math.round(dmg * 10) / 10, eff, dir, hdir });
   damagePart(m, part, dmg * mul * eff * rk * corrodeK(m, part), dx, dz);   // 被腐蝕的部位吃更多傷害（status.js）
   const th = m.spec.legs.stagger ?? Infinity;
   if (m.alive && BAL.staggerAccum && th !== Infinity) {

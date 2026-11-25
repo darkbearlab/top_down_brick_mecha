@@ -109,7 +109,7 @@ export function removeEnemy(e) {
   clearTele(e);
   if (e.drop) { scene.remove(e.drop.ring); e.drop = null; }
 }
-export function clearEnemies() { for (const e of enemies.slice()) removeEnemy(e); }
+export function clearEnemies() { for (const e of enemies.slice()) removeEnemy(e); clearMemory(); }
 // 多層地圖：追到別層的敵機先「收起來」（不在場上、不更新），過一陣子再從連接點那邊空降出來（unparkEnemy）
 export function parkEnemy(e) {
   const i = enemies.indexOf(e);
@@ -192,7 +192,7 @@ export function updateEnemy(e, dt, player) {
   const los = rayBlock(e.x, e.z, nx, nz, dist) >= dist - 0.9 && !smokeBlocks(e.x, e.z, player.x, player.z);   // 煙霧彈：看不穿
   // 感知（AI_TUNE.memory）：K = 看不到時要去 / 要瞄的地方（null = 照舊用真實位置）；長距鎖定頭看得穿牆，不受限制
   let K = null;
-  if (AI_TUNE.memory && player.alive && !e.fixed) { if (los) remember(e, player); else if (!headStats(e).radarLock) K = recall(e, player, dist, dt); }
+  if (AI_TUNE.memory && player.alive) { if (los) remember(e, player); else if (!e.fixed && !headStats(e).radarLock) K = recall(e, player, dist, dt); }   // 砲塔也會回報看到的位置
 
   // 衝鋒機：預告、衝刺、暈眩的時候不走一般的移動
   if (e.charger && updateCharger(e, dt, player, dist, nx, nz, los)) { updateGuns(e, { L: false, R: false }, dt, [], null); e.laser.g.visible = false; return; }
@@ -317,7 +317,7 @@ export function updateEnemy(e, dt, player) {
 
   // 瞄準：稍微預判
   const lead = AI_TUNE.leadReal ? dist / shotSpeedOf(e) : dist / 18 * 0.5;
-  e.aimYaw = K ? Math.atan2(K.x - e.x, K.z - e.z) : Math.atan2(player.x + player.vx * lead - e.x, player.z + player.vz * lead - e.z) + Math.sin(G.now * 1.7 + e.seed) * DF.err;   // 看不到：預瞄記憶裡的位置
+  e.aimYaw = K ? (K.free ? Math.atan2(e.drive?.mx || Math.sin(e.torsoYaw), e.drive?.mz || Math.cos(e.torsoYaw)) : Math.atan2(K.x - e.x, K.z - e.z)) : Math.atan2(player.x + player.vx * lead - e.x, player.z + player.vz * lead - e.z) + Math.sin(G.now * 1.7 + e.seed) * DF.err;   // 看不到：預瞄記憶裡的位置
   const canShoot = los && player.alive && !AI.passive;
   const onTarget = Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.14 && canShoot;
   // 鎖定玩家（給飛彈用）：在範圍內、看得到就慢慢鎖上
@@ -362,7 +362,8 @@ export function updateEnemy(e, dt, player) {
     else if (d.indirect) {
       if (player.alive && !AI.passive && dist > 5 && dist < reachOf(d) && Math.random() < dt * 1.2 / DF.rest) {
         const P = AI_TUNE.spotter ? mortarPoint(e, player) : { x: player.x, z: player.z };
-        if (P) { t = true; ind = P; }
+        const pd = P ? Math.hypot(P.x - e.x, P.z - e.z) : 0;
+        if (P && pd > 5 && pd < reachOf(d)) { t = true; ind = P; }   // 射程看實際要打的那一點
       }
     }
     else if (d.speed / SHOT_TUNE.speedK > 50) {
@@ -491,13 +492,24 @@ function aceTarget(e, cur, dt) {
 // 記憶：小隊共享（遠征的 e.squad），沒有小隊的照隊伍共享；{ 目標 id: { x, z, t } }
 const TEAM_MEM = {};
 const memOf = e => e.squad ? (e.squad.mem ??= {}) : (TEAM_MEM[e.team] ??= {});
-const fresh = r => r && r.t <= G.now && G.now - r.t < 8;   // 8 秒內的記憶才算（t > now：上一場模擬留下的）
-function remember(e, tgt) { memOf(e)[tgt.id] = { x: tgt.x, z: tgt.z, t: G.now }; e.ai.search = null; }
-// 看不到時要去哪：24 格內剛開火（聽得到）→ 那裡；記憶 → 最後的位置，到了在附近 6 格搜索 5 秒；都沒有 → 慢慢往真實位置掃（不然觀戰 / 模擬會僵住）
+const fresh = (r, T = 8) => r && r.t <= G.now && G.now - r.t < T;   // T 秒內的記憶才算（t > now：上一場模擬留下的）
+// 記位置：src 'sight' 親眼看到（精確）/ 'sound' 聽到開火（大概：偏 2 + 距離 × 0.1 格）
+function remember(e, tgt, src = 'sight', dist = 0) {
+  let x = tgt.x, z = tgt.z;
+  if (src === 'sound') { const a = Math.random() * 6.283, d = (2 + dist * 0.1) * Math.sqrt(Math.random()); x += Math.cos(a) * d; z += Math.sin(a) * d; }
+  const M = memOf(e), old = M[tgt.id];
+  if (src === 'sound' && old?.src === 'sight' && fresh(old, 1)) return old;   // 剛親眼看過就不用聽的蓋掉
+  M[tgt.id] = { x, z, t: G.now, src };
+  e.ai.search = null;
+  return M[tgt.id];
+}
+// 看不到時要去哪（K）：24 格內剛開火（聽得到）→ 大概的位置；記憶 → 最後的位置，到了在附近 6 格搜索 5 秒
+//   搜索完 / 記憶過期：有小隊據點（遠征）→ 回據點（之後交給 main.js 的跟丟判定）；沒有（觀戰 / 模擬）→ 慢慢往真實位置掃，上半身朝移動方向（不隔牆盯著目標轉）
+//   free：上半身朝移動方向，不預瞄
 function recall(e, tgt, dist, dt) {
-  if (tgt.firedT != null && G.now - tgt.firedT < 0.25 && G.now >= tgt.firedT && dist < 24) { remember(e, tgt); return { x: tgt.x, z: tgt.z }; }
+  if (tgt.firedT != null && G.now - tgt.firedT < 0.25 && G.now >= tgt.firedT && dist < 24) { const r = remember(e, tgt, 'sound', dist); return { x: r.x, z: r.z }; }
   const A = e.ai, r = memOf(e)[tgt.id];
-  if (fresh(r)) {
+  if (fresh(r) && !(A.search?.r === r && A.search.t <= 0)) {
     if (!A.search && Math.hypot(r.x - e.x, r.z - e.z) > 2.5) return { x: r.x, z: r.z };
     if (!A.search || A.search.r !== r) A.search = { r, t: 5, nt: 0, x: r.x, z: r.z };
     const S = A.search;
@@ -506,21 +518,30 @@ function recall(e, tgt, dist, dt) {
       return { x: S.x, z: S.z, slow: true };
     }
   }
-  return { x: tgt.x, z: tgt.z, slow: true };
+  const Q = e.squad;
+  if (Q && Q.x != null && tgt.team === 'player') return { x: Q.x, z: Q.z, slow: true, free: true };
+  return { x: tgt.x, z: tgt.z, slow: true, free: true };
 }
-// 迫擊砲這一發打哪：有隊友（30 格內、看得到目標）當觀測者 → 照實際位置；沒有 → 記憶裡的位置（偏 4.5 格）；都沒有就不打
-//   偏差：第一發 3.5 格；同一個觀測者、目標沒跑出上一發基準點 4 格 → 每發 ×0.55（約第三發落在 1 格內）
+// 迫擊砲這一發打哪：
+//   觀測者 = 同小隊（沒有小隊：同隊伍）或離迫擊砲 18 格內的友軍，親眼看得到目標 → 照實際位置；第一發偏 3.5 格，同一個觀測者、目標沒跑出上一發基準點 4 格 → 每發 ×0.55
+//   沒有觀測者 → 4 秒內「親眼看到」的記憶（偏 4.5 格）；聽到的不算；都沒有就不打
 function mortarPoint(e, tgt) {
   let sp = null;
-  for (const o of mechs) if (o.alive && !o.drop && !o.dormant && o.team === e.team && Math.hypot(o.x - tgt.x, o.z - tgt.z) < 30 && sees(o, tgt)) { sp = o; break; }
+  for (const o of mechs) {
+    if (!o.alive || o.drop || o.dormant || o.team !== e.team) continue;
+    const mate = e.squad ? o.squad === e.squad : true;
+    if (!mate && Math.hypot(o.x - e.x, o.z - e.z) > 18) continue;
+    if (Math.hypot(o.x - tgt.x, o.z - tgt.z) < 30 && sees(o, tgt)) { sp = o; break; }
+  }
   let bx = tgt.x, bz = tgt.z, err = 3.5;
   const A = e.ai, J = A.adj;
-  if (!sp) { const r = memOf(e)[tgt.id]; if (!AI_TUNE.memory || !fresh(r)) return null; bx = r.x; bz = r.z; err = 4.5; }
+  if (!sp) { const r = memOf(e)[tgt.id]; if (!AI_TUNE.memory || !fresh(r, 4) || r.src !== 'sight') return null; bx = r.x; bz = r.z; err = 4.5; }
   else if (J && J.tid === tgt.id && J.sp === sp && Math.hypot(J.x - bx, J.z - bz) < 4) err = Math.max(0.4, J.err * 0.55);
   A.adj = { tid: tgt.id, sp, err, x: bx, z: bz };
   const a = Math.random() * 6.283, d = err * Math.sqrt(Math.random());
   return { x: bx + Math.cos(a) * d, z: bz + Math.sin(a) * d };
 }
+export function clearMemory() { for (const k in TEAM_MEM) delete TEAM_MEM[k]; }
 // 目標以外、26 格內看得到自己的敵人數
 function exposure(e, tgt) { let n = 0; for (const o of hostilesOf(e)) if (o !== tgt && Math.hypot(o.x - e.x, o.z - e.z) < 26 && sees(o, e)) n++; return n; }
 // 被包夾：7.5 格內的敵人（近戰型算兩台）≥ 2 → 回傳往外退的方向（離他們的重心）和台數

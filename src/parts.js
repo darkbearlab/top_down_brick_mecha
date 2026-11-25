@@ -163,7 +163,8 @@ for (const k in WEAPONS) WEAPONS[k].id = k;
 //   wallLockK：隔牆鎖定（長距鎖定頭，看不到目標時）的鎖定時間倍率；2026-11 定為 2（隔牆要鎖兩倍久，壓制躲在牆後無限飛彈）
 // massMove：重量進機動（docs/REALISM_REPORT.md M1）：極速看負重比（腳撐不撐得住），加速 / 腳轉速 / 推進看總重（慣性），上半身轉速看手臂 + 背部武器重量
 // massImpulse：後座、被擊退照自己的重量縮放（輕的被推得遠），騎槍衝撞傷害照自己的重量（M2）
-export const BAL = { massMove: true, massImpulse: true, wallLockK: 2, relock: 'off', staggerAccum: false, staggerDecay: 0.6, missileK: 0.8, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4, clearAheadK: 1, lanceWallK: 1 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
+// hullFacing：軀幹的裝甲方向看車身（下半身）而不是上半身（REALISM_REPORT 第二輪 F3）
+export const BAL = { massMove: true, massImpulse: true, hullFacing: true, wallLockK: 2, relock: 'off', staggerAccum: false, staggerDecay: 0.6, missileK: 0.8, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4, clearAheadK: 1, lanceWallK: 1 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
 export const HP_MUL = 1.35;
 
 // ---------- 敵人的主題（派系） ----------
@@ -270,7 +271,7 @@ export const SQUADS = {
   bunker: { name: '守備據點', faction: 'base', units: ['turret', 'mortar', 'trooper', 'trooper'], themes: { city: 2, plaza: 2 }, hold: 6, minDepth: 2 },
   rush: { name: '突擊隊', faction: 'base', units: ['brawler', 'brawler', 'stick', 'stick'], themes: { city: 3, ruins: 2, plaza: 1 } },
   ambush: { name: '火箭伏擊', faction: 'base', units: ['bazooka', 'bazooka', 'brawler'], themes: { city: 2, ruins: 2 } },
-  mortar: { name: '砲擊陣地', faction: 'base', units: ['mortar', 'mortar', 'scout'], themes: { open: 3, plaza: 2, ruins: 1 } },
+  mortar: { name: '砲擊陣地', faction: 'base', units: ['mortar', 'scout', 'mortar'], themes: { open: 3, plaza: 2, ruins: 1 } },
   snipers: { name: '狙擊組', faction: 'base', units: ['marksman', 'marksman', 'trooper'], themes: { open: 3, plaza: 1, ruins: 1, chasm: 2 } },
   missile: { name: '飛彈小隊', faction: 'base', units: ['launcher', 'launcher', 'marksman'], themes: { open: 2, plaza: 2, city: 1 } },
   heavy: { name: '重裝隊', faction: 'base', units: ['heavy*', 'scout', 'scout'], themes: { city: 2, open: 1, plaza: 1 }, minDepth: 1 },
@@ -422,7 +423,7 @@ export function randomLoadout() {
 
 // ---------- 由零件算出整台機體的數值 ----------
 // 超重不禁止，只是變慢：總重超過腳的負重 → 極速、加速下降；手臂超重 → 上半身轉速、命中下降；背部超重 → 能量回復變慢
-export function computeSpec(lo) {
+export function computeSpec(lo, noMass = false) {   // noMass：雜魚不吃重量進機動（只帶 1～2 把武器，負重比和總重都很小，會全部吃到上限而變快）
   const head = HEADS[lo.head], core = CORES[lo.core], legs = LEGS[lo.legs];
   const w = id => id ? WEAPONS[id].weight : 0;
   const armW = w(lo.armL) + w(lo.armR), backW = w(lo.backL) + w(lo.backR);
@@ -430,9 +431,10 @@ export function computeSpec(lo) {
   const loadK = total / legs.maxLoad;
   const moveK = loadK > 1 ? Math.max(0.5, 1 - (loadK - 1) * 1.6) : 1;
   const armOver = armW > core.armLoad, backOver = backW > core.backLoad;
-  // 重量進機動（BAL.massMove）：負重比 0.75（平均）、總重 30、上半身武器 14 是基準，不變
-  const cl = (v, a, b) => Math.max(a, Math.min(b, v)), MM = BAL.massMove;
-  const vk = MM ? cl(1 + 0.45 * (0.75 - loadK), 0.85, 1.15) : 1, ik = MM ? cl(Math.sqrt(30 / total), 0.78, 1.25) : 1, tk = MM ? cl(Math.sqrt(20 / (armW + backW + 6)), 0.78, 1.2) : 1;
+  // 重量進機動（BAL.massMove）：負重比 0.75（平均）、總重 30、上半身武器 18（預設機平均）是基準，不變
+  //   極速加成最多 +8%（不然負重上限很大的履帶重機反而變快）、減速到 −15%
+  const cl = (v, a, b) => Math.max(a, Math.min(b, v)), MM = BAL.massMove && !noMass;
+  const vk = MM ? cl(1 + 0.45 * (0.75 - loadK), 0.85, 1.08) : 1, ik = MM ? cl(Math.sqrt(30 / total), 0.78, 1.25) : 1, tk = MM ? cl(Math.sqrt(24 / (armW + backW + 6)), 0.8, 1.15) : 1;
   return {
     head, core, legs, armW, backW, total, loadK, moveK, armOver, backOver,
     vmax: legs.vmax * moveK * vk, acc: legs.acc * moveK * ik, legTurn: legs.legTurn * (loadK > 1 ? 0.8 : 1) * ik,
