@@ -6,7 +6,7 @@ import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayer
 import { THEMES, rng } from './mapgen.js';
 import { TERRAINS, genStage, terrainOf } from './stagegen.js';
 import { bigArena, genBlocks } from './blockgen.js';
-import { HEAVY, applyHeavy, clearHeavy } from './heavy.js';
+import { HEAVY, applyHeavy, clearHeavy, squadUnits } from './heavy.js';
 import { flowDist, flyDist, updateFlow } from './pathing.js';
 import { addProp, clearProps, nearProp, props, removeProp, setPortal, setPropLayer, spendProp, updateProps } from './props.js';
 import { RADIUS, exploredAt, fogActive, fogOff, initFogLayers, setFogLayer, setHeightFog, updateFog, visibleAt } from './fog.js';
@@ -246,7 +246,7 @@ async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
   MODE.round++;
   AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.hard;
   if (player) { removeMech(player); player.alive = false; }
-  const pack = BRAIN_PACKS[(MODE.round - 1) % BRAIN_PACKS.length], units = pack.squads.flatMap(k => SQUADS[k].units);
+  const pack = BRAIN_PACKS[(MODE.round - 1) % BRAIN_PACKS.length], units = pack.squads.flatMap(k => squadUnits(SQUADS, k));   // 新數值每隊最多 2 台
   const ace = spawnEnemy(SIDE_B, { ...E.lo, name: entryName(who), chips: [], device: null }, SIDE_A, { team: 'blue', colors: BLUE_COLORS });
   BA.attachBrain(ace, E.brain);
   MODE.bpTools = BA;

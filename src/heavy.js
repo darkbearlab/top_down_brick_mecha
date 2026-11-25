@@ -45,6 +45,8 @@ export function applyHeavy() {
   set(WEAPONS.mg, 'interval', HEAVY.mg.interval);
   set(WEAPONS.mg, 'ammo', HEAVY.mg.ammo);
   set(WEAPONS.mg, 'dmg', HEAVY.mg.dmg);
+  // 連射武器的後座加大：扛著連射有持續的推力感（REALISM_REPORT M2）
+  for (const id of ['mg', 'autocannon', 'mg_l', 'autocannon_l']) set(WEAPONS[id], 'recoil', WEAPONS[id].recoil * 2);
   for (const [id, o] of Object.entries(HEAVY.low)) for (const [k, v] of Object.entries(o)) if (WEAPONS[id]) set(WEAPONS[id], k, v);
   for (const h of Object.values(HEADS)) if (h.lockRange) set(h, 'lockRange', h.lockRange * HEAVY.lockRangeK);
   // 迫擊砲：迫擊砲車換成真的迫擊砲（拋射、落點預告、越過建築），砲擊陣地也會出現在街區
@@ -58,6 +60,8 @@ export function applyHeavy() {
   set(AI_TUNE, 'indirectWant', HEAVY.indirectWant);
   set(AI_TUNE, 'leadReal', true);   // 預判照實際子彈速度
   set(AI_TUNE, 'ace', true);        // 王牌新戰術
+  set(AI_TUNE, 'memory', true);     // 感知與最後已知位置（REALISM_REPORT A2）
+  set(AI_TUNE, 'spotter', true);    // 迫擊砲要有觀測者（A1）
 }
 export function clearHeavy() {
   if (!saved) return;
@@ -65,3 +69,5 @@ export function clearHeavy() {
   saved = null;
 }
 export const heavyOn = () => !!saved;
+// 小隊的成員：新數值下每隊最多 squadMax 台（敵人少而耐打；遠征的重火力測試、觀戰的雜魚包、模擬的 squad: 都用這個）
+export const squadUnits = (SQ, k) => saved ? SQ[k].units.slice(0, HEAVY.squadMax) : SQ[k].units;

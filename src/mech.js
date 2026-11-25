@@ -336,7 +336,7 @@ function lanceHit(m) {
     const ox = o.x - m.x, oz = o.z - m.z, dist = Math.hypot(ox, oz);
     if (dist > m.r + o.r + 0.45 || ox * C.dx + oz * C.dz < 0) continue;
     const closing = Math.max(0, C.v - (o.vx * C.dx + o.vz * C.dz));
-    const dmg = Math.min(d.dmgMax, closing * d.dmgK) * (m.dmgMul ?? 1);
+    const dmg = Math.min(d.dmgMax, closing * d.dmgK) * (m.dmgMul ?? 1) * (BAL.massImpulse ? Math.max(0.7, Math.min(1.4, m.spec.total / 30)) : 1);   // 重的撞起來痛
     log('charge', { m: m.id, phase: 'hit', tgt: o.id, speed: Math.round(closing * 10) / 10 });
     att(m, 'lance', () => hitMech(o, dmg, C.dx, C.dz, d.kb, 'kinetic', null, closing * d.dmgK));
     const hx = m.x + C.dx * (m.r + 0.3), hz = m.z + C.dz * (m.r + 0.3);
@@ -397,7 +397,10 @@ function pickPart(m, dir, right) {
 }
 // power：拿來判斷失衡的武器原始威力（不吃難度倍率）；沒給就用 dmg
 // splash = 爆風（盾只擋一半、蟲群吃 ×1.8）
+// 衝量照重量（BAL.massImpulse）：總重 30 = ×1；輕的被推得遠、重的推不太動；懸浮沒有抓地再 ×1.3；最多 ×1.4（後座把自己推去撞牆不會超過撞擊速度）
+export const impulseK = m => !BAL.massImpulse || !m.spec?.total ? 1 : Math.max(0.6, Math.min(1.4, 30 / m.spec.total * (m.spec.legs.type === 'hover' ? 1.3 : 1)));
 export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null, power = dmg, splash = false) {
+  kb *= impulseK(m);
   if (!m.alive) return null;
   // 蟲群：單發攻擊一次最多打掉一隻；爆風打到一大片
   if (m.swarm) dmg = splash ? dmg * 1.8 : Math.min(dmg, m.swarm.per);

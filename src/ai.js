@@ -39,7 +39,9 @@ export const AI = { passive: false, count: 2, diff: DIFFS.normal, sandbox: false
 //   wantK：射擊型（理想距離 ≥ 6）的交戰距離倍率；indirectWant：有迫擊砲（indirect）的站多遠（0 = 不管）
 //   leadReal：預判照實際的子彈速度算（舊的固定當 36 格/秒；子彈加倍後會瞄過頭）
 //   ace：王牌（非雜魚、沒有大腦）用新戰術（aceTarget / kiteFrom / pickSpot 的曝光扣分 / 看不到目標時照路走）
-export const AI_TUNE = { gruntErrK: 1, gruntRestK: 1, gruntHpW: 0, wantK: 1, indirectWant: 0, leadReal: false, ace: false };
+//   memory：感知與最後已知位置（REALISM_REPORT A2）：看不到目標時不再全知，去最後看到 / 聽到的地方、預瞄那邊、到了搜索，跟丟才慢慢掃過去
+//   spotter：迫擊砲要有觀測者（A1）：有隊友看得到才照實際位置打（第一發偏 3.5 格、同一個觀測者持續看著每發 ×0.55），沒人看到就打記憶裡的位置（偏更多）
+export const AI_TUNE = { gruntErrK: 1, gruntRestK: 1, gruntHpW: 0, wantK: 1, indirectWant: 0, leadReal: false, ace: false, memory: false, spotter: false };
 const gruntHpK = P => { if (!AI_TUNE.gruntHpW) return 1; const w = SLOTS.reduce((a, s) => a + (P[s] ? WEAPONS[P[s]]?.weight ?? 0 : 0), 0); return Math.min(1.6, Math.max(1, 1 + AI_TUNE.gruntHpW * (w - 3))); };
 const DROP_TIME = 1.1, DROP_H = 16;
 const RING_GEO = new THREE.RingGeometry(0.8, 0.95, 36);
@@ -188,6 +190,9 @@ export function updateEnemy(e, dt, player) {
   const dx = player.x - e.x, dz = player.z - e.z, dist = Math.hypot(dx, dz) || 1;
   const nx = dx / dist, nz = dz / dist;
   const los = rayBlock(e.x, e.z, nx, nz, dist) >= dist - 0.9 && !smokeBlocks(e.x, e.z, player.x, player.z);   // 煙霧彈：看不穿
+  // 感知（AI_TUNE.memory）：K = 看不到時要去 / 要瞄的地方（null = 照舊用真實位置）；長距鎖定頭看得穿牆，不受限制
+  let K = null;
+  if (AI_TUNE.memory && player.alive && !e.fixed) { if (los) remember(e, player); else if (!headStats(e).radarLock) K = recall(e, player, dist, dt); }
 
   // 衝鋒機：預告、衝刺、暈眩的時候不走一般的移動
   if (e.charger && updateCharger(e, dt, player, dist, nx, nz, los)) { updateGuns(e, { L: false, R: false }, dt, [], null); e.laser.g.visible = false; return; }
@@ -225,7 +230,13 @@ export function updateEnemy(e, dt, player) {
   else if (!los || dist > A.want + (ranged ? 6 : 4)) {
     // 看不到玩家：照流場繞過去（pathing.js；會飛的用飛行流場）；看得到就直線靠近
     //   新戰術：目標不是玩家（觀戰、模擬）也照路走（routeDir），不會一路撞建築
-    const f = !los && player.team === 'player' ? (e.fly ? flyDir(e.x, e.z) : flowDir(e.x, e.z)) : !los && tac && !e.fly ? routeDir(player.id, G.now, e.x, e.z, player.x, player.z) : null;
+    let f;
+    if (K) {
+      // 看不到：照路線走去記憶裡的位置（聽到 / 最後看到 / 搜索點），會飛的直線過去
+      const kx = K.x - e.x, kz = K.z - e.z, kd = Math.hypot(kx, kz) || 1;
+      f = (!e.fly && kd > 1.5 && routeDir(`k${Math.round(K.x)},${Math.round(K.z)}`, G.now, e.x, e.z, K.x, K.z)) || { x: kx / kd, z: kz / kd };
+      if (K.slow) f = { x: f.x * 0.55, z: f.z * 0.55 };   // 搜索 / 跟丟：慢慢走
+    } else f = !los && player.team === 'player' ? (e.fly ? flyDir(e.x, e.z) : flowDir(e.x, e.z)) : !los && tac && !e.fly ? routeDir(player.id, G.now, e.x, e.z, player.x, player.z) : null;
     if (f) { mx = f.x; mz = f.z; } else { mx = nx; mz = nz; }
     A.spot = null;
   }
@@ -306,7 +317,7 @@ export function updateEnemy(e, dt, player) {
 
   // 瞄準：稍微預判
   const lead = AI_TUNE.leadReal ? dist / shotSpeedOf(e) : dist / 18 * 0.5;
-  e.aimYaw = Math.atan2(player.x + player.vx * lead - e.x, player.z + player.vz * lead - e.z) + Math.sin(G.now * 1.7 + e.seed) * DF.err;
+  e.aimYaw = K ? Math.atan2(K.x - e.x, K.z - e.z) : Math.atan2(player.x + player.vx * lead - e.x, player.z + player.vz * lead - e.z) + Math.sin(G.now * 1.7 + e.seed) * DF.err;   // 看不到：預瞄記憶裡的位置
   const canShoot = los && player.alive && !AI.passive;
   const onTarget = Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.14 && canShoot;
   // 鎖定玩家（給飛彈用）：在範圍內、看得到就慢慢鎖上
@@ -323,7 +334,7 @@ export function updateEnemy(e, dt, player) {
   const trig = { L: false, R: false };
   if (A.burst > 0) A.burst -= dt;
   else { A.rest -= dt; if (A.rest <= 0 && onTarget) { A.burst = 0.8; A.rest = (1 + Math.random() * 1.2) * DF.rest; } }
-  let laserSlot = null, anyClear = false, blockedSide = null;
+  let laserSlot = null, anyClear = false, blockedSide = null, ind = null;   // ind：迫擊砲這一發的落點
   for (const side of ['L', 'R']) {
     const slot = activeSlot(e, side), g = e.guns[slot];
     if (!g || slotBroken(e, slot) || e.deployT[side] > 0 || g.ammo <= 0 || g.def.kind === 'shield') continue;
@@ -348,7 +359,12 @@ export function updateEnemy(e, dt, player) {
     else if (d.kind === 'missile' || d.kind === 'split') t = canShoot && clear && locks.length > 0 && Math.random() < dt * 1.6 / DF.rest;
     else if (d.kind === 'vmissile') t = clear && locks.length > 0 && dist > 6 && Math.random() < dt * 1.2 / DF.rest;
     // 迫擊砲（indirect）：射程內就打，看不到也打（拋過建築；落點照目標現在的位置）
-    else if (d.indirect) t = player.alive && !AI.passive && dist > 5 && dist < reachOf(d) && Math.random() < dt * 1.2 / DF.rest;
+    else if (d.indirect) {
+      if (player.alive && !AI.passive && dist > 5 && dist < reachOf(d) && Math.random() < dt * 1.2 / DF.rest) {
+        const P = AI_TUNE.spotter ? mortarPoint(e, player) : { x: player.x, z: player.z };
+        if (P) { t = true; ind = P; }
+      }
+    }
     else if (d.speed / SHOT_TUNE.speedK > 50) {
       // 狙擊：瞄 0.8 秒（紅色雷射）才開槍
       if (onTarget && inRange && g.cd <= 0 && g.ammo > 0) { A.snipeT += dt; laserSlot = slot; if (A.snipeT >= 0.8) { t = true; A.snipeT = 0; } }
@@ -360,7 +376,7 @@ export function updateEnemy(e, dt, player) {
   // 連續一陣子所有武器都被擋 → 移動時去讓出射線
   A.lineBlockedT = canShoot && !anyClear && blockedSide ? (A.lineBlockedT ?? 0) + dt : 0;
   if (blockedSide) A.blockSide = blockedSide;
-  updateGuns(e, trig, dt, locks, { x: player.x, z: player.z });
+  updateGuns(e, trig, dt, locks, ind ?? { x: player.x, z: player.z });
   if (laserSlot) {
     const mz = muzzleOf(e, laserSlot), f = facing(e);
     const len = Math.min(rayBlock(mz.x, mz.z, f.x, f.z, 30), dist);
@@ -470,6 +486,40 @@ function aceTarget(e, cur, dt) {
     if (s < bs) { bs = s; best = o; }
   }
   return A.tgt = best;
+}
+// ---------- 感知（AI_TUNE.memory）、迫擊砲觀測（AI_TUNE.spotter） ----------
+// 記憶：小隊共享（遠征的 e.squad），沒有小隊的照隊伍共享；{ 目標 id: { x, z, t } }
+const TEAM_MEM = {};
+const memOf = e => e.squad ? (e.squad.mem ??= {}) : (TEAM_MEM[e.team] ??= {});
+const fresh = r => r && r.t <= G.now && G.now - r.t < 8;   // 8 秒內的記憶才算（t > now：上一場模擬留下的）
+function remember(e, tgt) { memOf(e)[tgt.id] = { x: tgt.x, z: tgt.z, t: G.now }; e.ai.search = null; }
+// 看不到時要去哪：24 格內剛開火（聽得到）→ 那裡；記憶 → 最後的位置，到了在附近 6 格搜索 5 秒；都沒有 → 慢慢往真實位置掃（不然觀戰 / 模擬會僵住）
+function recall(e, tgt, dist, dt) {
+  if (tgt.firedT != null && G.now - tgt.firedT < 0.25 && G.now >= tgt.firedT && dist < 24) { remember(e, tgt); return { x: tgt.x, z: tgt.z }; }
+  const A = e.ai, r = memOf(e)[tgt.id];
+  if (fresh(r)) {
+    if (!A.search && Math.hypot(r.x - e.x, r.z - e.z) > 2.5) return { x: r.x, z: r.z };
+    if (!A.search || A.search.r !== r) A.search = { r, t: 5, nt: 0, x: r.x, z: r.z };
+    const S = A.search;
+    if ((S.t -= dt) > 0) {
+      if ((S.nt -= dt) <= 0 || Math.hypot(S.x - e.x, S.z - e.z) < 1.5) { S.nt = 1.2; const a = Math.random() * 6.283, d = 2 + Math.random() * 4; S.x = r.x + Math.cos(a) * d; S.z = r.z + Math.sin(a) * d; }
+      return { x: S.x, z: S.z, slow: true };
+    }
+  }
+  return { x: tgt.x, z: tgt.z, slow: true };
+}
+// 迫擊砲這一發打哪：有隊友（30 格內、看得到目標）當觀測者 → 照實際位置；沒有 → 記憶裡的位置（偏 4.5 格）；都沒有就不打
+//   偏差：第一發 3.5 格；同一個觀測者、目標沒跑出上一發基準點 4 格 → 每發 ×0.55（約第三發落在 1 格內）
+function mortarPoint(e, tgt) {
+  let sp = null;
+  for (const o of mechs) if (o.alive && !o.drop && !o.dormant && o.team === e.team && Math.hypot(o.x - tgt.x, o.z - tgt.z) < 30 && sees(o, tgt)) { sp = o; break; }
+  let bx = tgt.x, bz = tgt.z, err = 3.5;
+  const A = e.ai, J = A.adj;
+  if (!sp) { const r = memOf(e)[tgt.id]; if (!AI_TUNE.memory || !fresh(r)) return null; bx = r.x; bz = r.z; err = 4.5; }
+  else if (J && J.tid === tgt.id && J.sp === sp && Math.hypot(J.x - bx, J.z - bz) < 4) err = Math.max(0.4, J.err * 0.55);
+  A.adj = { tid: tgt.id, sp, err, x: bx, z: bz };
+  const a = Math.random() * 6.283, d = err * Math.sqrt(Math.random());
+  return { x: bx + Math.cos(a) * d, z: bz + Math.sin(a) * d };
 }
 // 目標以外、26 格內看得到自己的敵人數
 function exposure(e, tgt) { let n = 0; for (const o of hostilesOf(e)) if (o !== tgt && Math.hypot(o.x - e.x, o.z - e.z) < 26 && sees(o, e)) n++; return n; }

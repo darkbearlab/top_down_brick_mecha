@@ -57,7 +57,8 @@ const presetOf = s => {
   if (!P) throw new Error(`找不到機體「${s}」；可用：${[...ENEMY_PRESETS, ...ELITES].map(p => p.name).join('、')}`);
   return P;
 };
-const PACK = typeof args.b === 'string' && args.b.startsWith('squad:') ? args.b.slice(6).split('+').flatMap(k => { if (!SQUADS[k]) throw new Error(`沒有小隊「${k}」；可用：${Object.keys(SQUADS).join('、')}`); return SQUADS[k].units; }) : null;
+const { squadUnits } = await import('../../src/heavy.js');
+const PACK = typeof args.b === 'string' && args.b.startsWith('squad:') ? args.b.slice(6).split('+').flatMap(k => { if (!SQUADS[k]) throw new Error(`沒有小隊「${k}」；可用：${Object.keys(SQUADS).join('、')}`); return squadUnits(SQUADS, k); }) : null;   // 新數值（heavy.mjs）每隊最多 2 台
 const gruntDef = k => gruntOf(k);   // 跟遊戲一樣：裝甲每台隨機
 const PA = args.teamA ? null : presetOf(args.a), PB = PACK ? { name: args.b } : args.teamB ? null : presetOf(args.b);
 const diff = DIFFS[args.diff ?? 'hard'];

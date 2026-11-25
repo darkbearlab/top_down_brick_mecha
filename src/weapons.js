@@ -21,7 +21,7 @@ import * as THREE from 'three';
 import { G, GFX, UNIT_BOX, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { isBlock, rayBlock, wallFace } from './arena.js';
 import { blastBuildings, damageBuilding, isBuilding } from './buildings.js';
-import { facing, hasModule, hitMech, mechs, muzzleOf, slotBroken, slotLive, updateReady, useEnergy } from './mech.js';
+import { facing, hasModule, hitMech, impulseK, mechs, muzzleOf, slotBroken, slotLive, updateReady, useEnergy } from './mech.js';
 import { RAMP, burnAt, explosion, flame, hitSparks, makeLaser, muzzleFlash, rampOf, scorch, setLaser, smoke, wallMark, sparks, spawnGlow, spawnPuff } from './fx.js';
 import { BAL, DMG_TYPES, SLOTS, WEAPONS } from './parts.js';
 import { sfx } from './audio.js';
@@ -81,6 +81,7 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
       fire(m, slot, d, locks, aim, n);
     }
     log('fire', { m: m.id, slot, w: d.id, n });
+    m.firedT = G.now;   // 開火會暴露位置（ai.js 感知：24 格內的敵人聽得到）
     // 飛彈逐發鎖定（BAL.relock）：要鎖定的飛彈射出去就把鎖定清掉，下一發要重新鎖
     if (BAL.relock !== 'off' && (d.kind === 'missile' || d.kind === 'vmissile' || d.kind === 'split')) { m.lockBreak = true; if (BAL.relock === 'after') m.relockUntil = G.now + gun.cd; }
     gun.ammo -= n;
@@ -107,7 +108,7 @@ function fire(m, slot, d, locks, aim, salvoN = d.salvo ?? 1) {
       spawnShot(m, d, mz.x, mz.y, mz.z, Math.sin(a), Math.cos(a), d.speed * spMul * (n > 1 ? R(0.85, 1.1) : 1));
     }
     muzzleFlash(mz.x, mz.y, mz.z, d.kind === 'beam' ? DMG_TYPES.energy.hex : enemy ? 0xff6040 : 0xffd070, (d.size ?? 0.1) * 4.5);
-    m.vx -= f.x * d.recoil; m.vz -= f.z * d.recoil;
+    const rk = d.recoil * impulseK(m); m.vx -= f.x * rk; m.vz -= f.z * rk;   // 後座照自己的重量（BAL.massImpulse）
     if (d.heavy) { sfx.cannon(); smoke(mz.x + f.x * 0.3, mz.y, mz.z + f.z * 0.3, 6, 1.2, 0x8a8c92); muzzleFlash(mz.x, mz.y, mz.z, 0xffc060, 1.6); if (!enemy) addTrauma(0.4); }
     else if (d.kind === 'beam') sfx.beam();
     else if (d === WEAPONS.sniper) { sfx.sniper(); if (!enemy) addTrauma(0.15); }

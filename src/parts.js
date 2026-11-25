@@ -161,7 +161,9 @@ for (const k in WEAPONS) WEAPONS[k].id = k;
 //   clearAheadK：避牆 / 路線檢查的兩側射線離中心多遠（× 機體半徑；0.8 會擦到轉角）；lanceWallK：騎槍撞牆的自傷倍率
 //   relock：飛彈逐發鎖定（實驗）：'off' 現在的（鎖上了就一直打）；'during' 每次發射清掉鎖定、冷卻中可以重新鎖；'after' 清掉、而且冷卻結束才開始重新鎖
 //   wallLockK：隔牆鎖定（長距鎖定頭，看不到目標時）的鎖定時間倍率；2026-11 定為 2（隔牆要鎖兩倍久，壓制躲在牆後無限飛彈）
-export const BAL = { wallLockK: 2, relock: 'off', staggerAccum: false, staggerDecay: 0.6, missileK: 0.8, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4, clearAheadK: 1, lanceWallK: 1 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
+// massMove：重量進機動（docs/REALISM_REPORT.md M1）：極速看負重比（腳撐不撐得住），加速 / 腳轉速 / 推進看總重（慣性），上半身轉速看手臂 + 背部武器重量
+// massImpulse：後座、被擊退照自己的重量縮放（輕的被推得遠），騎槍衝撞傷害照自己的重量（M2）
+export const BAL = { massMove: true, massImpulse: true, wallLockK: 2, relock: 'off', staggerAccum: false, staggerDecay: 0.6, missileK: 0.8, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4, clearAheadK: 1, lanceWallK: 1 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
 export const HP_MUL = 1.35;
 
 // ---------- 敵人的主題（派系） ----------
@@ -428,11 +430,14 @@ export function computeSpec(lo) {
   const loadK = total / legs.maxLoad;
   const moveK = loadK > 1 ? Math.max(0.5, 1 - (loadK - 1) * 1.6) : 1;
   const armOver = armW > core.armLoad, backOver = backW > core.backLoad;
+  // 重量進機動（BAL.massMove）：負重比 0.75（平均）、總重 30、上半身武器 14 是基準，不變
+  const cl = (v, a, b) => Math.max(a, Math.min(b, v)), MM = BAL.massMove;
+  const vk = MM ? cl(1 + 0.45 * (0.75 - loadK), 0.85, 1.15) : 1, ik = MM ? cl(Math.sqrt(30 / total), 0.78, 1.25) : 1, tk = MM ? cl(Math.sqrt(20 / (armW + backW + 6)), 0.78, 1.2) : 1;
   return {
     head, core, legs, armW, backW, total, loadK, moveK, armOver, backOver,
-    vmax: legs.vmax * moveK, acc: legs.acc * moveK, legTurn: legs.legTurn * (loadK > 1 ? 0.8 : 1),
-    turn: core.turn * (armOver ? 0.7 : 1) * [lo.armL, lo.armR].reduce((k, id) => k * (id ? WEAPONS[id].turnMul ?? 1 : 1), 1), spreadMul: armOver ? 1.6 : 1,
-    regen: backOver ? 0.6 : 1, boost: legs.boost * (loadK > 1 ? 0.8 : 1),
+    vmax: legs.vmax * moveK * vk, acc: legs.acc * moveK * ik, legTurn: legs.legTurn * (loadK > 1 ? 0.8 : 1) * ik,
+    turn: core.turn * (armOver ? 0.7 : 1) * [lo.armL, lo.armR].reduce((k, id) => k * (id ? WEAPONS[id].turnMul ?? 1 : 1), 1) * tk, spreadMul: armOver ? 1.6 : 1,
+    regen: backOver ? 0.6 : 1, boost: legs.boost * (loadK > 1 ? 0.8 : 1) * ik,
     // 整體耐久 ×HP_MUL（節奏放慢、多打幾輪）；背部武器的掛架也有自己的耐久
     hp: { head: head.hp * HP_MUL, torso: core.hp * HP_MUL, armL: Math.round(core.hp * 0.38 * HP_MUL), armR: Math.round(core.hp * 0.38 * HP_MUL), backL: 70 * HP_MUL * (WEAPONS[lo.backL]?.kind === 'module' ? 0.7 : 1), backR: 70 * HP_MUL * (WEAPONS[lo.backR]?.kind === 'module' ? 0.7 : 1), legs: legs.hp * HP_MUL },
   };
