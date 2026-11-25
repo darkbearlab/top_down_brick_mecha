@@ -231,6 +231,19 @@ const BRAIN_PACKS = [
   { name: '精英小隊 ×2 + 重裝隊（難）', squads: ['elite', 'elite', 'heavy'] },
   { name: '裝甲小隊 + 砲擊陣地 + 突擊隊', squads: ['armor', 'mortar', 'rush'], heavy: true },   // 新數值才有（戰車、偵察無人機）
 ];
+// 觀戰「王牌 vs 雜魚包」用的那幾組（2026-11-25 整理，tools/sim/gauntlet.mjs --packs ace 同一份）：
+//   蟲族（蟲巢守衛、衝鋒蟲群、蟲群）整組拿掉，之後重設計；
+//   突擊隊（純近戰）、砲擊陣地（迫擊砲 + 觀測）、狙擊組：單獨對王牌幾乎打不出傷害（模擬 29 / 38 / 65；換成員也拉不起來）→ 不放，留給更大規模的衝突
+//   飛彈小隊改成機砲兵 ×2 + 巡邏兵（heavy.js）
+//   拿掉弱隊之後每組都是硬隊 → 一組 = 一隊強的 + 兩隊中等；王牌勝率（3 套配裝 × 2 種子 × 6 場）標在後面，平均約 79%
+//   裝甲小隊（戰車）在組合裡太硬（跟衝鋒 + 精英一組只有 36%），先不放
+const ACE_PACKS = [
+  { name: '衝鋒隊 + 自爆小隊 + 縱火隊', squads: ['breakers', 'kamikaze', 'arson'] },   // 92%
+  { name: '飛彈小隊 + 自爆小隊 + 縱火隊', squads: ['missile', 'kamikaze', 'arson'] },   // 81%
+  { name: '巡邏隊 + 衝鋒隊 + 縱火隊', squads: ['patrol', 'breakers', 'arson'] },       // 78%
+  { name: '巡邏隊 + 遊獵隊 + 精英小隊', squads: ['patrol', 'hunters', 'elite'] },       // 75%
+  { name: '精英小隊 ×2 + 重裝隊（難）', squads: ['elite', 'elite', 'heavy'] },          // 69%
+];
 // AI vs 雜魚（新數值）：上一隊全滅 → 下一隊從天上空投到它自己的集結點
 function bpNextWave() {
   const B = MODE.bp, W = B.queue.shift();
@@ -258,7 +271,7 @@ async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'ace') {
   MODE.round++;
   AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.hard;
   if (player) { removeMech(player); player.alive = false; }
-  const packs = BRAIN_PACKS.filter(P => !P.heavy || heavyOn()), pack = packs[(MODE.round - 1) % packs.length], groups = pack.squads.map(k => packUnits(SQUADS, k)), units = groups.flat();   // 新數值每隊最多 3 台（HEAVY.packSquadMax）
+  const packs = who === 'ace' ? ACE_PACKS : BRAIN_PACKS.filter(P => !P.heavy || heavyOn()), pack = packs[(MODE.round - 1) % packs.length], groups = pack.squads.map(k => packUnits(SQUADS, k)), units = groups.flat();   // 新數值每隊最多 3 台（HEAVY.packSquadMax）
   const ace = who === 'ace' ? spawnEnemy(SIDE_B, E.lo, SIDE_A, { team: 'blue', colors: BLUE_COLORS, diff: DIFFS.hard })
     : spawnEnemy(SIDE_B, { ...E.lo, name: entryName(who), chips: [], device: null }, SIDE_A, { team: 'blue', colors: BLUE_COLORS });
   if (BA) BA.attachBrain(ace, E.brain);

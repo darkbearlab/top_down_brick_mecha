@@ -82,6 +82,8 @@ export function applyHeavy() {
   for (const [k, lo] of Object.entries(GRUNT_ROSTER)) if (GRUNTS_LOW[k]) for (const s of ['armL', 'armR', 'backL', 'backR']) set(GRUNTS_LOW[k], s, lo[s] ?? null);
   for (const [k, to] of Object.entries(GRUNT_MERGE)) { set(GRUNT_WEIGHT, to, (GRUNT_WEIGHT[to] ?? 0) + (GRUNT_WEIGHT[k] ?? 0)); set(GRUNT_WEIGHT, k, 0); }
   for (const S of Object.values(SQUADS)) if (S.units.some(u => GRUNT_MERGE[u])) set(S, 'units', S.units.map(u => GRUNT_MERGE[u] ?? u));
+  // 飛彈小隊（2026-11-25）：機砲兵 ×2 + 射手 單獨對王牌只打得出 76 → 射手換成巡邏兵（火箭莢艙壓制），模擬 222
+  set(SQUADS.missile, 'units', ['trooper', 'trooper', 'scout']);
   // AI
   set(AI_TUNE, 'gruntErrK', HEAVY.grunt.errK);
   set(AI_TUNE, 'gruntRestK', HEAVY.grunt.restK);
