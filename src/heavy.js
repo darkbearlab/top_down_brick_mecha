@@ -30,6 +30,27 @@ export const HEAVY = {
   packSquadMax: 3,      // 雜魚包（觀戰 AI vs 雜魚、模擬 squad:）每隊最多幾台；2026-11-26 從 2 拉回 3（散開部署之後一包 9 台）
 };
 
+// 雜魚重整（新數值）：照射程分
+//   近距突擊：突擊兵 = 霰彈槍 + 光束劍（電擊兵併進來）
+//   中距火力：巡邏兵 = 機槍 + 火箭莢艙（火箭兵併進來）；機砲兵 = 機砲 + 直射飛彈（小飛彈兵併進來）
+//   遠距：射手 = 狙擊槍
+//   特殊兵種維持單一（或原本的）武器：迫擊砲車、噴火兵、燒夷兵、砲塔、盾兵、旋停機、自爆機、衝鋒機、戰車、無人機；蟲不動
+//   武器一律換成制式（全威力）版：低階版（_l）只剩迫擊砲 mortar_l（它沒有制式版）
+const GRUNT_ROSTER = {
+  scout: { armR: 'mg', backL: 'rocket' },
+  trooper: { armR: 'autocannon', backL: 'missile' },
+  brawler: { armL: 'saber', armR: 'shotgun' },
+  marksman: { armR: 'sniper' },
+  mortar: { backR: 'mortar_l' },
+  pyro: { armR: 'flamer' },
+  igniter: { armR: 'mg', backL: 'napalm' },
+  turret: { armR: 'autocannon' },
+  shielder: { armL: 'shield', armR: 'autocannon' },
+  gunship: { armR: 'mg', backL: 'missile' },
+};
+// 併掉的機種 → 改用哪一種（小隊名單、空投權重跟著換）
+const GRUNT_MERGE = { stick: 'brawler', bazooka: 'scout', launcher: 'trooper' };
+
 let saved = null;   // [[物件, 欄位, 原值]]
 const set = (o, k, v) => { saved.push([o, k, o[k], k in o]); o[k] = v; };
 
@@ -57,6 +78,10 @@ export function applyHeavy() {
   for (const [k, G] of Object.entries(HEAVY_GRUNTS)) { set(GRUNTS_LOW, k, G); set(GRUNTS, k, G); set(GRUNT_WEIGHT, k, k === 'tank' ? 1 : 0.6); }
   set(SQUADS.mortar, 'units', ['mortar', 'spotter', 'mortar']);
   set(SQUADS, 'armor', { name: '裝甲小隊', faction: 'base', units: ['tank', 'trooper', 'tank'], themes: { city: 2, open: 2, plaza: 1 }, minDepth: 1 });
+  // 雜魚重整（2026-11-26）：照射程把選項整合在較少的機種上，武器全部換成制式（全威力）版
+  for (const [k, lo] of Object.entries(GRUNT_ROSTER)) if (GRUNTS_LOW[k]) for (const s of ['armL', 'armR', 'backL', 'backR']) set(GRUNTS_LOW[k], s, lo[s] ?? null);
+  for (const [k, to] of Object.entries(GRUNT_MERGE)) { set(GRUNT_WEIGHT, to, (GRUNT_WEIGHT[to] ?? 0) + (GRUNT_WEIGHT[k] ?? 0)); set(GRUNT_WEIGHT, k, 0); }
+  for (const S of Object.values(SQUADS)) if (S.units.some(u => GRUNT_MERGE[u])) set(S, 'units', S.units.map(u => GRUNT_MERGE[u] ?? u));
   // AI
   set(AI_TUNE, 'gruntErrK', HEAVY.grunt.errK);
   set(AI_TUNE, 'gruntRestK', HEAVY.grunt.restK);
