@@ -244,15 +244,39 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
     const mu = s.mu * (L.slide ?? 1) * (L.grip ?? 1), gripMax = mu * GRIP;
     const dvx = tx - m.vx, dvz = tz - m.vz, dl = Math.hypot(dvx, dvz);
     const v = Math.hypot(m.vx, m.vz), hover = L.type === 'hover';
-    // 起步慢（重）、剎車和轉向快（腳踩住地）；超速（噴射完、被撞飛）直接用整個抓地力剎住，懸浮例外
+    // 起步和轉向後要重新加速（重）、剎車快（腳踩住地）；超速（噴射完、被撞飛）直接用整個抓地力剎住，懸浮例外
     const brake = v > 0.3 && dl > 1e-4 ? Math.max(0, -(dvx * m.vx + dvz * m.vz) / (dl * v)) : 0;
-    let acc = S.acc * lk * (1 + (hover ? 0.3 : BRAKE_K - 1) * brake);
-    if (!hover && v > vmax * 1.05) acc = Math.max(acc, gripMax * lk);
-    acc = Math.min(acc, gripMax);
+    const accB = S.acc * lk, brakeAcc = Math.min(gripMax, accB * (hover ? 1.3 : BRAKE_K));
+    let stuckK = 1;
     // 撞進東西裡：剛撞到時幾乎動不了，慢慢拔出來
-    if (m.stuckT > 0) { m.stuckT -= dt; acc *= 0.12 + 0.88 * (1 - m.stuckT / m.stuckMax) ** 2; }
-    const cap = acc * dt, k = dl > cap ? cap / dl : 1;
-    m.vx += dvx * k; m.vz += dvz * k;
+    if (m.stuckT > 0) { m.stuckT -= dt; stuckK = 0.12 + 0.88 * (1 - m.stuckT / m.stuckMax) ** 2; }
+    const tl = Math.hypot(tx, tz);
+    if (!hover && v > vmax * 1.05 || tl < 0.1) {
+      // 超速（噴射完、被撞飛）：整個抓地力剎住（懸浮例外）；沒有方向指令：照原本的剎車
+      let acc = accB * (1 + (hover ? 0.3 : BRAKE_K - 1) * brake);
+      if (!hover && v > vmax * 1.05) acc = Math.max(acc, gripMax * lk);
+      const cap = Math.min(acc, gripMax) * stuckK * dt, k = dl > cap ? cap / dl : 1;
+      m.vx += dvx * k; m.vz += dvz * k;
+    } else {
+      // 有重量的加速：拆成兩個分量
+      //   側向 / 反向（把舊方向的速度剎掉）：剎車力，很快
+      //   沿新方向加速：起步加速期，照「沿新方向的速度」va 算 → 從靜止起步、急轉彎、反向之後都要重新加速
+      //     先慢慢出力，va 到 vmax 的 30～45% 才是全力；越重（負重比 loadK）越慢；懸浮本來就慢，效果減半
+      //     雙足中等負重：起步 0.2 秒時速度約 0.9（以前 2.2），到 90% 極速 0.7 秒（以前 0.55）
+      const ux = tx / tl, uz = tz / tl, va = m.vx * ux + m.vz * uz;
+      const px = m.vx - ux * va, pz = m.vz - uz * va, pl = Math.hypot(px, pz);   // 側向速度
+      const pc = brakeAcc * stuckK * dt, pk = pl > pc ? pc / pl : 1;
+      m.vx -= px * pk; m.vz -= pz * pk;
+      const need = tl - va;   // 沿新方向還差多少（負的 = 太快 / 反向要先剎）
+      let a;
+      if (va < 0 || need < 0) a = brakeAcc;
+      else {
+        const h = Math.min(1, Math.max(0, (S.loadK - 0.5) / 0.7)), r0 = (hover ? 0.7 : 0.5) - 0.25 * h, x = Math.min(1, va / (vmax * (0.3 + 0.15 * h)));
+        a = Math.min(gripMax, accB * (r0 + (1 - r0) * x * x * (3 - 2 * x)));
+      }
+      const dv = Math.max(-a * stuckK * dt, Math.min(a * stuckK * dt, need));
+      m.vx += ux * dv; m.vz += uz * dv;
+    }
     // 硬剎車揚起地上的灰
     if (!hover && v > vmax * 1.2 && Math.random() < 0.5) skidDust(m);
   }
