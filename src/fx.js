@@ -107,9 +107,9 @@ export function wallMark(f, y, size, c = 0x5a5248) {
 }
 
 // ---------- 雷射（瞄準線） ----------
-export function makeLaser(color) {
+export function makeLaser(color, coreColor = 0xffffff) {   // coreColor：中間那條芯（預設白；玩家的左右瞄準線用淡紅 / 淡綠，顏色才看得出來）
   const g = new THREE.Group();
-  const core = new THREE.Mesh(UNIT_BOX, addMat(0xffffff));
+  const core = new THREE.Mesh(UNIT_BOX, addMat(coreColor));
   const glow = new THREE.Mesh(UNIT_BOX, addMat(color));
   const dot = new THREE.Mesh(FLASH_GEO, glow.material);
   dot.scale.setScalar(0.35);

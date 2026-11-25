@@ -65,7 +65,7 @@ function spawnPlayer(x = PLAYER_START.x, z = PLAYER_START.z, yaw = Math.PI, lo =
   };
   return player;
 }
-const guides = { L: makeLaser(0x7ff0ff), R: makeLaser(0x7ff0ff) };
+const guides = { L: makeLaser(0xff3a3a, 0xff9a9a), R: makeLaser(0x3aff6a, 0xa0ffb8) };   // 左右瞄準雷射：照飛機翼尖的航行燈（左紅、右綠）
 // 演出用的覆蓋層：出現時 CSS 動畫淡入；收起來先淡出（.fadeout）再藏（now = 直接藏）
 function fxShow(id) { const el = $(id); clearTimeout(el.fadeT); el.classList.remove('hidden', 'fadeout'); }
 function fxHide(id, now = false) {
