@@ -51,7 +51,7 @@ export function legacyShape(key) {
     const E = eliteOf(id), B = E?.body;
     if (!B) return null;
     const hy = Math.round(LEGS[E.legs].hipY * 16);
-    if (sub === 'torso') return B.torso ? { boxes: B.torso, points: corePoints(CORES[E.core]) } : legacyShape(`core:${E.core}`);
+    if (sub === 'torso') return B.torso ? { boxes: B.torso, points: { ...corePoints(CORES[E.core]), ...B.points } } : legacyShape(`core:${E.core}`);   // B.points：自訂掛點（戰車的主砲接在炮塔前面）
     if (sub === 'head') return B.head ? { boxes: B.head, points: {} } : legacyShape(`head:${E.head}`);
     if (sub === 'arm') return B.arm ? { boxes: B.arm, points: { hand: HAND } } : legacyShape('arm');
     if (sub === 'legs') return B.treads ? { boxes: B.treads, points: {} } : B.leg ? { boxes: B.hip ?? [], points: { legL: [0.22 * 16, hy, 0] } } : legacyShape(`legs:${E.legs}`);

@@ -17,6 +17,7 @@ const PACKS = args.packs === 'ace' ? [
   ['巡邏 + 衝鋒 + 縱火', 'patrol+breakers+arson'],
   ['巡邏 + 遊獵 + 精英', 'patrol+hunters+elite'],
   ['精英 ×2 + 重裝（難）', 'elite+elite+heavy'],
+  ['裝甲 + 自爆 + 縱火（難）', 'armor+kamikaze+arson'],
 ] : [
   ['突擊 + 伏擊 + 精英', 'rush+ambush+elite'],
   ['狙擊 + 飛彈 + 砲擊', 'snipers+missile+mortar'],
