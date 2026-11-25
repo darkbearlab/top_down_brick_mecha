@@ -348,6 +348,8 @@ export const NEW_ACES = [
   ENEMY_PRESETS.find(p => p.name === '盾火箭型'),                                                                                                    // 81% / 92%
   { name: '盾霰彈火箭型', faction: 'base', head: 'std', core: 'heavy', legs: 'biped', armL: 'shield', armR: 'shotgun', backL: 'rocket', backR: 'rocket', armor: SR_ARMOR },   // 81% / 58%
   { name: '盾機砲火箭型', faction: 'base', head: 'std', core: 'heavy', legs: 'biped', armL: 'shield', armR: 'autocannon', backL: 'rocket', backR: 'rocket', armor: SR_ARMOR },   // 75%
+  { name: '雙火箭掃蕩型', faction: 'base', head: 'std', core: 'heavy', legs: 'biped', armL: 'mg', armR: 'shotgun', backL: 'rocket', backR: 'rocket', armor: SR_ARMOR },   // 47% / 56%
+  { name: '盾分裂火箭型', faction: 'base', head: 'std', core: 'heavy', legs: 'biped', armL: 'shield', armR: 'autocannon', backL: 'split', backR: 'rocket', armor: SR_ARMOR },   // 53% / 39%
 ];
 
 
