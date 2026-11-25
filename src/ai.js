@@ -393,8 +393,14 @@ export function updateEnemy(e, dt, player) {
   updateReadyChoice(e, dt, dist, canShoot, player, disc);
   // 長距鎖定頭：隔著牆也能鎖；頭被打掉還是能鎖（距離短、慢）
   const lockable = player.alive && !AI.passive && (los || (H.radarLock && !smokeBlocks(e.x, e.z, player.x, player.z)));
-  A.lockT = lockable && wantsLock(e) && dist < H.lockRange && !(G.now < (e.relockUntil ?? 0)) ? A.lockT + dt / (los ? 1 : BAL.wallLockK) : Math.max(0, A.lockT - dt * 2);   // 隔牆鎖得慢（BAL.wallLockK）
-  const lockNeed = H.lockTime * DF.lock * burnLockK(e), locks = A.lockT >= lockNeed ? [player] : [];
+  const lockNeed = H.lockTime * DF.lock * burnLockK(e);
+  // FCS 提案（被動追蹤、鎖定保持、鎖定熱度）只給玩家；電腦照舊（BAL.fcsAI 打開才一起用）
+  if (e.lockFire) { e.lockFire = false; if (A.lockT >= lockNeed) A.lockT = lockNeed * (1 - BAL.lockHeat); }   // 鎖定熱度（BAL.relock 'heat'）
+  const canLock = lockable && ((BAL.fcsAI && BAL.fcsPassive) || wantsLock(e)) && dist < H.lockRange && !(G.now < (e.relockUntil ?? 0));
+  if (canLock) A.lockSeenT = G.now;
+  const held = BAL.fcsAI && !canLock && A.lockT >= lockNeed && BAL.lockHold > 0 && G.now - (A.lockSeenT ?? -99) < BAL.lockHold;   // 鎖定保持（BAL.lockHold）
+  A.lockT = canLock ? A.lockT + dt / (los ? 1 : BAL.wallLockK) : held ? A.lockT : Math.max(0, A.lockT - dt * 2);   // 隔牆鎖得慢（BAL.wallLockK）
+  const locks = A.lockT >= lockNeed ? [player] : [];
   e.lockOn = A.lockT > 0 && player.alive ? { tgt: player, k: Math.min(1, A.lockT / lockNeed) } : null;   // 給玩家的被鎖定警示（lockwarn.js）
 
   // 手臂：連射武器一陣一陣打；狙擊先亮雷射；劍貼近才揮；飛彈有鎖定才射

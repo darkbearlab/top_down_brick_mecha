@@ -12,7 +12,7 @@ import { wantsLock } from './mech.js';
 import { burnLockK } from './status.js';
 import { BAL } from './parts.js';
 
-export const sensors = { locks: [], progress: new Map(), head: null };
+export const sensors = { locks: [], progress: new Map(), head: null, seenT: new Map() };
 
 // 鎖定範圍扇形（地上淡淡的一片 + 外緣一條弧）：角度 = 鎖定角度、半徑 = 鎖定距離
 const fanG = new THREE.Group();
@@ -97,7 +97,9 @@ export function updateSensors(p, enemies, aim, dt) {
   fanG.position.set(p.x, 0.04, p.z);
   fanG.rotation.y = p.torsoYaw;
 
-  const live = new Set(), armed = wantsLock(p), half = H.lockArc * Math.PI / 360;
+  const held = new Set(), live = new Set(), armed = BAL.fcsPassive || wantsLock(p), half = H.lockArc * Math.PI / 360;
+  // 鎖定熱度（BAL.relock 'heat'）：剛射了一輪 → 鎖上的目標進度扣 lockHeat
+  if (p.lockFire) { p.lockFire = false; for (const [e, v] of sensors.progress) if (v >= 1) sensors.progress.set(e, 1 - BAL.lockHeat); }
   for (const e of enemies) {
     if (!e.alive || e.drop || e.swarm) continue;   // 蟲群鎖不到（一大群小東西，鎖了會一直干擾）
     const dx = e.x - p.x, dz = e.z - p.z, dist = Math.hypot(dx, dz);
@@ -107,6 +109,9 @@ export function updateSensors(p, enemies, aim, dt) {
     const seen = rayBlock(p.x, p.z, dx / (dist || 1), dz / (dist || 1), dist) >= dist - e.r;
     const can = p.alive && armed && dist <= H.lockRange && (aimA < half || nearAim) && (H.radarLock || seen);
     let prog = sensors.progress.get(e) ?? 0;
+    if (can) sensors.seenT.set(e, G.now);
+    const hold = !can && prog >= 1 && p.alive && BAL.lockHold > 0 && G.now - (sensors.seenT.get(e) ?? -99) < BAL.lockHold && dist <= H.lockRange + 4;   // 鎖定保持：躲到牆後 / 離開扇形一下下，鎖定還在
+    if (hold) { live.add(e); held.add(e); continue; }
     prog = can && !(G.now < (p.relockUntil ?? 0)) ? Math.min(1, prog + dt / (lockTime * (seen ? 1 : BAL.wallLockK))) : Math.max(0, prog - dt * 1.5);   // 逐發鎖定 'after'：冷卻中不鎖；隔牆鎖得慢（BAL.wallLockK）
     if (prog > 0) { sensors.progress.set(e, prog); live.add(e); } else sensors.progress.delete(e);
   }
@@ -126,6 +131,6 @@ export function updateSensors(p, enemies, aim, dt) {
     m.g.scale.setScalar((locked ? 1 : 2.2 - prog * 1.2) * (t.r / 0.85));
     m.g.rotation.y = locked ? Math.PI / 4 + Math.sin(performance.now() / 120) * 0.05 : prog * Math.PI / 2;
     m.mat.color.setHex(locked ? 0xff3030 : 0xffb040);
-    m.mat.opacity = locked ? 0.95 : 0.4 + prog * 0.5;
+    m.mat.opacity = locked ? (held.has(t) ? 0.35 + 0.5 * (Math.sin(performance.now() / 70) > 0 ? 1 : 0) : 0.95) : 0.4 + prog * 0.5;   // 保持中（看不到）：閃爍
   }
 }

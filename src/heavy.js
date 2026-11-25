@@ -4,7 +4,7 @@
 // 不套用：無盡、對戰、試玩場（還是舊數值）；無頭模擬預設也是舊的，加 --patch tools/sim/patches/heavy.mjs 才是新的
 // 做法：applyHeavy() 直接改 WEAPONS / HEADS / GRUNTS_LOW / SQUADS / SHOT_TUNE / AI_TUNE 的欄位並記下原值；clearHeavy() 一個一個放回去
 //   任何模式重設場地（resetWorld）都先 clearHeavy() → 離開後完全還原
-import { GRUNTS, GRUNTS_LOW, GRUNT_WEIGHT, HEADS, HEAVY_GRUNTS, SQUADS, WEAPONS } from './parts.js';
+import { BAL, GRUNTS, GRUNTS_LOW, GRUNT_WEIGHT, HEADS, HEAVY_GRUNTS, SQUADS, WEAPONS } from './parts.js';
 import { SHOT_TUNE } from './weapons.js';
 import { AI_TUNE } from './ai.js';
 
@@ -85,6 +85,17 @@ export function applyHeavy() {
   for (const k of ['hive', 'stampede', 'swarm', 'arson']) set(SQUADS[k], 'sealed', true);
   for (const k of ['mortar', 'snipers', 'rush', 'gunships']) set(SQUADS[k], 'support', true);
   set(SQUADS.snipers, 'hold', 4);   // 狙擊組：守著自己的位置（掩護主力），不跟著衝
+  // 火控（FCS，2026-11-26）：新數值下飛彈一直被斷鎖（轉角多、每射一輪就清掉鎖定）→ 一場射不到上限的六成
+  //   玩家的火控改成：頭部隨時在追蹤（不用先架起飛彈）、鎖上的目標躲起來保留 1.5 秒（鎖定框閃爍）、射一輪只扣 40% 鎖定進度、
+  //   直射飛彈末段轉向 ×2.5、標準頭扇形 40° → 60°；直射飛彈玩家一次 3 發（彈藥 48 → 72，一樣 24 輪）
+  //   敵人照舊（BAL.fcsAI 關著）→ 觀戰 / 遠征的難度不變；基準測試（一直瞄最近的敵人、有鎖就射）每分鐘傷害 1191 → 約 1880，火箭莢艙 2213
+  set(BAL, 'fcsPassive', true);
+  set(BAL, 'lockHold', 1.5);
+  set(BAL, 'relock', 'heat');
+  set(BAL, 'missileTurnK', 2.5);
+  set(HEADS.std, 'lockArc', 60);
+  set(WEAPONS.missile, 'playerSalvo', 3);
+  set(WEAPONS.missile, 'ammo', 72);
   // AI
   set(AI_TUNE, 'gruntErrK', HEAVY.grunt.errK);
   set(AI_TUNE, 'gruntRestK', HEAVY.grunt.restK);
