@@ -80,7 +80,7 @@ function build() {
       const tc = c0 + Math.floor(gx / N), tr = r0 + Math.floor(gz / N);
       const x = toWorldX(c0) - 0.5 + (gx + 0.5) * V, z = toWorldZ(r0) - 0.5 + (gz + 0.5) * V, yy = (y + 0.5) * V;
       const k = key(tc, tr);
-      if (!tiles.has(k)) tiles.set(k, { c: tc, r: tr, vox: [], hp: 0, max: 0, alive: 0, total: 0, burn: 0, smokeT: Math.random(), down: false, S });
+      if (!tiles.has(k)) tiles.set(k, { c: tc, r: tr, vox: [], hp: 0, max: 0, alive: 0, total: 0, burn: 0, smokeT: Math.random(), down: false, S, top: L * V });   // top：這棟的高度（樓層 × 1 + 女兒牆）
       const t = tiles.get(k);
       const ck = Math.floor(tc / CHUNK) + ',' + Math.floor(tr / CHUNK);
       if (!chunks.has(ck)) chunks.set(ck, { list: [], mesh: null, dirty: false, cdirty: false });
@@ -124,6 +124,8 @@ function flush() {
 
 // 那裡是還沒倒的建築（打得壞的牆）
 export function isBuilding(x, z) { const t = tiles.get(key(tileC(x), tileR(z))); return !!t && !t.down; }
+// 那裡的建築有多高（還沒倒的；沒有建築 = 0）：拋射彈、垂直飛彈飛低過建築就撞上（weapons.js）
+export function buildingTop(x, z) { const t = tiles.get(key(tileC(x), tileR(z))); return t && !t.down ? t.top : 0; }
 export function resetBuildings() {
   disposeSets();
   const st = { chunks: new Map(), vox: [], tiles: new Map(), burning: new Set(), parent: scene, mat: MAT };

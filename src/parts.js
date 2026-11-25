@@ -164,7 +164,8 @@ for (const k in WEAPONS) WEAPONS[k].id = k;
 // massMove：重量進機動（docs/REALISM_REPORT.md M1）：極速看負重比（腳撐不撐得住），加速 / 腳轉速 / 推進看總重（慣性），上半身轉速看手臂 + 背部武器重量
 // massImpulse：後座、被擊退照自己的重量縮放（輕的被推得遠），騎槍衝撞傷害照自己的重量（M2）
 // hullFacing：軀幹的裝甲方向看車身（下半身）而不是上半身（REALISM_REPORT 第二輪 F3）
-export const BAL = { massMove: true, massImpulse: true, hullFacing: true, wallLockK: 2, relock: 'off', staggerAccum: false, staggerDecay: 0.6, missileK: 0.8, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4, clearAheadK: 1, lanceWallK: 1 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
+// lobHitsBuildings：拋射彈（燒夷 / 酸液 / 榴彈 / 迫擊砲）和垂直飛彈飛得比建築低就撞上那棟，不再穿過去
+export const BAL = { lobHitsBuildings: true, massMove: true, massImpulse: true, hullFacing: true, wallLockK: 2, relock: 'off', staggerAccum: false, staggerDecay: 0.6, missileK: 0.8, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4, clearAheadK: 1, lanceWallK: 1 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
 export const HP_MUL = 1.35;
 
 // ---------- 敵人的主題（派系） ----------

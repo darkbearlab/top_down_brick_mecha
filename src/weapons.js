@@ -20,7 +20,7 @@
 import * as THREE from 'three';
 import { G, GFX, UNIT_BOX, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { isBlock, rayBlock, wallFace } from './arena.js';
-import { blastBuildings, damageBuilding, isBuilding } from './buildings.js';
+import { blastBuildings, buildingTop, damageBuilding, isBuilding } from './buildings.js';
 import { facing, hasModule, hitMech, impulseK, mechs, muzzleOf, slotBroken, slotLive, updateReady, useEnergy } from './mech.js';
 import { RAMP, burnAt, explosion, flame, hitSparks, makeLaser, muzzleFlash, rampOf, scorch, setLaser, smoke, wallMark, sparks, spawnGlow, spawnPuff } from './fx.js';
 import { BAL, DMG_TYPES, SLOTS, WEAPONS } from './parts.js';
@@ -301,8 +301,10 @@ function stepNapalm(s, i, dt) {
   const D = s.d, acid = D.status === 'corrode';
   if (Math.random() < 0.7) spawnGlow({ x: s.x, y: s.y, z: s.z, vx: 0, vy: 0.3, vz: 0, life: 0.3, s0: 0.16, s1: 0, ramp: acid ? RAMP.acid : RAMP.fire });
   if (s.mark) { s.t += dt; s.mark.material.opacity = 0.12 + 0.4 * Math.min(1, s.t / s.T) ** 2; }
+  // 飛得比建築低 → 撞上那棟（BAL.lobHitsBuildings）：在牆外一點的地方爆開（打牆、打旁邊的人；火海 / 酸液留在牆腳）
+  if (BAL.lobHitsBuildings && s.y > 0.2 && s.y < buildingTop(s.x, s.z)) { s.x -= s.vx * dt; s.z -= s.vz * dt; s.hitY = s.y; s.y = 0.2; }
   if (s.y > 0.2) { s.g.position.set(s.x, s.y, s.z); s.g.rotation.x += dt * 9; return; }
-  if (acid) acidSplash(s); else blast(s, s.x, 0.3, s.z, null);
+  if (acid) acidSplash(s); else blast(s, s.x, s.hitY ?? 0.3, s.z, null);   // hitY：撞到建築的高度（爆風打在牆上那個高度）
   if (D.zone) spawnZone(s.x, s.z, D.zone, D.zoneT, D.status ?? 'burn', D.burn, s.team);
   kill(i);
 }
@@ -627,7 +629,10 @@ function stepMissile(s, i, dt) {
     trail(s);
     let direct = null;
     for (const m of mechs) if (m.alive && !m.drop && !m.swarm && m.team !== s.team && s.y < 2.2 && Math.hypot(m.x - s.x, m.z - s.z) < m.r + 0.2) direct = m;
-    if (direct || s.y <= 0.15 || s.life <= 0) {
+    // 飛得比建築低（俯衝進建築）→ 撞上那棟，在牆外 / 屋頂上爆開（BAL.lobHitsBuildings）
+    let wall = false;
+    if (BAL.lobHitsBuildings && !direct && s.y < buildingTop(s.x, s.z)) { s.x -= s.vx * dt; s.z -= s.vz * dt; wall = true; }
+    if (direct || wall || s.y <= 0.15 || s.life <= 0) {
       if (direct) {
         // 從上面砸下來：容易打到頭和背部武器
         const roll = Math.random(), P = direct.parts;
