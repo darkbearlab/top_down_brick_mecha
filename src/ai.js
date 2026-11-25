@@ -41,7 +41,7 @@ export const AI = { passive: false, count: 2, diff: DIFFS.normal, sandbox: false
 //   ace：王牌（非雜魚、沒有大腦）用新戰術（aceTarget / kiteFrom / pickSpot 的曝光扣分 / 看不到目標時照路走）
 //   memory：感知與最後已知位置（REALISM_REPORT A2）：看不到目標時不再全知，去最後看到 / 聽到的地方、預瞄那邊、到了搜索，跟丟才慢慢掃過去
 //   spotter：迫擊砲要有觀測者（A1）：有隊友看得到才照實際位置打（第一發偏 3.5 格、同一個觀測者持續看著每發 ×0.55），沒人看到就打記憶裡的位置（偏更多）
-export const AI_TUNE = { gruntErrK: 1, gruntRestK: 1, gruntChassis: false, wantK: 1, indirectWant: 0, leadReal: false, ace: false, memory: false, spotter: false, aware: false, discipline: false, gruntTac: false };   // aware：王牌的戰場意識（aceAware）；discipline：武器 / 推進 / 減員紀律（見「紀律」那段）
+export const AI_TUNE = { gruntErrK: 1, gruntRestK: 1, gruntChassis: false, wantK: 1, indirectWant: 0, leadReal: false, ace: false, memory: false, spotter: false, aware: false, discipline: false, gruntTac: false, gruntLanes: false };   // aware：王牌的戰場意識（aceAware）；discipline：武器 / 推進 / 減員紀律（見「紀律」那段）
 const gruntHpK = P => !AI_TUNE.gruntChassis ? 1 : P.fly || P.legs === 'hover' ? 0.8 : P.legs === 'tread' ? 1.3 : 1;
 const DROP_TIME = 1.1, DROP_H = 16;
 const RING_GEO = new THREE.RingGeometry(0.8, 0.95, 36);
@@ -275,7 +275,12 @@ export function updateEnemy(e, dt, player) {
     // 看不到玩家：照流場繞過去（pathing.js；會飛的用飛行流場）；看得到就直線靠近
     //   新戰術：目標不是玩家（觀戰、模擬）也照路走（routeDir），不會一路撞建築
     let f;
-    if (K) {
+    const LG = laneGoal(e, K ?? player, dist, nx, nz);   // 雜魚小隊分路（AI_TUNE.gruntLanes）
+    if (LG) {
+      const lx = LG.x - e.x, lz = LG.z - e.z, ld = Math.hypot(lx, lz) || 1;
+      f = (!e.fly && ld > 1.5 && routeDir(`l${e.id}`, G.now, e.x, e.z, LG.x, LG.z)) || { x: lx / ld, z: lz / ld };
+      if (LG.slow) f = { x: f.x * 0.55, z: f.z * 0.55 };
+    } else if (K) {
       // 看不到：照路線走去記憶裡的位置（聽到 / 最後看到 / 搜索點），會飛的直線過去
       //   散開部署的雜魚（A.flank）：離目標還遠（> 16 格）時目的地往自己那一側偏，從不同的街道包過來
       if (A.flank && dist > 16 && !isSolid(K.x, K.z + A.flank)) K = { ...K, z: K.z + A.flank };
@@ -516,6 +521,28 @@ function boostLen(e, ux, uz) {
   const decel = (hoverOf(e) ? 7 : 26) * legK(e);
   return v0 * BOOST_TIME + Math.max(0, v0 * v0 - vmax * vmax) / (2 * decel) + 1.5;
 }
+// 雜魚小隊分路：同一小隊（同一個集結點 flank / 同一個 e.squad）照 id 排成左、中、右三路，
+//   沿著「目標 → 小隊重心」那條中線，每台追自己那一路上離目標近 14 格的點（往旁邊偏 8 格，離目標越近越收攏）
+//   → 一出發就走平行的不同街道、最後從不同方向包過來，不會排成一列被連發火箭 / 爆風一次帶走；中路（或只剩一台）照舊直接過去
+function laneGoal(e, T, dist, nx, nz) {
+  const A = e.ai;
+  if (!AI_TUNE.gruntLanes || !e.grunt || e.fixed || dist < 12) return null;
+  if (A.lane === undefined) {
+    A.mates = enemies.filter(o => o.alive && o.grunt && o.team === e.team && (e.squad ? o.squad === e.squad : A.flank != null && o.ai?.flank === A.flank)).sort((a, b) => a.id - b.id);
+    A.lane = A.mates.length > 1 ? A.mates.indexOf(e) - (A.mates.length - 1) / 2 : 0;
+  }
+  if (!A.lane) return null;
+  const live = A.mates.filter(o => o.alive);
+  if (live.length < 2) return null;
+  let cx = 0, cz = 0;
+  for (const o of live) { cx += o.x / live.length; cz += o.z / live.length; }
+  const dC = Math.hypot(cx - T.x, cz - T.z);
+  if (dC < 12) return null;
+  const ux = (cx - T.x) / dC, uz = (cz - T.z) / dC, s = Math.max(10, dC - 14), k = Math.min(1, (dC - 12) / 10) * A.lane * 8;
+  for (const f of [1, 0.7, 0.4]) { const x = T.x + ux * s - uz * k * f, z = T.z + uz * s + ux * k * f; if (!isSolid(x, z)) return { x, z, slow: T.slow }; }
+  return null;
+}
+
 // 想往 (mx, mz) 走：前面有牆就轉開（越快看越遠）；速度朝著牆、照現在的剎車來不及停就先往反方向踩
 function steer(e, mx, mz) {
   const ml = Math.hypot(mx, mz), v = Math.hypot(e.vx, e.vz), A = e.ai;

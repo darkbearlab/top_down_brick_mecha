@@ -95,6 +95,7 @@ export function applyHeavy() {
   set(AI_TUNE, 'memory', true);     // 感知與最後已知位置（REALISM_REPORT A2）
   set(AI_TUNE, 'spotter', true);    // 迫擊砲要有觀測者（A1）
   set(AI_TUNE, 'aware', true);      // 王牌的戰場意識（威脅、包圍、出現點）
+  set(AI_TUNE, 'gruntLanes', true); // 雜魚小隊分三路接近（ai.js laneGoal）
   set(AI_TUNE, 'discipline', true); // 王牌的紀律：武器照期望傷害選、推進要有理由、減員（集火殘血、換血虧了退掩體）
 }
 export function clearHeavy() {
