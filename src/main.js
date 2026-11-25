@@ -229,6 +229,13 @@ const BRAIN_PACKS = [
   { name: '精英小隊 ×2 + 重裝隊（難）', squads: ['elite', 'elite', 'heavy'] },
   { name: '裝甲小隊 + 砲擊陣地 + 突擊隊', squads: ['armor', 'mortar', 'rush'], heavy: true },   // 新數值才有（戰車、偵察無人機）
 ];
+// AI vs 雜魚（新數值）：上一隊全滅 → 下一隊從天上空投到它自己的集結點
+function bpNextWave() {
+  const B = MODE.bp, W = B.queue.shift();
+  B.wave++;
+  for (const u of W) { const g = spawnEnemy(SIDE_A, gruntOf(u.k), u.at, { team: 'red', colors: GRUNT_COLORS, diff: DIFFS.hard, grunt: true }); g.ai.flank = u.at.flank; g.foe = B.ace; B.reds.push(g); }
+  toast(`第 ${B.wave} / ${B.waves} 隊投入`);
+}
 async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
   let BA, E;
   try {
@@ -253,9 +260,16 @@ async function startBrainPack(fresh = false, who = MODE.bp?.who ?? 'alpha') {
   MODE.bpTools = BA;
   // 新數值：每個小隊各自的集結點沿著右側整個高度散開（spreadPack），路上也往自己那一側繞；舊數值照舊擠在右側出發點
   const spots = heavyOn() ? spreadPack(groups, SIDE_B.x) : null;
-  const reds = units.map((k, j) => { const at = spots ? spots[j] : { x: SIDE_B.x - 2 + (j % 2) * 3, z: (j - (units.length - 1) / 2) * 2.6 }; const g = spawnEnemy(SIDE_A, gruntOf(k), at, { team: 'red', colors: GRUNT_COLORS, diff: DIFFS.hard, grunt: true }); if (spots) g.ai.flank = at.flank; g.foe = ace; return g; });
+  const mk = (k, at) => { const g = spawnEnemy(SIDE_A, gruntOf(k), at, { team: 'red', colors: GRUNT_COLORS, diff: DIFFS.hard, grunt: true }); if (spots) g.ai.flank = at.flank; g.foe = ace; return g; };
+  // 新數值：一次只投入一個小隊（場上同時交戰的數量少，總量不變）→ 這隊全滅才空投下一隊（bpNextWave）
+  let reds, queue = null;
+  if (spots) {
+    let j = 0;
+    const waves = groups.map(G => G.map(k => ({ k, at: spots[j++] })));
+    reds = waves[0].map(u => mk(u.k, u.at)); queue = waves.slice(1);
+  } else reds = units.map((k, j) => mk(k, { x: SIDE_B.x - 2 + (j % 2) * 3, z: (j - (units.length - 1) / 2) * 2.6 }));
   ace.foe = reds[0];
-  MODE.bp = { who, ace, reds, total: reds.length, pack };
+  MODE.bp = { who, ace, reds, total: units.length, pack, queue, wave: 1, waves: groups.length };
   $('menu').classList.add('hidden'); $('duel').classList.add('hidden'); $('hud').classList.add('hidden');
   $('watch').classList.remove('hidden');
   setSensorsVisible(false);
@@ -1206,7 +1220,7 @@ AI.onEnemyDeath = (e) => {
   if (MODE.name === 'watch' && MODE.kind === 'brainpack') {
     if (MODE.result) return;
     if (e === MODE.bp.ace) endWatch('red');
-    else if (!MODE.bp.reds.some(g => g.alive)) endWatch('blue');
+    else if (!MODE.bp.reds.some(g => g.alive)) { if (MODE.bp.queue?.length) bpNextWave(); else endWatch('blue'); }
     return;
   }
   if (MODE.name === 'watch' && MODE.kind === 'horde') {
@@ -1645,7 +1659,7 @@ function step(t) {
       lastLocks = sensors.locks.length;
     }
     // 觀戰時間上限（彈藥打光可能僵住）：一對一比剩餘耐久、雜魚戰比剩幾台、王牌 vs 雜魚算王牌沒清完
-    if (watching && !MODE.result && (MODE.clock += dt) > WATCH_LIMIT) {
+    if (watching && !MODE.result && (MODE.clock += dt) > WATCH_LIMIT * (MODE.kind === 'brainpack' && MODE.bp?.waves > 1 && MODE.bp.queue ? 2 : 1)) {   // 一次一隊的雜魚包打得久：上限加倍
       if (MODE.kind === 'horde') endWatch('red');
       else if (MODE.kind === 'skirmish') { const b = MODE.sk.blue.killed, r = MODE.sk.red.killed; endWatch(b < r ? 'blue' : r < b ? 'red' : 'draw'); }
       else {

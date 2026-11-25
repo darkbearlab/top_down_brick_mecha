@@ -16,7 +16,7 @@ import { pathToFileURL } from 'node:url';
 import { aggregate, summarize } from './analyze.mjs';
 
 const args = Object.fromEntries(process.argv.slice(2).reduce((a, v, i, all) => { if (v.startsWith('--')) a.push([v.slice(2), all[i + 1]?.startsWith('--') || all[i + 1] == null ? true : all[i + 1]]); return a; }, []));
-const N = +(args.n ?? 1), SEED = +(args.seed ?? 1), MAX_T = +(args.max ?? 120), DT = 1 / 60, SAMPLE = 0.25;
+const N = +(args.n ?? 1), SEED = +(args.seed ?? 1), MAX_T = +(args.max ?? (/heavy/.test(args.patch ?? '') && String(args.b ?? '').startsWith('squad:') ? 300 : 120)), DT = 1 / 60, SAMPLE = 0.25;   // MAX_T：新數值的雜魚包一次一隊，打得久（300 秒）
 
 const { G } = await import('../../src/core.js');
 const { arenaMap, loadMap } = await import('../../src/arena.js');
@@ -106,7 +106,10 @@ function battle(i) {
   // 雜魚小隊：在右邊散開站
   // 新數值：每個小隊各自的集結點沿著右側整個高度散開（跟觀戰一樣，arena.js spreadPack）
   const spots = PACK && heavyOn() ? spreadPack(PACK_G, SIDE) : null;
-  const reds = PACK ? PACK.map((k, j) => { const g = spawnEnemy(dummy, gruntDef(k), spots ? spots[j] : { x: SIDE - 2 + (j % 2) * 3, z: (j - (PACK.length - 1) / 2) * 3 }, { team: 'red', diff, noDrop: true, grunt: true }); if (spots) g.ai.flank = spots[j].flank; g.side = 'B'; g.unitName = g.preset.name; g.brainName = 'default'; g.torsoYaw = g.legYaw = g.aimYaw = -Math.PI / 2; return g; })
+  // 新數值：一次只投入一個小隊，這隊全滅才換下一隊（跟觀戰一樣）；第一隊先上，其他排隊
+  const mkG = (k, j) => { const g = spawnEnemy(dummy, gruntDef(k), spots[j], { team: 'red', diff, noDrop: true, grunt: true }); g.ai.flank = spots[j].flank; g.side = 'B'; g.unitName = g.preset.name; g.brainName = 'default'; g.torsoYaw = g.legYaw = g.aimYaw = -Math.PI / 2; return g; };
+  const waveQ = spots ? (() => { let j = 0; return PACK_G.map(G => G.map(k => [k, j++])); })() : null;
+  const reds = spots ? waveQ.shift().map(([k, j]) => mkG(k, j)) : PACK ? PACK.map((k, j) => { const g = spawnEnemy(dummy, gruntDef(k), spots ? spots[j] : { x: SIDE - 2 + (j % 2) * 3, z: (j - (PACK.length - 1) / 2) * 3 }, { team: 'red', diff, noDrop: true, grunt: true }); if (spots) g.ai.flank = spots[j].flank; g.side = 'B'; g.unitName = g.preset.name; g.brainName = 'default'; g.torsoYaw = g.legYaw = g.aimYaw = -Math.PI / 2; return g; })
     : spawnSide(UB, SIDE, 'red', 'B', -Math.PI / 2);
   const all = [...blues, ...reds];
   // 每台都打最近的敵人（每幀重新挑）
@@ -133,7 +136,9 @@ function battle(i) {
       sampleT -= SAMPLE;
       log('state', { dt: SAMPLE, mechs: all.filter(m => m.alive || !m.grunt).map(m => ({ m: m.id, x: r2(m.x), z: r2(m.z), yaw: r2(m.torsoYaw), v: r2(Math.hypot(m.vx, m.vz)), e: Math.round(m.energy), hp: parts(m), ammo: ammo(m), dist: m.foe ? r2(Math.hypot(m.x - m.foe.x, m.z - m.foe.z)) : null, alive: m.alive })) });
     }
-    const aAlive = blues.some(m => m.alive), bAlive = reds.some(m => m.alive);
+    const aAlive = blues.some(m => m.alive);
+    let bAlive = reds.some(m => m.alive);
+    if (aAlive && !bAlive && waveQ?.length) { for (const [k, j] of waveQ.shift()) { const g = mkG(k, j); reds.push(g); all.push(g); } bAlive = true; }   // 下一隊投入
     if (!aAlive || !bAlive) { winner = aAlive ? 'A' : bAlive ? 'B' : null; break; }
   }
   // 時間到：比兩邊剩下的耐久比例（平均每台）
