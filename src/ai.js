@@ -225,7 +225,17 @@ export function updateEnemy(e, dt, player) {
   let kite = null;
   const indR = AI_TUNE.spotter && !e.fixed ? Object.values(e.guns).reduce((r, g) => g.def.indirect ? Math.max(r, reachOf(g.def)) : r, 0) : 0;   // 有迫擊砲的：射程
   const W = tac && AI_TUNE.aware ? A.tac : null;
+  const AM = W && ranged && !e.fixed ? W.mel : null;
   if (!player.alive) { mx = 0; mz = 0; }
+  else if (AM && AM.d < 9) {
+    // 反近戰（遠程王牌）：近戰型衝過來 → 往側後方斜著退（直線後退跑不贏），選比較空、離其他敵人遠的那一側；
+    //   貼到 4.5 格內、還在衝 → 往側面推進閃開它的突進（下面的推進段用 A.dodgeDir）
+    const px = -AM.uz, pz = AM.ux;
+    let side = 1, bestL = -1;
+    for (const sg of [1, -1]) { const ux = AM.ux * 0.6 + px * sg * 0.8, uz = AM.uz * 0.6 + pz * sg * 0.8, l = clearAhead(e, ux, uz, 6) - threatAt(W.foes, e.x + ux * 4, e.z + uz * 4, AM.m); if (l > bestL) { bestL = l; side = sg; } }
+    mx = AM.ux * 0.6 + px * side * 0.8; mz = AM.uz * 0.6 + pz * side * 0.8; A.spot = null;
+    if (AM.d < 4.5 && AM.closing > 1 && (A.dodgeT = (A.dodgeT ?? 0) - dt) <= 0) { A.dodgeT = 1.2; A.dodgeDir = { x: px * side, z: pz * side }; A.reposition = Math.min(A.reposition, 0); }
+  }
   else if (W?.retreat && !e.fixed) {
     // 要被包圍了（敵人分布超過 120°）/ 站的地方太危險：在被包死之前往缺口撤，照路線走；三台以上或包得很死就推進拉開
     const R = W.retreat, rx = R.x - e.x, rz = R.z - e.z, rd = Math.hypot(rx, rz) || 1;
@@ -244,6 +254,10 @@ export function updateEnemy(e, dt, player) {
     if (!A.spot || A.spotT <= 0) { A.spot = pickSpot(e, player, false, indR); A.spotT = 3 + Math.random() * 2; }
     const sx = A.spot.x - e.x, sz = A.spot.z - e.z, sd = Math.hypot(sx, sz);
     if (sd > 1.2) { mx = sx / sd; mz = sz / sd; } else { mx = 0; mz = 0; }
+  }
+  else if (W && ranged && !e.fixed && W.foes.some(f => f.melee && f.m === player) && dist < 26 && W.foes.filter(f => !f.melee).length === 0) {
+    // 遠程王牌對上只有近戰型的敵人：不往它們走，站在原地 / 小幅橫移等它們穿過空地進射程（讓它們多吃幾輪）
+    mx = -nz * A.strafe * 0.3; mz = nx * A.strafe * 0.3;
   }
   else if (!los || dist > A.want + (ranged ? 6 : 4)) {
     // 看不到玩家：照流場繞過去（pathing.js；會飛的用飛行流場）；看得到就直線靠近
@@ -323,6 +337,7 @@ export function updateEnemy(e, dt, player) {
     if (t > 0 && t < 10 && Math.abs(ox * f.z - oz * f.x) < 1.6 && Math.random() < dt * 5) { boost = true; const side = ox * f.z - oz * f.x > 0 ? 1 : -1; bx = f.z * side; bz = -f.x * side; }
   }
   if (A.reposition <= 0 && player.alive) { A.reposition = e.preset?.elite?.jumpy ? 1.8 + Math.random() * 2 : 4 + Math.random() * 4; boost = true; if (A.want <= 3 && dist > 4) { bx = nx; bz = nz; } }
+  if (A.dodgeDir) { bx = A.dodgeDir.x; bz = A.dodgeDir.z; boost = true; A.dodgeDir = null; }   // 反近戰：往側面閃開突進
   if (boost && !DF.dodge && !(A.reposition > 3.9)) boost = false;
   if (e.fixed || Hd) boost = false;
   if (boost && e.energy > 55) {
@@ -648,7 +663,14 @@ function aceAware(e, dt) {
       x += dir.x; z += dir.z;
     }
   }
-  A.tac = { foes, spread, gapDir, n: near.length, retreat, emerge, here: hereT };
+  // 近戰威脅：看得到、12 格內最近的近戰型（衝過來的速度）→ 反近戰打法用
+  let mel = null;
+  for (const f of foes) {
+    if (!f.melee || !f.vis) continue;
+    const dx = e.x - f.m.x, dz = e.z - f.m.z, d = Math.hypot(dx, dz) || 1, closing = (f.m.vx * dx + f.m.vz * dz) / d;
+    if (d < 12 && (!mel || d < mel.d)) mel = { m: f.m, d, closing, ux: dx / d, uz: dz / d };
+  }
+  A.tac = { foes, spread, gapDir, n: near.length, retreat, emerge, here: hereT, mel };
 }
 // 某一點的威脅：已知敵人射程內（+1）而且看得到那點 → 權重 × 可信度；近戰型 7 格內再加（貼上來就危險）；except = 不算這台（現在的目標另外處理）
 export function threatAt(foes, x, z, except) {

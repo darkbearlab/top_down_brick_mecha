@@ -318,6 +318,10 @@ export const DEFAULT_LOADOUT = {
 export const ENEMY_PRESETS = [
   { name: '突擊型', faction: 'base', head: 'std', core: 'std', legs: 'biped', armL: 'autocannon', armR: 'shotgun', backL: 'missile', backR: 'rocket',
     armor: { head: 'composite', torso: 'composite', arms: 'composite', legs: 'composite' } },
+  // 盾火箭型（2026-11-26）：新數值下打雜魚群最穩的王牌配裝（模擬：6 包雜魚、一次一隊，兩個種子 81% / 92%；突擊型只有 19～33%）
+  //   左手盾擋住正面衝上來的近戰和子彈、機槍掃雜魚、雙火箭莢艙的爆風一次打好幾台
+  { name: '盾火箭型', faction: 'base', head: 'std', core: 'heavy', legs: 'biped', armL: 'shield', armR: 'mg', backL: 'rocket', backR: 'rocket',
+    armor: { head: 'composite', torso: 'composite', arms: 'composite', legs: 'composite' } },
   { name: '狙擊型', faction: 'base', head: 'hunter', core: 'light', legs: 'reverse', armL: null, armR: 'sniper', backL: 'vmissile', backR: null,
     armor: { head: 'mirror', torso: 'mirror', arms: 'mirror', legs: 'mirror' } },
   { name: '光束型', faction: 'base', head: 'std', core: 'std', legs: 'hover', armL: 'beam', armR: 'saber', backL: 'missile', backR: 'split',
