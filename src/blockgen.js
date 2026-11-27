@@ -120,10 +120,11 @@ export const CQ_NODES = [
   ...sym([{ x: -30, z: -22, type: 'reinforce' }, { x: -10, z: -46, type: 'attack' }, { x: -62, z: 0, type: 'armor' }]),
   { x: 30, z: -44, type: 'speed' }, { x: -30, z: 44, type: 'energy' },   // 兩個大本營的垂直平分線上（一樣遠）→ 可以是不同種類
 ];
-export const CQ_CAMPS = sym([{ x: -18, z: -33, kind: 'rage' }, { x: -48, z: -10, kind: 'haste' }, { x: -46, z: 17, kind: 'rage' }]);
+// 野怪營地：叢林最深處（離所有通道、巢穴最遠的幾個點），要刻意繞進去才打得到（見下面 NET 後面的「營地的小迴圈」）
+export const CQ_CAMPS = sym([{ x: -32, z: 3, kind: 'rage' }, { x: -5, z: 29, kind: 'haste' }, { x: -46, z: 32, kind: 'rage' }]);
 // 通道：[寬, 折線…]（左半邊那份；右半邊自動轉 180°）
 const LANE = 14, PATH = 10;   // 路寬、叢林小徑寬（2026-11-27：要留得出閃避的空間，7 / 5 太窄）
-const NET = (() => {
+export const NET = (() => {
   const B = CQ_BASES[0];
   const L = [
     [LANE, [B.x, B.z], [-40, -50], [-10, -46], [12, -51], [30, -44], [52, -50], [66, -30], [60, -12], [62, 0]],   // 上路
@@ -138,6 +139,19 @@ const NET = (() => {
   for (const [w, ...P] of L) for (let i = 0; i + 1 < P.length; i++) {
     const [ax, az] = P[i], [bx, bz] = P[i + 1];
     out.push([ax, az, bx, bz, w], [-ax, -az, -bx, -bz, w]);
+  }
+  // 營地的小迴圈（7 格寬）：從最近的那條通道岔出去、繞到營地、再接回同一條通道（往前 14 格）
+  //   → 兩頭在同一條通道上，不是捷徑（不會有人順路經過）、也不是死路
+  const base = out.slice();
+  for (const C of CQ_CAMPS.filter(c => c.x < 0 || c.x === 0 && c.z < 0)) {
+    let best = null;
+    for (const S of base) {
+      const [ax, az, bx, bz] = S, dx = bx - ax, dz = bz - az, L = Math.hypot(dx, dz), t = Math.max(0, Math.min(1, ((C.x - ax) * dx + (C.z - az) * dz) / (L * L)));
+      const d = Math.hypot(C.x - ax - dx * t, C.z - az - dz * t);
+      if (!best || d < best.d) best = { d, ax, az, dx, dz, L, t };
+    }
+    const at = k => { const t = Math.max(0, Math.min(1, best.t + k / best.L)); return [best.ax + best.dx * t, best.az + best.dz * t]; };
+    for (const [px, pz] of [at(-7), at(7)]) out.push([C.x, C.z, px, pz, 7], [-C.x, -C.z, -px, -pz, 7]);
   }
   return out;
 })();

@@ -222,7 +222,7 @@ function command(team) {
       const v = HIVES[n.type].value;
       return { g: n, v: n.owner === team ? (threat ? v * 1.4 : 0.1) : n.owner === foeTeam(team) ? v * 1.15 : v };
     }),
-    ...S.camps.filter(c => c.units.some(u => u.alive)).map(c => ({ g: c, v: 0.55, camp: true })),
+    ...S.camps.filter(c => c.units.some(u => u.alive)).map(c => ({ g: c, v: 0.95, camp: true })),   // 營地藏在叢林深處：價值要夠高才會專程繞進去
   ];
   const count = new Map();
   const order = live.map(e => ({ e, d: Math.min(...S.nodes.map(n => Math.hypot(n.x - e.x, n.z - e.z))) })).sort((a, b) => a.d - b.d);
@@ -230,7 +230,7 @@ function command(team) {
     let best = null, bs = -Infinity;
     for (const G of goals) {
       if (G.camp && e.cq.buff && S.t < e.cq.buff.until) continue;
-      const d = Math.hypot(G.g.x - e.x, G.g.z - e.z), s = G.v / (1 + d / (G.camp ? 12 : 20)) - (count.get(G.g) ?? 0) * (G.camp ? 1 : 0.4) + (e.cq.goal === G.g ? 0.08 : 0);
+      const d = Math.hypot(G.g.x - e.x, G.g.z - e.z), s = G.v / (1 + d / 20) - (count.get(G.g) ?? 0) * (G.camp ? 1 : 0.4) + (e.cq.goal === G.g ? 0.08 : 0);
       if (s > bs) { bs = s; best = G.g; }
     }
     e.cq.goal = best; count.set(best, (count.get(best) ?? 0) + 1);
