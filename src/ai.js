@@ -574,6 +574,38 @@ function steer(e, mx, mz) {
   return { mx: best[0] * ml * 0.5, mz: best[1] * ml * 0.5 };
 }
 
+// ---------- 卡點偵測與迴避（2026-11-28）----------
+// 每幀在 updateEnemy 之後、driveMech 之前呼叫：想走（drive ≥ 0.3）但 1.2 秒內幾乎沒移動（< 0.5 格）→ 卡住了
+//   → 往側面（左右輪流、越卡越偏，第 3 次起往後）脫困 0.7～1.3 秒；連續卡兩次以上、能推進的就推進一下
+//   脫困期間照脫困方向走；真的動起來了就把次數歸零
+export const stuckStats = { n: 0 };   // 脫困次數（模擬統計用）
+export function antiStuck(e, dt) {
+  if (!e.alive || e.drop || e.fixed || !e.drive) return;
+  const F = e.foe;
+  const S = e.stk ??= { x: e.x, z: e.z, t: 0, n: 0, esc: 0, dx: 0, dz: 0 };
+  if (S.esc > 0) {
+    S.esc -= dt;
+    e.drive = { mx: S.dx, mz: S.dz };
+    if (S.esc <= 0) { S.x = e.x; S.z = e.z; S.t = 0; }
+    return;
+  }
+  const want = Math.hypot(e.drive.mx, e.drive.mz);
+  if (want < 0.3 || F?.alive && Math.hypot(F.x - e.x, F.z - e.z) < 3.5) { S.x = e.x; S.z = e.z; S.t = 0; return; }   // 貼身肉搏推不動目標不算卡住
+  if ((S.t += dt) < 1.2) return;
+  const moved = Math.hypot(e.x - S.x, e.z - S.z);
+  S.x = e.x; S.z = e.z; S.t = 0;
+  if (moved >= 0.5) { S.n = 0; return; }
+  S.n++; stuckStats.n++;
+  const a0 = Math.atan2(e.drive.mx, e.drive.mz), side = S.n % 2 ? 1 : -1;
+  let best = null, bl = -1;
+  for (const off of S.n >= 3 ? [Math.PI, Math.PI * 0.75 * side, -Math.PI * 0.75 * side] : [Math.PI / 2 * side, Math.PI * 0.7 * side, -Math.PI / 2 * side]) {
+    const ux = Math.sin(a0 + off), uz = Math.cos(a0 + off), l = clearAhead(e, ux, uz, 4);
+    if (l > bl) { bl = l; best = [ux, uz]; }
+  }
+  S.dx = best[0]; S.dz = best[1]; S.esc = 0.7 + 0.2 * Math.min(S.n, 3);
+  if (S.n >= 2) tryBoost(e, S.dx, S.dz);
+}
+
 export function keepEnemies(player) {
   if (!AI.sandbox) return;
   while (enemies.length < AI.count) spawnEnemy(player);

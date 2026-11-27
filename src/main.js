@@ -24,7 +24,7 @@ import { ENEMY_COLORS, PLAYER_COLORS, activeSlot, collideMechs, driveMech, facin
 import { ARENA_LAYOUT, buildLayerBuildings, resetBuildings, setBuildingLayer, setLayout, updateBuildings } from './buildings.js';
 import { SLOW_K, clearHusks, clearWrecks, killCam, setHuskLayer, updateWrecks } from './wreck.js';
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
-import { AI, DIFFS, clearEnemies, enemies, keepEnemies, parkEnemy, removeEnemy, spawnEnemy, unparkEnemy, updateEnemy } from './ai.js';
+import { AI, DIFFS, antiStuck, clearEnemies, enemies, keepEnemies, parkEnemy, removeEnemy, spawnEnemy, unparkEnemy, updateEnemy } from './ai.js';
 import { burst, clearCasings, clearRubble, makeLaser, repairFx, setLaser, setRubbleLayer, smoke, updateParticles } from './fx.js';
 import { clearWarp, startWarp, updateWarp } from './warp.js';
 import { CHIPS, DEVICES, hasChip, smokeBlocks, techName } from './tech.js';
@@ -1463,6 +1463,7 @@ function step(t) {
     for (const e of enemies.slice()) {
       updateEnemy(e, dt, e.foe ?? player);
       if (cq) cqPost(e);
+      antiStuck(e, dt);   // 卡點偵測與迴避（ai.js）
       if (e.alive && !e.drop) driveMech(e, dt, e.drive.mx, e.drive.mz, e.aimYaw);
     }
     if (cq && !MODE.result) {

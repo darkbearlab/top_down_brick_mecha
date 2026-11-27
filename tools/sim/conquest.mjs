@@ -9,7 +9,7 @@ const { loadMap } = await import('../../src/arena.js');
 const { resetBuildings, setLayout, updateBuildings } = await import('../../src/buildings.js');
 const { collideMechs, driveMech, mechs, removeMech } = await import('../../src/mech.js');
 const { clearShots, updateShots } = await import('../../src/weapons.js');
-const { AI, DIFFS, clearMemory, enemies, updateEnemy } = await import('../../src/ai.js');
+const { AI, DIFFS, antiStuck, clearMemory, enemies, stuckStats, updateEnemy } = await import('../../src/ai.js');
 const { updateStatus } = await import('../../src/status.js');
 const { clearWrecks, updateWrecks } = await import('../../src/wreck.js');
 const { updateParticles } = await import('../../src/fx.js');
@@ -41,6 +41,7 @@ for (let i = 0; i < N; i++) {
       if (!e.alive && !e.fall) continue;
       updateEnemy(e, DT, e.foe ?? none);
       C.postUpdate(e);
+      antiStuck(e, DT);
       if (e.alive && !e.drop) driveMech(e, DT, e.drive.mx, e.drive.mz, e.aimYaw);
     }
     collideMechs(); updateShots(DT);
@@ -53,6 +54,7 @@ for (let i = 0; i < N; i++) {
   }
   const r = { campBuffs: S.team.blue.camps + S.team.red.camps, result: S.result, t: Math.round(S.t), score: [Math.floor(S.score.blue), Math.floor(S.score.red)], kills: [S.kills.blue, S.kills.red], drops: [S.drops.blue, S.drops.red], flips, firstCap, lead: [Math.round(lead.blue), Math.round(lead.red)] };
   res.push(r);
+  console.log(`脫困 ${stuckStats.n} 次`); stuckStats.n = 0;
   console.log(`第 ${i + 1} 場 ${r.result === 'draw' ? '平手' : r.result === 'blue' ? '藍勝' : '紅勝'}  ${Math.floor(r.t / 60)}:${String(r.t % 60).padStart(2, '0')}  分數 ${r.score.join(':')}  擊墜 ${r.kills.join(':')}  空投 ${r.drops.join(':')}  營地 ${r.campBuffs}  據點換手 ${r.flips}  首次佔領 ${r.firstCap}s  領先秒數 ${r.lead.join(':')}`);
   if (!args.quiet) console.log("   ", log.slice(0, 14).join(" / "));
   if (args.log) console.log(log.filter(l => l.includes(args.log)).join('\n'));   // --log 文字：印出含這段文字的事件（例如 --log 改裝）

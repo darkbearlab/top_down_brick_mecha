@@ -3,6 +3,9 @@
 // 被打中：命中點附近的小方塊被打掉（會打出洞、往裡面越打越深），洞的周圍燻黑，噴小碎屑和灰塵；
 //   一格的耐久扣到 0 或方塊剩不到 30% → 那一格倒塌：上面的方塊全部垮下來，變成一堆瓦礫（可以走過去、子彈也能飛過）
 // 受損嚴重的格子會冒煙、起火；倒塌時一大團灰塵、火光
+// 支撐（2026-11-28）：每棟建築受損後檢查一次（每 0.15 秒最多一次）：從貼地那排往上找，上下走不算距離、橫著走一格算 1；
+//   牆的方塊最多離支撐的柱子 4 塊（= 1 格）、屋頂板 10 塊 → 下面被打空、旁邊也撐不住的方塊直接垮下來（碎塊、灰塵），
+//   一格剩不到 30% 照樣倒塌成瓦礫 → 可能一路連鎖
 // 碰撞 / 子彈還是以「格」為單位（arena.js 的 '#'）；倒塌後那格變成 'r'（瓦礫地面）
 // resetBuildings() 把整個場地的建築蓋回來（每局開始）；setLayout() 換一套建築（換地圖時）
 // 多層地圖：每層一套（buildLayerBuildings，蓋的時候 arena 要先切到那層），蓋在那層的 group 底下、用那層的迷霧；setBuildingLayer 換目前在動的那套
@@ -37,11 +40,11 @@ const STYLES = [
 ];
 
 const CHUNK = 16;
-let LAYOUT = ARENA_LAYOUT, chunks = new Map(), vox = [], tiles = new Map(), burning = new Set();
+let LAYOUT = ARENA_LAYOUT, chunks = new Map(), vox = [], tiles = new Map(), burning = new Set(), dirtyB = new Set();
 let sets = [], parent = scene, curMat = null;
 export function setLayout(list) { LAYOUT = list; }
 function disposeSets() { for (const st of sets) for (const ch of st.chunks.values()) { ch.mesh.parent?.remove(ch.mesh); ch.mesh.dispose(); } sets = []; }
-function useSet(st) { ({ chunks, vox, tiles, burning, parent, mat: curMat } = st); }
+function useSet(st) { st.dirtyB ??= new Set(); ({ chunks, vox, tiles, burning, parent, mat: curMat, dirtyB } = st); }
 // 多層：第 k 層的建築（arena.js 已經切到第 k 層）
 export function buildLayerBuildings(k, layout, group, U) {
   if (k === 0) disposeSets();
@@ -58,6 +61,7 @@ function build() {
   vox.length = 0; tiles.clear(); chunks.clear();
   for (const [c0, r0, w, h, floors, si] of LAYOUT) {
     const S = STYLES[si], L = floors * FLOOR + 1, gw = w * N, gh = h * N;
+    const B = { vox: [] };   // 這一棟（支撐檢查用）
     const lit = new Set();
     for (let gx = 0; gx < gw; gx++) for (let gz = 0; gz < gh; gz++) for (let y = 0; y < L; y++) {
       const edgeX = gx === 0 || gx === gw - 1, edgeZ = gz === 0 || gz === gh - 1, outer = edgeX || edgeZ;
@@ -88,7 +92,8 @@ function build() {
       // 明暗：貼地的幾排壓暗（地面的環境光遮蔽），每顆亮度差一點點（照座標雜湊，每次蓋都一樣）
       const hh = Math.sin(gx * 12.9898 + gz * 78.233 + y * 37.719 + c0 * 3.1 + r0 * 7.7) * 43758.5453;
       c = shade(c, (y === 0 ? 0.68 : y === 1 ? 0.82 : y === 2 ? 0.93 : 1) * (0.95 + (hh - Math.floor(hh)) * 0.1));
-      const v = { x, y: yy, z, c, alive: true, t, ch, i: ch.list.length };
+      const v = { x, y: yy, z, c, alive: true, t, ch, i: ch.list.length, B, gx, gy: y, gz, k: y === L - 2 && !outer ? 10 : 4 };
+      B.vox.push(v);
       t.vox.push(v);
       ch.list.push(v);
       vox.push(v);
@@ -149,7 +154,7 @@ export function damageBuilding(x, y, z, dmg, dx = 0, dz = 0, splash = 0) {
   if (!gone.length) for (const v of t.vox) if (v.alive && Math.abs(v.y - y) < 0.4) { gone.push(v); break; }
   if (splash <= 0 && dmg < 12) gone = gone.filter(() => Math.random() < dmg / 12);   // 小口徑：不是每發都打得掉一塊
   const colors = [];
-  for (const v of gone) { v.alive = false; t.alive--; v.ch.mesh.setMatrixAt(v.i, HIDE); touch(v); if (colors.length < 4) colors.push(v.c); }
+  for (const v of gone) { v.alive = false; t.alive--; v.ch.mesh.setMatrixAt(v.i, HIDE); touch(v); if (colors.length < 4) colors.push(v.c); dirtyB.add(v.B); }
   // 洞的周圍燻黑：命中點附近還在的方塊壓暗（越近越可能；同一塊最多壓 3 次）
   const sr = rad * 1.9 + 0.15;
   for (const v of t.vox) {
@@ -196,10 +201,12 @@ function collapse(t, dx, dz) {
   const cx = toWorldX(t.c), cz = toWorldZ(t.r);
   // 剩下的方塊：一部分炸飛、其他垮成一堆瓦礫
   const live = t.vox.filter(v => v.alive);
+  if (live[0]) dirtyB.add(live[0].B);
   const colors = [...new Set(live.slice(0, 40).map(v => v.c))].slice(0, 4);
   burst(cx, 1, cz, colors.length ? colors : [0x8a847a], 16, 4, dx * 2, dz * 2);
   let n = 0;
   for (const v of live) {
+    v.rubble = true;   // 不再參與支撐檢查
     if (Math.random() < 0.55 || n >= 60) { v.alive = false; v.ch.mesh.setMatrixAt(v.i, HIDE); touch(v); continue; }
     // 瓦礫堆：中間高、旁邊低
     const ox = R(-0.48, 0.48), oz = R(-0.48, 0.48), hgt = Math.max(0, 0.5 - Math.hypot(ox, oz)) * 1.3;
@@ -224,9 +231,67 @@ function collapse(t, dx, dz) {
 }
 const shade = (hex, k) => { col.setHex(hex).multiplyScalar(k); return col.getHex(); };
 
+// 支撐檢查：0-1 BFS（上下 0、橫向 1），從貼地的方塊出發；到不了、或橫向距離超過自己的上限（k）的方塊 = 沒有支撐
+const NB = [[0, 1, 0, 0], [0, -1, 0, 0], [1, 0, 0, 1], [-1, 0, 0, 1], [0, 0, 1, 1], [0, 0, -1, 1]];
+function settle(B) {
+  const live = B.vox.filter(v => v.alive && !v.rubble);
+  if (!live.length) return;
+  const idx = new Map(), K = (x, y, z) => (y * 4096 + z) * 4096 + x;
+  for (const v of live) idx.set(K(v.gx, v.gy, v.gz), v);
+  const dist = new Map(), dq = [];
+  let head = 0;
+  for (const v of live) if (v.gy === 0) { dist.set(v, 0); dq.push(v); }
+  // 0-1 BFS：成本 0 的放前面（用兩個陣列模擬雙向佇列）
+  let front = [];
+  while (front.length || head < dq.length) {
+    const v = front.length ? front.pop() : dq[head++], d = dist.get(v);
+    for (const [ax, ay, az, w] of NB) {
+      const u = idx.get(K(v.gx + ax, v.gy + ay, v.gz + az));
+      if (!u) continue;
+      const nd = d + w;
+      if (nd > u.k || (dist.has(u) && dist.get(u) <= nd)) continue;
+      dist.set(u, nd);
+      if (w) dq.push(u); else front.push(u);
+    }
+  }
+  const fall = live.filter(v => !dist.has(v));
+  if (fall.length) drop(fall);
+}
+// 沒有支撐的方塊垮下來：藏起來、照格子噴碎塊 + 灰塵；那格剩不到 30% 就整格倒塌
+function drop(list) {
+  const byT = new Map();
+  for (const v of list) {
+    v.alive = false; v.t.alive--; v.ch.mesh.setMatrixAt(v.i, HIDE); touch(v);
+    (byT.get(v.t) ?? byT.set(v.t, []).get(v.t)).push(v);
+  }
+  flush();
+  for (const [t, L] of byT) {
+    let sx = 0, sy = 0, sz = 0;
+    for (const v of L) { sx += v.x; sy += v.y; sz += v.z; }
+    const cx = sx / L.length, cy = sy / L.length, cz = sz / L.length, colors = [...new Set(L.slice(0, 20).map(v => v.c))].slice(0, 4);
+    burst(cx, cy, cz, colors, Math.min(18, 3 + L.length / 6), 1.5, 0, 0);
+    for (let i = 0; i < Math.min(8, 1 + L.length / 15); i++)
+      spawnPuff({ x: cx + R(-0.5, 0.5), y: R(0.2, 0.8), z: cz + R(-0.5, 0.5), vx: R(-1.5, 1.5), vy: R(0.2, 0.8), vz: R(-1.5, 1.5), life: R(1, 1.8), s: R(0.3, 0.6), c0: 0xa8a298, c1: 0x6a665e, drag: 1.8, delay: R(0, 0.3) });
+    if (!t.down) {
+      let top = 0;
+      for (const v of t.vox) if (v.alive && v.y + V / 2 > top) top = v.y + V / 2;
+      t.top = top;
+      burning.add(t);
+      if (t.alive < t.total * 0.3) collapse(t, 0, 0);
+    }
+  }
+  if (list.length > 20) sfx.blast();
+}
+let settleT = 0;
+
 // 受損的格子冒煙、起火
 // burning：受損過的格子（大地圖上格子很多，只看打過的）
 export function updateBuildings(dt) {
+  if ((settleT -= dt) <= 0 && dirtyB.size) {
+    settleT = 0.15;
+    const list = [...dirtyB]; dirtyB.clear();
+    for (const B of list) settle(B);
+  }
   for (const t of burning) {
     if (t.down) { burning.delete(t); continue; }
     const dmgK = 1 - t.hp / t.max;
