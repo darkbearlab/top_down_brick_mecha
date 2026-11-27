@@ -14,7 +14,8 @@
 //   大本營 12 格內的己方機體（要塞自己除外）：部位每秒回 8%、壞掉的部位重新長回來（25%）、彈藥每秒回 6%
 // 主力機、要塞腳下有派系色的光環，裝甲混一點隊伍色
 // 落後方（分數差 60 以上）：重組、增援條 ×0.8 時間
-// AI：隊伍指揮每 2 秒替每台主力機挑一個目標（巢穴 / 營地：價值 ÷ 距離、分散、回防）；附近 24 格（雜魚 18 格）沒有看得到的敵人 → 照路線走去目標，有 → 照原本的戰術打
+// AI：隊伍指揮每 2 秒替每台主力機挑一個目標（巢穴 / 營地：價值 ÷ 距離、分散、回防）；目標有效就至少守 15 秒、到了就做完（不跳來跳去）；
+//   受傷 / 斷武器 / 沒彈藥 → 回大本營整備（needsRepair / repaired）；附近 24 格（雜魚 18 格）沒有看得到的敵人 → 照路線走去目標，有 → 照原本的戰術打
 // 戰績（S.stats）：每台主力機的擊墜 / 損毀 / 佔領 / 營地；隊伍的雜魚擊破、空投（main.js 的 Tab 總覽）
 import * as THREE from 'three';
 import { G, addMat, scene } from './core.js';
@@ -140,6 +141,7 @@ export function startConquest(map, toast) {
   S = { t: 0, toast, bases: { blue: map.bases[0], red: map.bases[1] },
     score: { blue: 0, red: 0 }, drops: { blue: 0, red: 0 }, kills: { blue: 0, red: 0 }, bar: { blue: 0, red: 0 }, buffs: { blue: {}, red: {} },
     stats: { blue: [stat(), stat(), stat()], red: [stat(), stat(), stat()] }, team: { blue: { grunts: 0, camps: 0 }, red: { grunts: 0, camps: 0 } },
+    homes: { blue: { base: true, key: 'cqhb', x: map.bases[0].x, z: map.bases[0].z }, red: { base: true, key: 'cqhr', x: map.bases[1].x, z: map.bases[1].z } },
     result: null, cmdT: 0, focus: 0, aces: { blue: [], red: [] }, forts: {}, deaths: new Map(), respawns: [], log: [],
     nodes: CQ_NODES.map((p, i) => ({ i, key: `cq${i}`, type: p.type, name: HIVES[p.type].name, x: p.x, z: p.z, owner: 'native', prog: 0, guards: [], contested: false, capturing: null })),
     camps: CQ_CAMPS.map((p, i) => ({ i, key: `cqc${i}`, camp: true, kind: p.kind, x: p.x, z: p.z, units: [], respawn: 0 })) };
@@ -214,18 +216,49 @@ const sees = (e, o, d) => rayBlock(e.x, e.z, (o.x - e.x) / d, (o.z - e.z) / d, d
 const behind = team => S.score[team] + CQ.behindGap < S.score[foeTeam(team)];
 
 // 隊伍指揮：替每台主力機挑目標（巢穴；附近有長好的營地、身上沒有效果 → 營地也算）
+// 回基地修理：軀幹 < 40%、腳壞了、掛武器的部位壞了一半以上、或彈藥（吃彈藥的武器平均）< 15% → 回大本營（離基地 75 格內才回，太遠就打到底）
+//   回去之後修到軀幹 ≥ 95%、沒有壞掉的部位、彈藥 ≥ 80% 才出發（最多待 20 秒）
+function needsRepair(e) {
+  const T = e.parts.torso, slots = ['armL', 'armR', 'backL', 'backR'].filter(k => e.guns[k]);
+  const broken = slots.filter(k => e.parts[k]?.broken).length;
+  const am = Object.values(e.guns).filter(g => g.max !== Infinity), ammo = am.length ? am.reduce((a, g) => a + g.ammo / g.max, 0) / am.length : 1;
+  return T.hp / T.max < 0.4 || e.parts.legs?.broken || (slots.length && broken * 2 >= slots.length) || ammo < 0.15;
+}
+function repaired(e) {
+  const am = Object.values(e.guns).filter(g => g.max !== Infinity), ammo = am.length ? am.reduce((a, g) => a + g.ammo / g.max, 0) / am.length : 1;
+  return e.parts.torso.hp / e.parts.torso.max >= 0.95 && !Object.values(e.parts).some(q => q.broken) && ammo >= 0.8;
+}
+// 目標還有沒有效：營地還有活的蟲；巢穴還不是自己的、或自己的正被搶
+const threatOf = (n, team) => n.capturing === foeTeam(team) || mechs.some(o => o.alive && o.team === foeTeam(team) && !o.grunt && Math.hypot(o.x - n.x, o.z - n.z) < 12);
+const goalValid = (g, team) => !!g && !g.base && (g.camp ? g.units.some(u => u.alive) : g.owner !== team || threatOf(g, team));
 function command(team) {
   const live = S.aces[team].filter(e => e.alive && !e.drop);
+  // 回基地修理
+  const B = baseOf(team), home = S.homes[team];
+  for (const e of live) {
+    const C = e.cq, dB = Math.hypot(e.x - B.x, e.z - B.z);
+    if (C.retreat) {
+      if (repaired(e) || (dB < CQ.healR && S.t - C.retreatT > 20)) { C.retreat = false; C.goal = null; }
+    } else if (needsRepair(e) && dB < 75 && dB > CQ.healR) { C.retreat = true; C.retreatT = S.t; C.goal = home; note(`${TEAM_NAME[team]} ${(team === 'red' ? 4 : 1) + C.k} 號回大本營整備`); }
+  }
   const goals = [
     ...S.nodes.map(n => {
-      const threat = n.capturing === foeTeam(team) || mechs.some(o => o.alive && o.team === foeTeam(team) && !o.grunt && Math.hypot(o.x - n.x, o.z - n.z) < 12);
+      const threat = threatOf(n, team);
       const v = HIVES[n.type].value;
       return { g: n, v: n.owner === team ? (threat ? v * 1.4 : 0.1) : n.owner === foeTeam(team) ? v * 1.15 : v };
     }),
     ...S.camps.filter(c => c.units.some(u => u.alive)).map(c => ({ g: c, v: 0.95, camp: true })),   // 營地藏在叢林深處：價值要夠高才會專程繞進去
   ];
   const count = new Map();
-  const order = live.map(e => ({ e, d: Math.min(...S.nodes.map(n => Math.hypot(n.x - e.x, n.z - e.z))) })).sort((a, b) => a.d - b.d);
+  // 承諾：手上的目標還有效、而且（指派不到 15 秒，或已經到了目標旁邊 12 格內）→ 不換，避免打一兩下就跑去別的地方
+  const free = [];
+  for (const e of live) {
+    const C = e.cq, g = C.goal;
+    if (C.retreat) continue;
+    if (goalValid(g, team) && (S.t - (C.goalT ?? -99) < 15 || Math.hypot(g.x - e.x, g.z - e.z) < 12)) count.set(g, (count.get(g) ?? 0) + 1);
+    else free.push(e);
+  }
+  const order = free.map(e => ({ e, d: Math.min(...S.nodes.map(n => Math.hypot(n.x - e.x, n.z - e.z))) })).sort((a, b) => a.d - b.d);
   for (const { e } of order) {
     let best = null, bs = -Infinity;
     for (const G of goals) {
@@ -233,6 +266,7 @@ function command(team) {
       const d = Math.hypot(G.g.x - e.x, G.g.z - e.z), s = G.v / (1 + d / 20) - (count.get(G.g) ?? 0) * (G.camp ? 1 : 0.4) + (e.cq.goal === G.g ? 0.08 : 0);
       if (s > bs) { bs = s; best = G.g; }
     }
+    if (best !== e.cq.goal) e.cq.goalT = S.t;
     e.cq.goal = best; count.set(best, (count.get(best) ?? 0) + 1);
   }
 }
@@ -242,12 +276,13 @@ function gruntGoal(e) {
   for (const n of S.nodes) if (n.owner !== e.team || n.capturing === foeTeam(e.team)) { const d = Math.hypot(n.x - e.x, n.z - e.z); if (d < bd) { bd = d; best = n; } }
   return best ?? S.nodes[0];
 }
-function driveTo(e, n) {
+// keepAim：照路線走，但上半身照原本的（回基地途中邊退邊打）
+function driveTo(e, n, keepAim = false) {
   const dx = n.x - e.x, dz = n.z - e.z, d = Math.hypot(dx, dz) || 1;
-  if (d < (n.camp ? 2 : CQ.nodeR - 1.2)) { e.drive = { mx: 0, mz: 0 }; return; }
+  if (d < (n.camp ? 2 : n.base ? CQ.healR - 5 : CQ.nodeR - 1.2)) { e.drive = { mx: 0, mz: 0 }; return; }
   const f = (!e.fly && routeDir(n.key, G.now, e.x, e.z, n.x, n.z)) || { x: dx / d, z: dz / d };
   e.drive = { mx: f.x, mz: f.z };
-  e.aimYaw = Math.atan2(f.x, f.z);
+  if (!keepAim) e.aimYaw = Math.atan2(f.x, f.z);
 }
 
 // 每幀，updateEnemy 之前：挑對手、蟲醒不醒、全隊 / 個人效果
@@ -275,6 +310,7 @@ export function preUpdate(dt) {
 export function postUpdate(e) {
   if (!S || !e.alive || !e.cq || e.team === 'native' || e.drop || e.cq.fort) return;
   const H = e.cq.near, R = e.grunt ? CQ.engageGrunt : CQ.engageAce;
+  if (e.cq.retreat) { driveTo(e, e.cq.goal, !!(H && H.d < R && sees(e, H.o, H.d))); return; }   // 回基地：一定走，看得到敵人就邊退邊打
   if (H && (H.d < 12 || (H.d < R && sees(e, H.o, H.d)))) return;
   const n = e.grunt ? (e.cq.goal ??= gruntGoal(e)) : e.cq.goal;
   if (n) driveTo(e, n);
@@ -497,7 +533,7 @@ export function overviewStats() {
   const held = t => S.nodes.filter(n => n.owner === t).map(n => HIVES[n.type].short).join('') || '—';
   const row = (t, k) => {
     const e = S.aces[t][k], s = S.stats[t][k], R = S.respawns.find(r => r.team === t && r.k === k), P = e.cq.buff && S.t < e.cq.buff.until ? CAMPS[e.cq.buff.kind] : null;
-    return `<tr><td style="color:${CSS[t]}">${(t === 'red' ? 4 : 1) + k}</td><td>${e.cq.lo.name}</td><td>${s.k}</td><td>${s.d}</td><td>${s.cap}</td><td>${s.camp}</td><td>${R ? `重組 ${Math.ceil(R.t)}s` : e.alive ? `${Math.round(e.parts.torso.hp / e.parts.torso.max * 100)}%${P ? `・<span style="color:${P.css}">${P.name}</span>` : ''}` : '—'}</td></tr>`;
+    return `<tr><td style="color:${CSS[t]}">${(t === 'red' ? 4 : 1) + k}</td><td>${e.cq.lo.name}</td><td>${s.k}</td><td>${s.d}</td><td>${s.cap}</td><td>${s.camp}</td><td>${R ? `重組 ${Math.ceil(R.t)}s` : e.alive ? `${Math.round(e.parts.torso.hp / e.parts.torso.max * 100)}%${e.cq.retreat ? '・回營整備' : ''}${P ? `・<span style="color:${P.css}">${P.name}</span>` : ''}` : '—'}</td></tr>`;
   };
   const team = t => `<tr class="th"><td colspan="7" style="color:${CSS[t]}"><b>${TEAM_NAME[t]}</b>　${Math.floor(S.score[t])} 分・巢穴 ${held(t)}・大本營 ${S.forts[t]?.alive ? Math.round(S.forts[t].parts.torso.hp / S.forts[t].parts.torso.max * 100) : 0}%・增援 ${Math.round(S.bar[t] * 100)}%・空投 ${S.drops[t]}・雜魚擊破 ${S.team[t].grunts}・營地 ${S.team[t].camps}</td></tr>` + [0, 1, 2].map(k => row(t, k)).join('');
   const log = S.log.slice(-8).reverse().map(l => `<div>${Math.floor(l.t / 60)}:${String(Math.floor(l.t % 60)).padStart(2, '0')}　${l.msg}</div>`).join('');
