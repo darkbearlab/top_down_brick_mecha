@@ -25,6 +25,10 @@ const { genStage } = await import('../../src/stagegen.js');
 const { rng } = await import('../../src/mapgen.js');
 const { expDiff, planSquads } = await import('../../src/explan.js');
 applyHeavy();
+// 試調：--gspeed 雜魚極速倍率、--ghp 雜魚血量倍率（蓋掉 heavy.js 的值）
+const { AI_TUNE } = await import('../../src/ai.js');
+if (args.gspeed) AI_TUNE.gruntSpeedK = +args.gspeed;
+if (args.ghp) AI_TUNE.gruntHpMul = +args.ghp;
 
 const mulberry = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 const START = { armL: null, armR: 'mg', backL: 'missile', backR: null };

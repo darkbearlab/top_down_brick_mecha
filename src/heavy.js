@@ -16,7 +16,7 @@ export const HEAVY = {
   wantK: 1.6,           // 射擊型的理想交戰距離倍率（8～13 格 → 13～20 格）
   indirectWant: 18,     // 迫擊砲站多遠
   // 雜魚：攻擊慾、準度（DIFFS 的 err / rest 倍率）、耐久照底盤
-  grunt: { errK: 0.45, restK: 0.55 },   // 耐久照底盤（AI_TUNE.gruntChassis：履帶 ×1.3、懸浮 / 飛行 ×0.8），跟武器無關
+  grunt: { errK: 0.45, restK: 0.55, speedK: 0.7 },   // speedK：雜魚走路極速 ×0.7（2026-11-27：雜魚明顯比玩家慢；雙足 6.5→4.6、逆關節 7.4→5.2、懸浮 8.2→5.7；自爆機不變）   // 耐久照底盤（AI_TUNE.gruntChassis：履帶 ×1.3、懸浮 / 飛行 ×0.8），跟武器無關
   // 低階武器：射速、散布往正規版靠（雜魚不再只是靶子）
   low: {
     mg_l: { interval: 0.075, spread: 0.06 },
@@ -100,6 +100,7 @@ export function applyHeavy() {
   // AI
   set(AI_TUNE, 'gruntErrK', HEAVY.grunt.errK);
   set(AI_TUNE, 'gruntRestK', HEAVY.grunt.restK);
+  set(AI_TUNE, 'gruntSpeedK', HEAVY.grunt.speedK);
   set(AI_TUNE, 'gruntChassis', true);
   set(AI_TUNE, 'wantK', HEAVY.wantK);
   set(AI_TUNE, 'indirectWant', HEAVY.indirectWant);

@@ -41,8 +41,9 @@ export const AI = { passive: false, count: 2, diff: DIFFS.normal, sandbox: false
 //   ace：王牌（非雜魚、沒有大腦）用新戰術（aceTarget / kiteFrom / pickSpot 的曝光扣分 / 看不到目標時照路走）
 //   memory：感知與最後已知位置（REALISM_REPORT A2）：看不到目標時不再全知，去最後看到 / 聽到的地方、預瞄那邊、到了搜索，跟丟才慢慢掃過去
 //   spotter：迫擊砲要有觀測者（A1）：有隊友看得到才照實際位置打（第一發偏 3.5 格、同一個觀測者持續看著每發 ×0.55），沒人看到就打記憶裡的位置（偏更多）
-export const AI_TUNE = { gruntErrK: 1, gruntRestK: 1, gruntChassis: false, wantK: 1, indirectWant: 0, leadReal: false, ace: false, memory: false, spotter: false, aware: false, discipline: false, gruntTac: false, gruntLanes: false };   // aware：王牌的戰場意識（aceAware）；discipline：武器 / 推進 / 減員紀律（見「紀律」那段）
-const gruntHpK = P => !AI_TUNE.gruntChassis ? 1 : P.fly || P.legs === 'hover' ? 0.8 : P.legs === 'tread' ? 1.3 : 1;
+export const AI_TUNE = { gruntErrK: 1, gruntRestK: 1, gruntChassis: false, wantK: 1, indirectWant: 0, leadReal: false, ace: false, memory: false, spotter: false, aware: false, discipline: false, gruntTac: false, gruntLanes: false, gruntSpeedK: 1, gruntHpMul: 1 };   // aware：王牌的戰場意識（aceAware）；discipline：武器 / 推進 / 減員紀律（見「紀律」那段）
+//   gruntSpeedK：雜魚走路極速倍率（自爆機除外：牠本來就是要衝過來的）；gruntHpMul：雜魚血量整體倍率
+const gruntHpK = P => (!AI_TUNE.gruntChassis ? 1 : P.fly || P.legs === 'hover' ? 0.8 : P.legs === 'tread' ? 1.3 : 1) * AI_TUNE.gruntHpMul;
 const DROP_TIME = 1.1, DROP_H = 16;
 const RING_GEO = new THREE.RingGeometry(0.8, 0.95, 36);
 
@@ -67,6 +68,7 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   e.laser = makeLaser(0xff3020);
   // 特殊雜魚
   if (P.speedMul) e.spec.vmax *= P.speedMul;
+  if (opts.grunt && !P.bomber) e.spec.vmax *= AI_TUNE.gruntSpeedK;
   if (P.fly) { e.fly = true; e.flyH = 1.3; }
   if (P.quad) setupQuad(e);
   if (P.bomber) e.bomber = { fuse: -1, beep: 0 };
