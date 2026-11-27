@@ -21,8 +21,8 @@ import * as THREE from 'three';
 import { G, GFX, UNIT_BOX, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { isBlock, rayBlock, wallFace } from './arena.js';
 import { blastBuildings, buildingTop, damageBuilding, isBuilding } from './buildings.js';
-import { facing, hasModule, hitMech, impulseK, mechs, muzzleOf, slotBroken, slotLive, updateReady, useEnergy } from './mech.js';
-import { RAMP, burnAt, casing, explosion, flame, hitSparks, makeLaser, muzzleFlash, muzzleFx, rampOf, scorch, setLaser, smoke, wallMark, sparks, spawnGlow, spawnPuff } from './fx.js';
+import { facing, hasModule, hitMech, impulseK, mechs, muzzleOf, slotBroken, slotLive, syncWear, updateReady, useEnergy } from './mech.js';
+import { RAMP, burnAt, casing, explosion, flame, hitSparks, makeLaser, muzzleFlash, muzzleFx, rampOf, scorch, setLaser, smoke, wallMark, sparks, spawnGlow, spawnPuff, repairFx } from './fx.js';
 import { BAL, DMG_TYPES, SLOTS, WEAPONS, fcsOn } from './parts.js';
 import { sfx } from './audio.js';
 import { chipDmgK, chipRateK, chipSpreadK, empOff } from './tech.js';
@@ -50,6 +50,16 @@ const CORE_MAT = addMat(0xffffff);
 const R = (a, b) => a + Math.random() * (b - a);
 
 // 每幀：triggers = { L, R } 左右鍵按著沒（打那一邊目前準備好的武器）；locks = 鎖定中的目標（陣列）；aim = 瞄準點
+// 修理無人機（背部模組）：每 0.5 秒替 radius 格內的隊友修耐久、補彈藥（壞掉的部位不會長回來）；有修到就冒一點修理的光
+function fieldRepair(m, d) {
+  for (const o of mechs) {
+    if (o === m || !o.alive || o.drop || o.team !== m.team || o.dormant || Math.hypot(o.x - m.x, o.z - m.z) > d.radius) continue;
+    let did = false;
+    for (const [k, q] of Object.entries(o.parts)) if (!q.broken && q.hp < q.max) { q.hp = Math.min(q.max, q.hp + q.max * d.rate * 0.5); did = true; if (Math.random() < 0.3) syncWear(o, k, 0, 0, true); }
+    for (const g of Object.values(o.guns ?? {})) if (g.max !== Infinity && g.ammo < g.max) { g.ammo = Math.min(g.max, g.ammo + Math.max(1, g.max * d.ammoRate * 0.5)); did = true; }
+    if (did) repairFx(o, o.x, 1, o.z, 6, 0.3, 1);
+  }
+}
 export function updateGuns(m, triggers, dt, locks = [], aim = null) {
   updateReady(m, dt);
   if (m.salvo?.length) {
@@ -60,6 +70,7 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
   if (m.punch) updatePunch(m, dt);
   for (const slot in m.guns) {
     const gun = m.guns[slot], d = gun.def;
+    if (d.module === 'repair' && m.alive && !slotBroken(m, slot) && (gun.cd -= dt) <= 0) { gun.cd = 0.5; fieldRepair(m, d); }
     if (d.kind === 'shield' || d.kind === 'module') continue;   // 盾牌、背部模組：純被動
     gun.cd -= dt;
     if (!triggers[slot.slice(-1)] || !slotLive(m, slot) || gun.cd > 0 || !m.alive || slotBroken(m, slot) || m.swing || m.punch || m.charge || m.staggerT > 0 || empOff(m)) continue;
@@ -166,7 +177,7 @@ function spawnShot(m, d, x, y, z, dx, dz, speed) {
   const len = beam ? 1.1 : d === WEAPONS.sniper ? 1.6 : (d.size ?? 0.1) * (enemy ? 2.5 : 6);
   const g = shotMesh(color, d.size ?? 0.1, len);
   g.position.set(x, y, z); g.rotation.y = Math.atan2(dx, dz);
-  shots.push({ kind: 'bullet', g, wid: d.id, owner: m, team: m.team, x, y, z, dx, dz, speed, life: d.life * d.speed / speed, dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m) * powerDmgK(m, d), power: d.dmg, kb: d.kb, type: d.type, trail: d.trail, heavy: d.heavy, splash: d.splash });
+  shots.push({ kind: 'bullet', g, wid: d.id, owner: m, team: m.team, x, y, z, dx, dz, speed, life: d.life * d.speed / speed, dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m) * powerDmgK(m, d), power: d.dmg, kb: d.kb, type: d.type, trail: d.trail, heavy: d.heavy, splash: d.splash, corrode: d.corrode });
 }
 function spawnMissile(m, d, x, y, z, v, target, point) {
   const g = new THREE.Group();
@@ -545,7 +556,7 @@ function blast(s, x, y, z, direct) {
   explosion(x, y, z, shell ? 0.95 : 0.38);
   if (shell) { addTrauma(0.2); smoke(x, y, z, 6, 1.6, 0x55585f); }
   sfx.blast();
-  blastBuildings(x, y, z, s.dmg * (BAL.bldByWeapon ? 1.5 : 1), s.splash);   // 高爆：打建築 ×1.5
+  blastBuildings(x, y, z, s.dmg * (BAL.bldByWeapon ? 1.5 : 1) * (s.d?.bldK ?? 1), s.splash);   // bldK：爆破炸藥打建築 ×4   // 高爆：打建築 ×1.5
   if (y < 1.8) scorch(x, z, Math.min(1.8, 0.5 + (s.splash ?? 1) * (shell ? 0.6 : 0.4)));   // 地上留一塊焦痕、噴土
   for (const o of mechs) {
     if (!o.alive || o.drop || o.team === s.team || o === direct) continue;
@@ -596,6 +607,7 @@ function stepBullet(s, i, dt) {
   s.x += s.dx * ht; s.z += s.dz * ht;
   if (hit) {
     impact(s, hit, s.dx, s.dz, s.dmg);
+    if (s.corrode && hit.alive && Math.random() < s.corrode) applyStatus(hit, 'corrode', { part: 'torso', stacks: 1 });   // 酸液機砲
     if (s.splash) blast(s, s.x, s.y, s.z, hit);
     else if (s.heavy) explosion(s.x, s.y, s.z, 0.32);
     kill(i); return;

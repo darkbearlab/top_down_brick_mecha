@@ -457,12 +457,43 @@ export function updateEnemy(e, dt, player) {
   // 連續一陣子所有武器都被擋 → 移動時去讓出射線
   A.lineBlockedT = canShoot && !anyClear && blockedSide ? (A.lineBlockedT ?? 0) + dt : 0;
   if (blockedSide) A.blockSide = blockedSide;
+  // 開路（據點戰 conquest.js 設 e.siegeAt）：附近沒有打得到的敵人 → 瞄著那格建築，用打得壞牆的武器打
+  if (e.siegeAt && !(canShoot && dist < 22)) { ind = siegeFire(e, trig, dt); laserSlot = null; }
   updateGuns(e, trig, dt, locks, ind ?? { x: player.x, z: player.z });
   if (laserSlot) {
     const mz = muzzleOf(e, laserSlot), f = facing(e);
     const len = Math.min(rayBlock(mz.x, mz.z, f.x, f.z, 30), dist);
     setLaser(e.laser, mz.x, mz.z, f.x, f.z, len, mz.y, 0.3 + A.snipeT * 0.8, 0.04 + A.snipeT * 0.05);
   } else e.laser.g.visible = false;
+}
+
+// ---------- 打建築（開路 / 攻城） ----------
+// breakPow：這把打建築的威力（0 = 打不太動：機槍、光束、要鎖定的飛彈）；breakReach：站多遠打得到
+export const breakPow = d => !d ? 0 : d.kind === 'napalm' ? d.dmg * (d.bldK ?? 1) * (d.indirect ? 0.6 : 1) : d.kind === 'rocket' ? d.dmg * (d.salvo || 1) : d.kind === 'pile' ? d.dmg
+  : d.kind === 'lance' ? d.dmgMax * 0.5 : d.kind === 'bullet' && (d.heavy || d.dmg >= 8) ? d.dmg * (d.pellets || 1) * (d.heavy ? 1.5 : 1) : 0;
+export const breakReach = (e, d) => d.kind === 'pile' ? d.reach + e.r + 0.3 : d.kind === 'lance' ? reachOf(d) : d.kind === 'napalm' ? d.range : d.kind === 'rocket' ? 18 : Math.min(18, reachOf(d));
+// 每一邊挑打建築最有效、打得到的那把（背部的要先架起來），瞄準了就開火；回傳拋射彈的落點
+function siegeFire(e, trig, dt) {
+  const P = e.siegeAt, A = e.ai, sx = P.x - e.x, sz = P.z - e.z, sd = Math.hypot(sx, sz);
+  e.aimYaw = Math.atan2(sx, sz);
+  const on = Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.1;
+  for (const side of ['L', 'R']) {
+    let pick = null, ps = 0;
+    for (const sl of ['arm' + side, 'back' + side]) {
+      const g = e.guns[sl];
+      if (!g || slotBroken(e, sl) || g.ammo <= 0) continue;
+      const b = breakPow(g.def);
+      if (b > ps && sd < breakReach(e, g.def)) { ps = b; pick = sl; }
+    }
+    trig[side] = false;
+    if (!pick) continue;
+    if (activeSlot(e, side) !== pick) {
+      if (e.deployT[side] <= 0 && toggleReady(e, side)) { A.commit ??= { L: 0, R: 0 }; A.commit[side] = 3; A.hold[side] = 3; }
+      continue;
+    }
+    trig[side] = on && e.deployT[side] <= 0;
+  }
+  return { x: P.x, z: P.z };
 }
 
 // ---------- 背部武器要不要架起來 ----------

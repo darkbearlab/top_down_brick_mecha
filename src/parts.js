@@ -56,6 +56,8 @@ export const LEGS = {
   biped: { name: '雙足', type: 'biped', stagger: 50, hp: 170, maxLoad: 42, vmax: 6.5, acc: 11, legTurn: 8, boost: 1, hipY: 1.0, weight: 10 },
   reverse: { name: '逆關節', type: 'reverse', stagger: 30, hp: 140, maxLoad: 34, vmax: 7.4, acc: 13, legTurn: 9, boost: 1.3, hipY: 1.05, weight: 8 },
   tread: { name: '履帶', type: 'tread', stagger: Infinity, hp: 260, maxLoad: 62, vmax: 5.0, acc: 9, legTurn: 2.4, boost: 0.6, hipY: 0.75, weight: 16, grip: 1.6 },
+  // 高速雙足（2026-11-28，據點戰）：長腿、走得快、負重和耐久低；大地圖跑營地 / 側路用
+  strider: { name: '高速雙足', type: 'biped', stagger: 38, hp: 135, maxLoad: 34, vmax: 7.9, acc: 12, legTurn: 9, boost: 1.15, hipY: 1.15, weight: 9 },
   hover: { name: '懸浮', type: 'hover', stagger: 25, hp: 130, maxLoad: 36, vmax: 8.2, acc: 7, legTurn: 6, boost: 1.2, hipY: 0.85, weight: 9, slide: 0.35, noMud: true },
 };
 // 武器
@@ -156,6 +158,30 @@ WEAPONS.mortar_l = { ...WEAPONS.howitzer, name: '迫擊砲', interval: 3.4, ammo
 // 手臂火箭莢艙（菁英專用）：火箭莢艙裝在手上，一次 3 發、彈藥很多，但散布很大（亂灑一片）
 WEAPONS.rocket_arm = { ...WEAPONS.rocket, name: '火箭莢艙', mount: 'arm', low: true, weight: 6, interval: 1.15, ammo: 210, dmg: 40, spread: 0.24,
   model: [[-3, -3, -2, 7, 7, 9, 'f'], [-2, -2, 7, 1, 1, 1, 'w'], [0, -2, 7, 1, 1, 1, 'w'], [2, -2, 7, 1, 1, 1, 'w'], [-2, 0, 7, 1, 1, 1, 'w'], [0, 0, 7, 1, 1, 1, 'w'], [2, 0, 7, 1, 1, 1, 'w'], [-2, 2, 7, 1, 1, 1, 'w'], [0, 2, 7, 1, 1, 1, 'w'], [2, 2, 7, 1, 1, 1, 'w'], [-3, 4, 0, 7, 1, 5, 'a']], muzzle: [0.5, 0.5, 8] };
+// ---------- 據點戰補上的武器 / 模組（2026-11-28，CONQUEST_MECH_REVIEW 的缺口；整備裡也拿得到，哪個模式都能用） ----------
+// 爆破炸藥（背部）：短距離拋出一包炸藥，落地大爆炸；打建築 ×4（bldK）→ 一兩包就把一整格建築炸穿，開捷徑 / 拆掩體 / 攻城用
+WEAPONS.demo = { name: '爆破炸藥', type: 'chemical', mount: 'back', weight: 6, kind: 'napalm', interval: 2.8, ammo: 12, dmg: 60, splash: 2.4, range: 13, zone: 0, lobT: 0.8, bldK: 4, mark: true, size: 0.26,
+  desc: '拋射・落地大爆炸（範圍 2.4）・打建築 ×4：一兩包炸穿一整格建築', info: '傷害 60・12 包',
+  model: [[-3, -3, -4, 6, 6, 7, 'f'], [-3, 3, -3, 6, 2, 5, 'w'], [-2, -2, 3, 4, 4, 2, 'f'], [-1, -1, 5, 2, 2, 1, 'w'], [-4, -1, -2, 1, 2, 3, 'w'], [3, -1, -2, 1, 2, 3, 'w']], muzzle: [0, 0, 6] };
+// 榴彈發射器（手臂）：拋射小榴彈、彈藥多；越過前面的蟲 / 掩體打後面，清蟲窩用（爆風對建築 ×1.5）
+WEAPONS.glauncher = { name: '榴彈發射器', type: 'chemical', mount: 'arm', weight: 5, kind: 'napalm', interval: 0.9, ammo: 60, dmg: 26, splash: 1.7, range: 18, zone: 0, lobT: 0.75, bldK: 1.5, size: 0.14,
+  desc: '拋射・小範圍爆炸（1.7）・越過掩體打後面', info: '傷害 26・60 發（連射 54 秒）',
+  model: [[-2, -2, -1, 5, 5, 7, 'f'], [-1, -1, 6, 3, 3, 5, 'f'], [-2, -2, 11, 5, 5, 1, 'w'], [-2, 3, 0, 5, 1, 4, 'w'], [0, -4, 2, 1, 2, 3, 'f']], muzzle: [0.5, 0.5, 12] };
+// 迫擊砲（背部，王牌版）：間接射擊，看不到目標也照著打（越過建築）；射程長、慢
+WEAPONS.mortar = { ...WEAPONS.mortar_l, name: '重迫擊砲', low: false, weight: 7, interval: 2.8, ammo: 36, dmg: 46, splash: 2.4, range: 28, lobT: 1.6, bldK: 1.5,
+  desc: '間接射擊・看不到也打（越過建築）・落點先出現警示圈', info: '傷害 46・範圍 2.4・36 發' };
+// 酸液機砲（手臂）：化學的持續火力（剋複合），打中有機率腐蝕那個部位
+WEAPONS.acidcannon = { ...WEAPONS.autocannon, name: '酸液機砲', type: 'chemical', interval: 0.18, ammo: 340, dmg: 10, shotHex: 0x90ff30, corrode: 0.08,
+  desc: '化學連射・剋複合・打中 8% 機率腐蝕那個部位', info: '傷害 10・340 發（連射 61 秒）',
+  model: [[-2, -2, 0, 4, 4, 7, 'f'], [-1, -1, 7, 2, 2, 8, 'f'], [-2, 2, 0, 4, 2, 5, 'w'], [-1, -1, 15, 2, 2, 1, 'w']], muzzle: [0, 0, 16] };
+// 電漿連射槍（手臂）：能量的持續火力（剋陶瓷），不吃彈藥、每發吃能量
+WEAPONS.plasma = { ...WEAPONS.autocannon, name: '電漿連射槍', type: 'energy', interval: 0.16, ammo: undefined, energy: 3.2, dmg: 9, shotHex: 0x60e0ff,
+  desc: '能量連射・剋陶瓷・不吃彈藥（每發能量 3.2）', info: '傷害 9・約 6 發/秒',
+  model: [[-2, -2, 0, 4, 4, 7, 'f'], [-1, -1, 7, 2, 2, 7, 'w'], [-2, -2, 13, 4, 4, 1, 'g'], [-1, 2, 1, 2, 1, 5, 'g']], muzzle: [0, 0, 15] };
+// 修理無人機（背部模組）：每 0.5 秒替 radius 格內的隊友（不含自己）修 rate 比例的耐久、補 ammoRate 的彈藥；那個背部被打壞就失效
+WEAPONS.repairdrone = { name: '修理無人機', type: 'energy', mount: 'back', weight: 5, kind: 'module', module: 'repair', radius: 9, rate: 0.035, ammoRate: 0.02,
+  desc: '背部模組・9 格內的隊友：每秒修 3.5% 耐久、補 2% 彈藥（不修自己）', info: '被動・耐久為一般背部的 7 成',
+  model: [[-3, -3, -3, 6, 5, 6, 'f'], [-4, 2, -4, 8, 1, 8, 'w'], [-1, 3, -1, 2, 2, 2, 'g'], [-4, 3, -4, 2, 1, 2, 'g'], [2, 3, 2, 2, 1, 2, 'g']], muzzle: [0, 3, 0] };
 for (const k in WEAPONS) WEAPONS[k].id = k;
 // ---------- 平衡實驗開關（預設 = 現在的玩法） ----------
 // tools/sim 的 --patch 檔可以改這些、也可以直接改 WEAPONS 的數值，拿來先模擬再決定要不要正式改
@@ -375,6 +401,62 @@ export const NEW_ACES = [
   { name: '盾機砲火箭型', faction: 'base', head: 'std', core: 'heavy', legs: 'biped', armL: 'shield', armR: 'autocannon', backL: 'rocket', backR: 'rocket', armor: SR_ARMOR },   // 75%
   { name: '雙火箭掃蕩型', faction: 'base', head: 'std', core: 'heavy', legs: 'biped', armL: 'mg', armR: 'shotgun', backL: 'rocket', backR: 'rocket', armor: SR_ARMOR },   // 47% / 56%
   { name: '盾分裂火箭型', faction: 'base', head: 'std', core: 'heavy', legs: 'biped', armL: 'shield', armR: 'autocannon', backL: 'split', backR: 'rocket', armor: SR_ARMOR },   // 53% / 39%
+];
+
+// ---------- 據點戰專用的主力機（2026-11-28，docs/CONQUEST_MECH_REVIEW.md 檢討後重做） ----------
+// role：指揮派任務、重組挑配裝用（conquest.js）
+//   hold 佔點守點（站在巢穴圈裡吃火力）、capture 快速奪點、breach 破牆開路、clear 清蟲（遠距先手打巢穴守衛）、
+//   hunt 打野 / 側翼、duel 對主力決鬥、support 跟著隊友修理、siege 攻城（打大本營要塞）
+// prior：重組挑配裝的基礎分（2026-11-28 模擬 16 場的 K/D：AI 用不好的扣分，例如劍光刺客 0.2、護盾修理機 0.3）
+// want：理想交戰距離（蓋掉 ai.js 照武器猜的）；device / chips：主動裝置、晶片（conquest.js 的 AI 會用裝置）
+// 原則：每台都有不靠彈藥或彈藥很多的持續武器；三種裝甲、三種武器屬性都有人剋
+const A4 = (t, h = t, a = t, l = t) => ({ head: h, torso: t, arms: a, legs: l });
+export const CQ_ACES = [
+  { name: '堡壘佔點機', prior: -0.08, role: 'hold', want: 9, faction: 'base', head: 'dome', core: 'heavy', legs: 'tread', armL: 'shield', armR: 'autocannon', backL: 'ammorack', backR: 'rocket',
+    device: 'shieldGen', chips: ['reactive'], armor: A4('composite', 'composite', 'ceramic', 'ceramic'),
+    note: '履帶不會失衡、盾擋正面，站在巢穴圈裡讀條；彈藥架讓火箭撐得久；被集火開護盾' },
+  { name: '護盾修理機', prior: -0.2, role: 'hold', want: 8, faction: 'base', head: 'std', core: 'heavy', legs: 'tread', armL: 'shield', armR: 'plasma', backL: 'repairdrone', backR: 'rocket',
+    device: 'mine', armor: A4('mirror', 'composite', 'ceramic', 'composite'),
+    note: '守點的第二台：履帶、盾 + 電漿連射 + 火箭，修理無人機替旁邊的隊友修；圈裡埋地雷' },
+  { name: '快速奪點機', role: 'capture', want: 7, faction: 'base', head: 'std', core: 'light', legs: 'strider', armL: 'mg', armR: 'shotgun', backL: 'missile', backR: null,
+    device: 'smoke', armor: A4('composite'),
+    note: '高速雙足，先搶遠處、空著的巢穴；讀條時被看到就丟煙霧' },
+  { name: '爆破工兵', role: 'breach', want: 8, faction: 'base', head: 'std', core: 'std', legs: 'biped', armL: 'pile', armR: 'autocannon', backL: 'demo', backR: 'rocket',
+    device: 'grenade', armor: A4('ceramic', 'composite', 'composite', 'composite'),
+    note: '路線繞太遠就用爆破炸藥 / 火箭 / 打樁直接炸出一條捷徑；攻城也有用' },
+  { name: '騎槍突破機', prior: -0.15, role: 'breach', want: 7, faction: 'base', head: 'dome', core: 'std', legs: 'reverse', armL: 'lance', armR: 'beam', backL: 'power', backR: null,
+    device: 'emp', armor: A4('ceramic', 'ceramic', 'ceramic', 'composite'),
+    note: '據點戰撞牆不扣血 → 騎槍衝刺就是破牆鑽；光束步槍不吃彈藥' },
+  { name: '飛彈指揮機', prior: 0.05, role: 'clear', want: 14, faction: 'base', head: 'radar', core: 'std', legs: 'biped', armL: 'mg', armR: 'autocannon', backL: 'vmissile', backR: 'vmissile',
+    device: 'grenade', armor: A4('composite', 'composite', 'ceramic', 'composite'),
+    note: '長距鎖定頭隔著牆鎖，雙垂直飛彈越過岩塊先手打巢穴守衛' },
+  { name: '拋射清巢機', role: 'clear', want: 13, faction: 'base', head: 'std', core: 'std', legs: 'biped', armL: 'glauncher', armR: 'mg', backL: 'mortar', backR: 'rocket',
+    device: 'grenade', armor: A4('mirror', 'composite', 'composite', 'composite'),
+    note: '榴彈發射器 + 重迫擊砲：越過前排打擠在巢穴旁的蟲' },
+  { name: '懸浮遊獵機', prior: -0.05, role: 'hunt', want: 10, faction: 'base', head: 'hunter', core: 'light', legs: 'hover', armL: 'beam', armR: 'mg', backL: 'power', backR: null,
+    device: 'smoke', armor: A4('mirror'),
+    note: '最快的一台：跑營地迴圈、側路；光束不吃彈藥' },
+  { name: '高速打野機', role: 'hunt', want: 9, faction: 'base', head: 'std', core: 'std', legs: 'strider', armL: 'glauncher', armR: 'mg', backL: 'rocket', backR: 'ammorack',
+    device: 'grenade', armor: A4('composite', 'composite', 'ceramic', 'composite'),
+    note: '高速雙足、榴彈清營地的蟲，火箭留給落單的主力' },
+  { name: '電漿決鬥機', prior: -0.08, role: 'duel', want: 10, faction: 'base', head: 'std', core: 'std', legs: 'biped', armL: 'plasma', armR: 'beam', backL: 'power', backR: 'missile',
+    device: 'overload', armor: A4('composite'),
+    note: '剋陶瓷：電漿連射 + 光束步槍都不吃彈藥，供能模組撐住能量' },
+  { name: '穿甲狙擊機', role: 'duel', want: 15, faction: 'base', head: 'hunter', core: 'std', legs: 'biped', armL: 'sniper', armR: 'autocannon', backL: 'ammorack', backR: 'cannon',
+    device: 'decoy', chips: ['steady'], armor: A4('ceramic', 'ceramic', 'ceramic', 'composite'),
+    note: '剋鏡面：狙擊 + 機砲 + 加農砲，彈藥架撐久；被貼近放誘餌' },
+  { name: '酸蝕突擊機', prior: -0.05, role: 'duel', want: 9, faction: 'base', head: 'std', core: 'std', legs: 'biped', armL: 'acidcannon', armR: 'acidcannon', backL: 'missile', backR: 'ammorack',
+    device: 'grenade', armor: A4('ceramic'),
+    note: '剋複合：雙酸液機砲（會腐蝕）+ 直射飛彈' },
+  { name: '劍光刺客', prior: -0.3, role: 'duel', want: 4, faction: 'base', head: 'std', core: 'heavy', legs: 'hover', armL: 'saber', armR: 'plasma', backL: 'power', backR: null,
+    device: 'emp', chips: ['doubleBoost'], armor: A4('mirror', 'mirror', 'ceramic', 'ceramic'),
+    note: '懸浮、重裝軀幹貼身：電磁脈衝打斷、光束劍收尾；電漿連射補中距離' },
+  { name: '前線修理機', role: 'support', want: 12, faction: 'base', head: 'dome', core: 'std', legs: 'biped', armL: 'mg', armR: 'acidcannon', backL: 'repairdrone', backR: 'vmissile',
+    device: 'smoke', armor: A4('composite', 'composite', 'mirror', 'composite'),
+    note: '跟著隊友走，修理無人機替 9 格內的隊友修耐久、補彈藥；不用每次跑回大本營' },
+  { name: '重裝攻城砲', role: 'siege', want: 16, faction: 'base', head: 'dome', core: 'heavy', legs: 'tread', armL: 'mg', armR: 'autocannon', backL: 'cannon', backR: 'mortar',
+    device: 'mine', chips: ['steady'], armor: A4('composite', 'composite', 'composite', 'ceramic'),
+    note: '打大本營要塞：加農砲 + 重迫擊砲（看不到也打），機槍 + 機砲顧身邊' },
 ];
 
 

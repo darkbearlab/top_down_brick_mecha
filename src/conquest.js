@@ -16,16 +16,23 @@
 // 落後方（分數差 60 以上）：重組、增援條 ×0.8 時間
 // AI：隊伍指揮每 2 秒替每台主力機挑一個目標（巢穴 / 營地：價值 ÷ 距離、分散、回防）；目標有效就至少守 15 秒、到了就做完（不跳來跳去）；
 //   受傷 / 斷武器 / 沒彈藥 → 回大本營整備（needsRepair / repaired）；附近 24 格（雜魚 18 格）沒有看得到的敵人 → 照路線走去目標，有 → 照原本的戰術打
+// 主力機（2026-11-28 重做，docs/CONQUEST_MECH_REVIEW.md）：配裝池 = parts.js CQ_ACES（15 套，每套有 role）；開場和重組都用 counterPick（剋對面裝甲 + 擋得住對面火力 + 隊伍缺的角色）
+//   指揮照 role 派任務（roleK）：清蟲機先打有守衛的巢、佔點 / 奪點機去讀條、打野機去營地、修理機跟著隊友、攻城機晚場打對面大本營
+//   到了可以讀條的巢穴 → 綁在圈裡打；清蟲機 30 格外就把整窩叫醒（先手）；路線繞太遠就打穿建築開捷徑（breach）；主動裝置照情況用（aceDevice）
+//   回營：軀幹 < 40%（旁邊有修理機 < 25%）、腳壞了、或剩下的火力 < 40%（主力武器打光、拿武器的手斷了）
 // 戰績（S.stats）：每台主力機的擊墜 / 損毀 / 佔領 / 營地；隊伍的雜魚擊破、空投（main.js 的 Tab 總覽）
 import * as THREE from 'three';
 import { G, addMat, scene } from './core.js';
-import { H as MAP_H, W as MAP_W, grid, isSolid, rayBlock } from './arena.js';
-import { mechs, syncWear } from './mech.js';
-import { DIFFS, enemies, spawnEnemy } from './ai.js';
-import { EFFECT, ELITES, ENEMY_PRESETS, NEW_ACES, SQUADS, WEAPONS, gruntOf } from './parts.js';
+import { H as MAP_H, W as MAP_W, grid, gridVer, isSolid, rayBlock } from './arena.js';
+import { isBuilding } from './buildings.js';
+import { updateDeviceCd, useDevice, deviceReady } from './devices.js';
+import { hasModule, mechs, syncWear } from './mech.js';
+import { DIFFS, breakPow, breakReach, enemies, spawnEnemy } from './ai.js';
+import { CQ_ACES, EFFECT, ELITES, SQUADS, WEAPONS, fireTime, gruntOf } from './parts.js';
+import { DEVICES } from './tech.js';
 import { burst, repairFx, spawnPuff } from './fx.js';
 import { packUnits } from './heavy.js';
-import { routeDir } from './pathing.js';
+import { routeDir, routeDist } from './pathing.js';
 import { CQ_CAMPS, CQ_NODES } from './blockgen.js';
 
 export const CQ = {
@@ -64,6 +71,8 @@ const HEX = { blue: 0x4a9aff, red: 0xff6a3a, native: 0xa0d040, none: 0x9aa0aa };
 export const CSS = { blue: '#6aaaff', red: '#ff7a40', native: '#a8d040', none: '#9aa0aa' };
 
 let S = null;   // 這一場的狀態
+// 每種配裝的戰績（模擬比較配裝用）：上場秒數、擊墜、被擊墜、佔領、營地、打掉的雜魚 / 蟲
+const loStat = e => { const n = e.cq.lo.name; let r = S.lo.get(n); if (!r) S.lo.set(n, r = { t: 0, k: 0, d: 0, cap: 0, camp: 0, gk: 0, bk: 0 }); return r; };
 export const cqState = () => S;
 
 // 蟲巢的樣子：土丘 + 發光的卵囊（顏色 = 種類）；地上一圈（顏色 = 持有方）+ 讀條的內圈
@@ -121,22 +130,54 @@ export function clearConquest() {
   S = null;
 }
 
-// 主力機的配裝池：一般機體（ENEMY_PRESETS，各種武器類型）+ 新數值王牌（NEW_ACES）→ 打得掉建築的、穿牆的、近戰的都有機會出場
-const ACE_POOL = [...new Map([...ENEMY_PRESETS, ...NEW_ACES].map(p => [p.name, p])).values()];
-const pickAce = () => ACE_POOL[Math.floor(Math.random() * ACE_POOL.length)];
-// 重新出擊時調整陣容：照對面主力機的裝甲挑剋得住的配裝（武器屬性 × 裝甲的倍率平均，加一點隨機），隊友正在用的不重複
+// 主力機的配裝池：據點戰專用的配裝（parts.js CQ_ACES，每台有 role）
+const ACE_POOL = CQ_ACES;
+// 武器的每秒傷害（盾、模組 = 0）× 持久度（打得久的 1；8 秒打光的火箭約 0.5）
+const wDps = d => !d || d.kind === 'shield' || d.kind === 'module' ? 0 : d.kind === 'lance' ? d.dmgMax / d.interval : d.dmg * (d.pellets || 1) * (d.salvo || 1) * (d.bomblets || 1) / (d.interval || 1);
+const wSustain = d => !d.ammo ? 1 : 0.4 + 0.6 * Math.min(1, fireTime(d) / 40);
+const weaponsOf = lo => ['armL', 'armR', 'backL', 'backR'].map(sl => WEAPONS[lo[sl]]).filter(d => wDps(d) > 0);
+const PART_W = { torso: 0.5, arms: 0.2, legs: 0.2, head: 0.1 };
+// 這套配裝的火力打在對面那幾台身上的倍率（照每秒傷害 × 持久度加權，四個部位都算）
+function offenseK(lo, foes) {
+  const W = weaponsOf(lo), tot = W.reduce((a, d) => a + wDps(d) * wSustain(d), 0) || 1;
+  return foes.reduce((a, f) => a + W.reduce((b, d) => b + wDps(d) * wSustain(d) / tot * Object.entries(PART_W).reduce((c, [p, k]) => c + k * (EFFECT[d.type]?.[f.armor?.[p] ?? 'composite'] ?? 1), 0), 0), 0) / foes.length;
+}
+// 對面的火力打在這套身上的倍率（越低越耐打）
+function defenseK(lo, foes) {
+  let a = 0, n = 0;
+  for (const f of foes) for (const d of weaponsOf(f)) { const w = wDps(d) * wSustain(d); a += w * Object.entries(PART_W).reduce((c, [p, k]) => c + k * (EFFECT[d.type]?.[lo.armor?.[p] ?? 'composite'] ?? 1), 0); n += w; }
+  return n ? a / n : 1;
+}
+// 隊伍現在缺什麼角色（局勢）：沒清的巢 → 清蟲、可以讀的巢 → 佔點、落後 → 搶點、晚場或領先 → 攻城、有營地 → 打野
+function roleNeed(team) {
+  const guarded = S.nodes.filter(n => n.owner === 'native').length, open = S.nodes.filter(n => n.owner !== team).length;
+  const fort = S.forts[foeTeam(team)], fortK = fort?.alive ? fort.parts.torso.hp / fort.parts.torso.max : 1;
+  const late = S.t > 300 || S.score[team] > S.score[foeTeam(team)] + 90 || fortK < 0.6;
+  return {
+    clear: guarded >= 3 ? 0.4 : guarded ? 0.2 : 0,
+    hold: 0.25 + (behind(team) ? 0.15 : 0),
+    capture: open >= 4 ? 0.25 : 0.1 + (behind(team) ? 0.15 : 0),
+    breach: S.t > 45 ? 0.2 : 0.1,
+    hunt: S.camps.some(c => c.units.some(u => u.alive)) ? 0.2 : 0.05,
+    duel: 0.2,
+    support: 0.15,
+    siege: late ? 0.45 : 0,
+  };
+}
+// 重新出擊（和開場）時挑配裝：配裝的基礎分（prior）+ 剋對面的裝甲（四個部位、照火力加權）+ 擋得住對面的火力 + 隊伍缺的角色 + 一點隨機；隊友正在用的不重複、同角色不疊
 function counterPick(team, k) {
-  const foes = S.aces[foeTeam(team)].map(e => e.cq.lo.armor?.torso ?? 'composite');
-  const mates = new Set(S.aces[team].filter((e, j) => j !== k).map(e => e.cq.lo.name));
+  const foes = S.aces[foeTeam(team)].map(e => e.cq.lo);
+  const mates = S.aces[team].filter((e, j) => j !== k && e).map(e => e.cq.lo);
+  const names = new Set(mates.map(l => l.name)), roles = new Set(mates.map(l => l.role));
+  const need = roleNeed(team);
   let best = null, bs = -Infinity;
   for (const lo of ACE_POOL) {
-    if (mates.has(lo.name)) continue;
-    const types = ['armL', 'armR', 'backL', 'backR'].map(sl => WEAPONS[lo[sl]]).filter(d => d && d.kind !== 'shield' && d.kind !== 'module').map(d => d.type);
-    if (!types.length) continue;
-    const sc = foes.reduce((a, ar) => a + types.reduce((b, t) => b + (EFFECT[t]?.[ar] ?? 1), 0) / types.length, 0) / foes.length + Math.random() * 0.25;
+    if (names.has(lo.name)) continue;
+    let sc = (roles.has(lo.role) ? -0.15 : need[lo.role] ?? 0) + (lo.prior ?? 0) + Math.random() * 0.25;   // prior：模擬裡 AI 用得好不好
+    if (foes.length) sc += (offenseK(lo, foes) - 1) * 1.2 - (defenseK(lo, foes) - 1) * 0.6;
     if (sc > bs) { bs = sc; best = lo; }
   }
-  return best ?? pickAce();
+  return best ?? ACE_POOL[Math.floor(Math.random() * ACE_POOL.length)];
 }
 const baseOf = team => S.bases[team];
 const foeTeam = t => t === 'blue' ? 'red' : 'blue';
@@ -164,15 +205,16 @@ export function startConquest(map, toast) {
   S = { t: 0, toast, bases: { blue: map.bases[0], red: map.bases[1] },
     score: { blue: 0, red: 0 }, drops: { blue: 0, red: 0 }, kills: { blue: 0, red: 0 }, bar: { blue: 0, red: 0 }, buffs: { blue: {}, red: {} },
     stats: { blue: [stat(), stat(), stat()], red: [stat(), stat(), stat()] }, team: { blue: { grunts: 0, camps: 0 }, red: { grunts: 0, camps: 0 } },
+    sieges: { blue: { siege: true, key: 'cqsb', x: map.bases[1].x, z: map.bases[1].z }, red: { siege: true, key: 'cqsr', x: map.bases[0].x, z: map.bases[0].z } },
     homes: { blue: { base: true, key: 'cqhb', x: map.bases[0].x, z: map.bases[0].z }, red: { base: true, key: 'cqhr', x: map.bases[1].x, z: map.bases[1].z } },
-    result: null, cmdT: 0, focus: 0, aces: { blue: [], red: [] }, forts: {}, deaths: new Map(), respawns: [], log: [],
+    lo: new Map(), breaches: 0, dug: 0, devices: 0, result: null, cmdT: 0, focus: 0, aces: { blue: [], red: [] }, forts: {}, deaths: new Map(), respawns: [], log: [],
     nodes: CQ_NODES.map((p, i) => ({ i, key: `cq${i}`, type: p.type, name: HIVES[p.type].name, x: p.x, z: p.z, owner: 'native', prog: 0, guards: [], contested: false, capturing: null })),
     camps: CQ_CAMPS.map((p, i) => ({ i, key: `cqc${i}`, camp: true, kind: p.kind, x: p.x, z: p.z, units: [], respawn: 0 })) };
   for (const n of S.nodes) buildNode(n);
   for (const c of S.camps) { buildCamp(c); spawnCamp(c); }
   for (const team of TEAMS) {
     const B = baseOf(team), F0 = front(team, 6);
-    for (let k = 0; k < 3; k++) S.aces[team].push(spawnAce(team, pickAce(), spreadAt(F0.x, F0.z, S.aces[team], 0, 4), k, true));
+    for (let k = 0; k < 3; k++) S.aces[team].push(spawnAce(team, counterPick(team, k), spreadAt(F0.x, F0.z, S.aces[team], 0, 4), k, true));
     // 大本營：要塞砲車
     const F = spawnEnemy(ANCHOR, { ...ELITES.find(E => E.name === '要塞砲車'), id: 'fortress' }, { x: B.x, z: B.z }, { team, colors: COLORS[team], diff: DIFFS.hard, noDrop: true });
     for (const q of Object.values(F.parts)) { q.max *= CQ.fortHpK; q.hp = q.max; }
@@ -239,13 +281,18 @@ const sees = (e, o, d) => rayBlock(e.x, e.z, (o.x - e.x) / d, (o.z - e.z) / d, d
 const behind = team => S.score[team] + CQ.behindGap < S.score[foeTeam(team)];
 
 // 隊伍指揮：替每台主力機挑目標（巢穴；附近有長好的營地、身上沒有效果 → 營地也算）
-// 回基地修理：軀幹 < 40%、腳壞了、掛武器的部位壞了一半以上、或彈藥（吃彈藥的武器平均）< 15% → 回大本營（離基地 75 格內才回，太遠就打到底）
+// 回基地修理：軀幹 < 40%（旁邊有修理機的隊友 → < 25% 才回）、腳壞了、或剩下的火力 < 40%（照每秒傷害 × 持久度算：主力的火箭打光了、拿武器的手被打掉都算；
+//   以前用全部武器的平均彈藥，機槍把平均撐住，火箭打光了也不回）→ 回大本營（離基地 100 格內才回，太遠就打到底）
 //   回去之後修到軀幹 ≥ 95%、沒有壞掉的部位、彈藥 ≥ 80% 才出發（最多待 20 秒）
+function firepower(e) {
+  let all = 0, live = 0;
+  for (const [k, g] of Object.entries(e.guns)) { const w = wDps(g.def) * wSustain(g.def); all += w; if (!e.parts[k]?.broken && g.ammo > 0) live += w; }
+  return all ? live / all : 1;
+}
+const medicNear = e => S.aces[e.cq.team].some(o => o !== e && o.alive && hasModule(o, 'repair') && Math.hypot(o.x - e.x, o.z - e.z) < 12);
 function needsRepair(e) {
-  const T = e.parts.torso, slots = ['armL', 'armR', 'backL', 'backR'].filter(k => e.guns[k]);
-  const broken = slots.filter(k => e.parts[k]?.broken).length;
-  const am = Object.values(e.guns).filter(g => g.max !== Infinity), ammo = am.length ? am.reduce((a, g) => a + g.ammo / g.max, 0) / am.length : 1;
-  return T.hp / T.max < 0.4 || e.parts.legs?.broken || (slots.length && broken * 2 >= slots.length) || ammo < 0.15;
+  const T = e.parts.torso;
+  return T.hp / T.max < (medicNear(e) ? 0.25 : 0.4) || e.parts.legs?.broken || firepower(e) < 0.4;
 }
 function repaired(e) {
   const am = Object.values(e.guns).filter(g => g.max !== Infinity), ammo = am.length ? am.reduce((a, g) => a + g.ammo / g.max, 0) / am.length : 1;
@@ -253,7 +300,16 @@ function repaired(e) {
 }
 // 目標還有沒有效：營地還有活的蟲；巢穴還不是自己的、或自己的正被搶
 const threatOf = (n, team) => n.capturing === foeTeam(team) || mechs.some(o => o.alive && o.team === foeTeam(team) && !o.grunt && Math.hypot(o.x - n.x, o.z - n.z) < 12);
-const goalValid = (g, team) => !!g && !g.base && (g.camp ? g.units.some(u => u.alive) : g.owner !== team || threatOf(g, team));
+const goalValid = (g, team) => !!g && !g.base && (g.follow ? g.follow.alive && !g.follow.cq.retreat : g.siege ? !!S.forts[foeTeam(team)]?.alive : g.camp ? g.units.some(u => u.alive) : g.owner !== team || threatOf(g, team));
+// 角色眼中的價值倍率（parts.js CQ_ACES 的 role）
+function roleK(role, G, team) {
+  const n = G.g, guarded = !G.camp && !G.siege && n.owner === 'native', mine = !G.camp && !G.siege && n.owner === team;
+  if (G.siege) return role === 'siege' ? 1 : role === 'breach' ? 0.6 : 0.3;
+  if (G.camp) return { hunt: 1.9, duel: 1, clear: 0.9, breach: 0.8, capture: 0.4, hold: 0.4, siege: 0.3, support: 0.6 }[role] ?? 1;
+  if (guarded) return { clear: 1.5, breach: 1.1, siege: 1, hold: 0.9, duel: 0.9, capture: 0.6, hunt: 0.7 }[role] ?? 1;
+  if (mine) return { hold: 1.5, duel: 1.3, capture: 0.8 }[role] ?? 1;
+  return { hold: 1.4, capture: 1.6, duel: 1.1, clear: 0.9 }[role] ?? 1;
+}
 function command(team) {
   const live = S.aces[team].filter(e => e.alive && !e.drop);
   // 回基地修理
@@ -262,7 +318,7 @@ function command(team) {
     const C = e.cq, dB = Math.hypot(e.x - B.x, e.z - B.z);
     if (C.retreat) {
       if (repaired(e) || (dB < CQ.healR && S.t - C.retreatT > 20)) { C.retreat = false; C.goal = null; }
-    } else if (needsRepair(e) && dB < 75 && dB > CQ.healR) { C.retreat = true; C.retreatT = S.t; C.goal = home; note(`${TEAM_NAME[team]} ${(team === 'red' ? 4 : 1) + C.k} 號回大本營整備`); }
+    } else if (needsRepair(e) && dB < 100 && dB > CQ.healR) { C.retreat = true; C.retreatT = S.t; C.goal = home; note(`${TEAM_NAME[team]} ${(team === 'red' ? 4 : 1) + C.k} 號回大本營整備`); }
   }
   const goals = [
     ...S.nodes.map(n => {
@@ -272,6 +328,12 @@ function command(team) {
     }),
     ...S.camps.filter(c => c.units.some(u => u.alive)).map(c => ({ g: c, v: 0.95, camp: true })),   // 營地藏在叢林深處：價值要夠高才會專程繞進去
   ];
+  // 攻城：對面的大本營（晚場 / 領先 / 要塞已經受傷才值得）
+  const fort = S.forts[foeTeam(team)];
+  if (fort?.alive) {
+    const fk = fort.parts.torso.hp / fort.parts.torso.max, late = S.t > 300 || S.score[team] > S.score[foeTeam(team)] + 90;
+    goals.push({ g: S.sieges[team], v: fk < 0.35 ? 1.6 : late || fk < 0.7 ? 1.2 : 0.35, siege: true });
+  }
   const count = new Map();
   // 承諾：手上的目標還有效、而且（指派不到 15 秒，或已經到了目標旁邊 12 格內）→ 不換，避免打一兩下就跑去別的地方
   const free = [];
@@ -281,18 +343,28 @@ function command(team) {
     if (goalValid(g, team) && (S.t - (C.goalT ?? -99) < 15 || Math.hypot(g.x - e.x, g.z - e.z) < 12)) count.set(g, (count.get(g) ?? 0) + 1);
     else free.push(e);
   }
+  // 支援（修理機）：跟著最近的、有任務的隊友走（不跟回營的）
+  for (const e of free.filter(e => e.cq.lo.role === 'support')) {
+    let best = null, bd = Infinity;
+    for (const o of live) if (o !== e && o.cq.lo.role !== 'support' && !o.cq.retreat) { const d = Math.hypot(o.x - e.x, o.z - e.z); if (d < bd) { bd = d; best = o; } }
+    if (!best) continue;
+    if (e.cq.goal?.follow !== best) { e.cq.goal = followGoal(best); e.cq.goalT = S.t; }
+    free.splice(free.indexOf(e), 1);
+  }
   const order = free.map(e => ({ e, d: Math.min(...S.nodes.map(n => Math.hypot(n.x - e.x, n.z - e.z))) })).sort((a, b) => a.d - b.d);
   for (const { e } of order) {
     let best = null, bs = -Infinity;
     for (const G of goals) {
       if (G.camp && e.cq.buff && S.t < e.cq.buff.until) continue;
-      const d = Math.hypot(G.g.x - e.x, G.g.z - e.z), s = G.v / (1 + d / 20) - (count.get(G.g) ?? 0) * (G.camp ? 1 : 0.4) + (e.cq.goal === G.g ? 0.08 : 0);
+      const role = e.cq.lo.role, d = Math.hypot(G.g.x - e.x, G.g.z - e.z);
+      const s = G.v * roleK(role, G, team) / (1 + d / (role === 'capture' ? 40 : 20)) - (count.get(G.g) ?? 0) * (G.camp ? 1 : 0.4) + (e.cq.goal === G.g ? 0.08 : 0);   // 快速奪點機不太在意距離
       if (s > bs) { bs = s; best = G.g; }
     }
     if (best !== e.cq.goal) e.cq.goalT = S.t;
     e.cq.goal = best; count.set(best, (count.get(best) ?? 0) + 1);
   }
 }
+const followGoal = o => ({ follow: o, key: `f${o.id}`, get x() { return o.x; }, get z() { return o.z; } });
 // 雜魚：去最近的「不是自己的」巢穴（或自己的、正在被搶的）
 function gruntGoal(e) {
   let best = null, bd = Infinity;
@@ -302,7 +374,9 @@ function gruntGoal(e) {
 // keepAim：照路線走，但上半身照原本的（回基地途中邊退邊打）
 function driveTo(e, n, keepAim = false) {
   const dx = n.x - e.x, dz = n.z - e.z, d = Math.hypot(dx, dz) || 1;
-  if (d < (n.camp ? 2 : n.base ? CQ.healR - 5 : CQ.nodeR - 1.2)) { e.drive = { mx: 0, mz: 0 }; return; }
+  const stop = n.camp ? 2 : n.base ? CQ.healR - 5 : n.follow ? 4 : n.siege ? Math.max(10, (e.ai?.want ?? 10) + 2)
+    : n.owner === 'native' && e.cq.lo?.role === 'clear' ? Math.max(CQ.nodeR, (e.ai?.want ?? 8)) : CQ.nodeR - 1.2;   // 清蟲機：站在射程邊上打守衛
+  if (d < stop) { e.drive = { mx: 0, mz: 0 }; return; }
   const f = (!e.fly && routeDir(n.key, G.now, e.x, e.z, n.x, n.z)) || { x: dx / d, z: dz / d };
   e.drive = { mx: f.x, mz: f.z };
   if (!keepAim) e.aimYaw = Math.atan2(f.x, f.z);
@@ -314,7 +388,17 @@ export function preUpdate(dt) {
   for (const e of enemies) {
     if (!e.alive || !e.cq) continue;
     const H = nearestHostile(e);
-    if (e.team === 'native') { e.dormant = !(H && H.d < (e.cq.camp ? CQ.campWake : CQ.bugWake)); if (H) e.foe = H.o; continue; }
+    if (e.team === 'native') {
+      // 清蟲機（role clear）30 格內看得到這窩 → 整窩醒來（遠距先手；醒了 8 秒內不會再睡）
+      if (e.dormant && e.cq.node && (e.cq.peekT = (e.cq.peekT ?? 0) - dt) <= 0) {
+        e.cq.peekT = 0.5;
+        for (const t of TEAMS) for (const a of S.aces[t]) { const d = Math.hypot(a.x - e.x, a.z - e.z); if (a.alive && a.cq.lo.role === 'clear' && d < 30 && sees(a, e, d)) for (const u of e.cq.node.guards) if (u.cq) u.cq.wakeUntil = S.t + 8; }
+      }
+      e.dormant = !(H && H.d < (e.cq.camp ? CQ.campWake : CQ.bugWake)) && !(S.t < (e.cq.wakeUntil ?? 0));
+      if (H) e.foe = H.o;
+      continue;
+    }
+    if (e.cq.ace) aceDevice(e, dt);
     e.foe = H?.o ?? null;
     e.cq.near = H;
     const B = S.buffs[e.team], b = e.cq.base, P = e.cq.buff && S.t < e.cq.buff.until ? CAMPS[e.cq.buff.kind].buff : {};
@@ -332,11 +416,135 @@ export function preUpdate(dt) {
 // 每幀，updateEnemy 之後（driveMech 之前）：附近沒有看得到的敵人 → 照路線走去目標
 export function postUpdate(e) {
   if (!S || !e.alive || !e.cq || e.team === 'native' || e.drop || e.cq.fort) return;
-  const H = e.cq.near, R = e.grunt ? CQ.engageGrunt : CQ.engageAce;
-  if (e.cq.retreat) { driveTo(e, e.cq.goal, !!(H && H.d < R && sees(e, H.o, H.d))); return; }   // 回基地：一定走，看得到敵人就邊退邊打
+  const C = e.cq, H = C.near, R = e.grunt ? CQ.engageGrunt : CQ.engageAce;
+  if (C.retreat) { if (C.held) { e.hold = null; C.held = false; } e.siegeAt = null; C.breach = null; driveTo(e, C.goal, !!(H && H.d < R && sees(e, H.o, H.d))); return; }   // 回基地：一定走，看得到敵人就邊退邊打
+  // 佔點：目標是可以讀條的巢穴（守衛死光、不是自己的或正被搶）、走到旁邊 → 綁在圈裡打（戰術 AI 的射擊位置不會把它拉出去）
+  const g = C.goal;
+  if (!e.grunt) {
+    const ring = g && g.guards && !g.camp && !g.guards.some(u => u.alive) && (g.owner !== e.team || g.capturing === foeTeam(e.team)) && Math.hypot(g.x - e.x, g.z - e.z) < CQ.nodeR + 6;
+    if (ring) { e.hold = { x: g.x, z: g.z, r: CQ.nodeR - 1.2 }; C.held = true; }
+    else if (C.held) { e.hold = null; C.held = false; }
+  }
   if (H && (H.d < 12 || (H.d < R && sees(e, H.o, H.d)))) return;
-  const n = e.grunt ? (e.cq.goal ??= gruntGoal(e)) : e.cq.goal;
+  if (!e.grunt && C.ace && breach(e, g)) return;
+  e.siegeAt = null;
+  const n = e.grunt ? (C.goal ??= gruntGoal(e)) : g;
   if (n) driveTo(e, n);
+}
+// 開路：每個目標一張「打穿建築也算路」的距離場（空地 1 步、建築 BCOST（5）步、岩石 / 深淵走不到；整張地圖、8 方向、最多每 4 秒重算）
+//   照一般路線（routeDist）比照這張場遠 minGain 格以上（破牆 / 攻城角色 8 格、其他 20 格）→ 照這張場往下走，路上第一格建築就是要打穿的牆
+//   → 站在路上離那格 stand 格的地方，用打得壞牆的武器（ai.js breakPow：爆破炸藥、火箭、加農砲、打樁、騎槍…）打；打掉再找下一格，20 秒打不穿就放棄
+const BCOST = 5, DIR8 = [[1, 0, 10], [-1, 0, 10], [0, 1, 10], [0, -1, 10], [1, 1, 14], [1, -1, 14], [-1, 1, 14], [-1, -1, 14]];
+const BF = new Map();
+const breakers = e => ['armL', 'armR', 'backL', 'backR'].map(sl => e.guns[sl] && !e.parts[sl]?.broken && e.guns[sl].ammo > 0 && breakPow(e.guns[sl].def) >= 40 ? e.guns[sl].def : null).filter(Boolean);
+function breachField(g) {
+  let F = BF.get(g.key);
+  const c0 = Math.floor(g.x + MAP_W / 2), r0 = Math.floor(g.z + MAP_H / 2);
+  if (F && F.W === MAP_W && (F.ver === gridVer || S.t - F.t < 4) && F.c0 === c0 && F.r0 === r0) return F;
+  const W = MAP_W, H = MAP_H, N = W * H, dist = new Float32Array(N).fill(Infinity);
+  const cost = new Uint8Array(N);   // 0 = 走不到
+  for (let r = 0; r < H; r++) for (let c = 0; c < W; c++) {
+    const ch = grid[r][c];
+    cost[r * W + c] = ch === 'v' ? 0 : ch === '#' ? (isBuilding(c - W / 2 + 0.5, r - H / 2 + 0.5) ? BCOST : 0) : 1;
+  }
+  // 小整數權重的 Dijkstra（8 方向；距離 ×10：直走 10、斜走 14，建築 ×BCOST；斜走不切牆角）：桶子佇列
+  const buckets = [[r0 * W + c0]];
+  dist[r0 * W + c0] = 0;
+  for (let d = 0; d < buckets.length; d++) {
+    const B = buckets[d];
+    if (!B) continue;
+    for (const i of B) {
+      if (dist[i] !== d) continue;
+      const c = i % W, r = (i / W) | 0;
+      for (const [dc, dr, step] of DIR8) {
+        const cc = c + dc, rr = r + dr;
+        if (cc < 0 || rr < 0 || cc >= W || rr >= H) continue;
+        const j = rr * W + cc, k = cost[j] * step;
+        if (!k || d + k >= dist[j] || (dc && dr && (!cost[r * W + cc] || !cost[rr * W + c]))) continue;
+        dist[j] = d + k;
+        (buckets[d + k] ??= []).push(j);
+      }
+    }
+    buckets[d] = null;
+  }
+  F = { W, ver: gridVer, t: S.t, c0, r0, dist, cost };
+  BF.set(g.key, F);
+  return F;
+}
+function planBreach(e, g, minGain) {
+  if (!g || g.follow || g.base) return null;
+  const sd = Math.hypot(g.x - e.x, g.z - e.z);
+  if (sd < 10 || sd > 110) return null;
+  const rd = routeDist(g.key, e.x, e.z), F = breachField(g), W = F.W;
+  let c = Math.floor(e.x + MAP_W / 2), r = Math.floor(e.z + MAP_H / 2), i = r * W + c;
+  const bd = F.dist[i] / 10;
+  if (!(bd < Infinity) || rd === Infinity || !(rd - bd > minGain)) return null;
+  // 照場往下走（最多 30 步）：記下走過的空地，碰到第一格建築就停
+  const path = [];
+  for (let s = 0; s < 30; s++) {
+    let best = -1, bv = F.dist[i];
+    for (const [dc, dr] of DIR8) {
+      const cc = c + dc, rr = r + dr;
+      if (cc < 0 || rr < 0 || cc >= W || rr >= MAP_H) continue;
+      const j = rr * W + cc;
+      if (F.dist[j] < bv) { bv = F.dist[j]; best = j; }
+    }
+    if (best < 0) return null;
+    i = best; c = i % W; r = (i / W) | 0;
+    const x = c - MAP_W / 2 + 0.5, z = r - MAP_H / 2 + 0.5;
+    if (F.cost[i] === BCOST && isBuilding(x, z)) return { x, z, path, gain: rd - bd };
+    path.push({ x, z });
+  }
+  return null;
+}
+function breach(e, g) {
+  const C = e.cq, W = breakers(e);
+  if (!W.length) { C.breach = null; return false; }
+  if (!C.breach && S.t > (C.brNext ?? 0)) {
+    C.brNext = S.t + 1.5;
+    const role = C.lo.role, P = planBreach(e, g, role === 'breach' || role === 'siege' ? 8 : 20);
+    if (P) { C.breach = { ...P, until: S.t + 20 }; S.breaches++; }
+  }
+  const B = C.breach;
+  if (!B) return false;
+  if (!isBuilding(B.x, B.z)) { C.breach = null; C.brNext = 0; S.dug++; e.siegeAt = null; return false; }   // 打穿這格：馬上找下一格
+  if (S.t > B.until || g !== C.goal) { C.breach = null; C.brNext = S.t + 10; e.siegeAt = null; return false; }
+  // 站多遠：最有效的那把打得到的距離（打樁要貼上去）；沿著場的路走到離那格 stand 格內
+  const best = W.reduce((a, d) => breakPow(d) > breakPow(a) ? d : a);
+  const stand = Math.max(1.6, Math.min(6, breakReach(e, best) - 1.5)), d = Math.hypot(B.x - e.x, B.z - e.z);
+  e.siegeAt = B;
+  if (d > stand) {
+    const P = B.path.find(p => Math.hypot(p.x - e.x, p.z - e.z) > 0.7 && Math.hypot(B.x - p.x, B.z - p.z) < d) ?? B;
+    const px = P.x - e.x, pz = P.z - e.z, pl = Math.hypot(px, pz) || 1;
+    e.drive = { mx: px / pl, mz: pz / pl };
+  } else e.drive = { mx: 0, mz: 0 };
+  return true;
+}
+// 主動裝置（AI）：手榴彈丟擠在一起的敵人、煙霧掩護讀條 / 撤退、地雷埋在守的巢穴、護盾 / 誘餌被主力機盯上時用、電磁脈衝打貼身的、超載對主力機開火時
+function aceDevice(e, dt) {
+  updateDeviceCd(e, dt);
+  if (!e.device || (e.cq.devT = (e.cq.devT ?? 0) - dt) > 0 || !deviceReady(e)) return;
+  e.cq.devT = 0.4;
+  const C = e.cq, team = e.team, hp = e.parts.torso.hp / e.parts.torso.max;
+  const foes = [];
+  for (const o of mechs) if (hostile(e, o) && !o.dormant) { const d = Math.hypot(o.x - e.x, o.z - e.z); if (d < 26 && sees(e, o, d)) foes.push({ o, d }); }
+  if (!foes.length) return;
+  const aceNear = r => foes.some(f => f.d < r && f.o.cq?.ace);
+  const use = (x, z) => { if (useDevice(e, { x, z })) { C.devN = (C.devN ?? 0) + 1; S.devices++; } };
+  switch (e.device.id) {
+    case 'grenade': {
+      const t = foes.find(f => f.d > 5 && f.d < 13.5 && foes.filter(q => Math.hypot(q.o.x - f.o.x, q.o.z - f.o.z) < 3).length >= 2)
+        ?? foes.find(f => f.d > 5 && f.d < 13 && f.o.cq?.ace && f.o.parts.torso.hp / f.o.parts.torso.max < 0.35);
+      if (t) use(t.o.x, t.o.z);
+      break;
+    }
+    case 'smoke': if ((C.held && C.goal?.capturing === team && aceNear(25)) || (C.retreat && hp < 0.4 && aceNear(20))) use(e.x, e.z); break;
+    case 'mine': if (C.held && aceNear(22)) use(e.x, e.z); break;
+    case 'shieldGen': if (aceNear(18) && hp < 0.85) { const f = foes.find(q => q.o.cq?.ace); use(f.o.x, f.o.z); } break;
+    case 'emp': if (foes.some(f => f.d < 6.5 && (f.o.cq?.ace || foes.filter(q => q.d < 6.5).length >= 2))) use(e.x, e.z); break;
+    case 'overload': if (e.foe?.cq?.ace && foes.some(f => f.o === e.foe && f.d < 20)) use(e.foe.x, e.foe.z); break;
+    case 'decoy': if (hp < 0.55 && aceNear(18)) use(e.x, e.z); break;
+  }
 }
 const note = msg => { S.toast(msg); S.log.push({ t: S.t, msg }); if (S.log.length > 40) S.log.shift(); };
 
@@ -349,6 +557,7 @@ export function updateConquest(dt) {
     for (const e of enemies) if (e.alive && e.grunt && e.cq && e.team !== 'native') e.cq.goal = gruntGoal(e);
   }
   for (const t of TEAMS) S.buffs[t] = {};
+  for (const t of TEAMS) for (const e of S.aces[t]) if (e.alive) loStat(e).t += dt;
   for (const n of S.nodes) {
     const guards = n.guards.some(e => e.alive);
     if (!guards && n.owner === 'native') { n.owner = 'none'; note(`${n.name}被壓制了・可以佔領`); }
@@ -369,7 +578,7 @@ export function updateConquest(dt) {
         if (n.owner === foeTeam(T)) { if (sg * n.prog >= 0) { n.owner = 'none'; note(`${n.name}被中立化`); } }   // 對方的：先讀回中立
         else if (sg * n.prog >= 1) {
           n.owner = T; startCollapse(n); note(`${TEAM_NAME[T]}佔領${n.name}・${HIVES[n.type].desc}`);
-          for (const e of S.aces[T]) if (e.alive && Math.hypot(e.x - n.x, e.z - n.z) <= CQ.nodeR + 1) S.stats[T][e.cq.k].cap++;
+          for (const e of S.aces[T]) if (e.alive && Math.hypot(e.x - n.x, e.z - n.z) <= CQ.nodeR + 1) { S.stats[T][e.cq.k].cap++; loStat(e).cap++; }
         }
       }
     } else if (!n.contested && w.blue === 0 && w.red === 0) {
@@ -412,6 +621,7 @@ export function updateConquest(dt) {
       } else if (q.hp < q.max) { q.hp = Math.min(q.max, q.hp + q.max * CQ.healK * dt); if (Math.random() < dt * 2) syncWear(e, k, 0, 0, true); }
     }
     for (const g of Object.values(e.guns)) if (g.max !== Infinity && g.ammo < g.max) g.ammo = Math.min(g.max, g.ammo + g.max * CQ.ammoK * dt);
+    if (e.device && DEVICES[e.device.id].charges) e.device.charges = DEVICES[e.device.id].charges;   // 裝置次數補滿
     if (fixed) repairFx(e, e.x, 0.9, e.z, 20, 0.4, 4);
   }
   // 重組
@@ -453,16 +663,17 @@ export function conquestDeath(e) {
     S.bar[T] = Math.min(1, S.bar[T] + CQ.campBar);
     by.cq.buff = { kind: C.kind, until: S.t + CQ.campBuffT };
     S.team[T].camps++;
-    if (by.cq.ace) S.stats[T][by.cq.k].camp++;
+    if (by.cq.ace) { S.stats[T][by.cq.k].camp++; loStat(by).camp++; }
     note(`${TEAM_NAME[T]}${by.cq.ace ? `的 ${by.cq.lo.name}` : '的雜魚'}清掉營地・${K.name} ${CQ.campBuffT} 秒・增援 +${Math.round(CQ.campBar * 100)}%`);
     return;
   }
+  if (by?.cq.ace && (e.grunt || e.team === 'native')) loStat(by)[e.grunt && e.team !== 'native' ? 'gk' : 'bk']++;
   if (e.grunt && e.cq?.team && by) { S.team[by.cq.team].grunts++; return; }
   if (!e.cq?.ace) return;
   const team = e.cq.team, k = e.cq.k;
   S.kills[foeTeam(team)]++;
-  S.stats[team][k].d++;
-  if (by?.cq.ace) S.stats[by.cq.team][by.cq.k].k++;
+  S.stats[team][k].d++; loStat(e).d++;
+  if (by?.cq.ace) { S.stats[by.cq.team][by.cq.k].k++; loStat(by).k++; }
   if (S.aces[team][k] !== e) return;
   const n = (S.deaths.get(`${team}${k}`) ?? 0) + 1;
   S.deaths.set(`${team}${k}`, n);

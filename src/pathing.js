@@ -121,6 +121,8 @@ export function routeDir(key, now, fx, fz, tx, tz) {
   }
   return F.dirAt(fx, fz);
 }
+// routeDir 算過的那份路線場：(x, z) 走到目標還要走幾格（沒有這份 / 走不到 = Infinity）
+export const routeDist = (key, x, z) => routes.get(key)?.distAt(x, z) ?? Infinity;
 export const flowDist = (x, z) => ground.distAt(x, z);
 export const flowDir = (x, z) => ground.dirAt(x, z);
 export const flyDist = (x, z) => { flyUsed = 2; return fly.distAt(x, z); };
