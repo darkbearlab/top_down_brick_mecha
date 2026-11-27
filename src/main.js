@@ -5,7 +5,7 @@ import { clearPressed, input, padUi, updateInput } from './input.js';
 import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayers, loadMap, mapId, randomOpenSpot, spreadPack, rayBlock, setLayer, tileC, tileR } from './arena.js';
 import { THEMES, rng } from './mapgen.js';
 import { TERRAINS, genStage, terrainOf } from './stagegen.js';
-import { bigArena } from './blockgen.js';
+import { bigArena, conquestArena } from './blockgen.js';
 import { clearConquest, conquestDeath, cqState, conquestHud, focusMech, postUpdate as cqPost, preUpdate as cqPre, setFocus, startConquest, teamList, updateConquest } from './conquest.js';
 import { expDiff, planSquads } from './explan.js';
 import { updateTacView } from './tacview.js';
@@ -191,10 +191,11 @@ function startBrainPack(fresh = false) {
   $('wBName').textContent = ace.preset.name;
   $('wBGuns').innerHTML = SLOTS.map(s => E.lo[s]).filter(Boolean).map(id => `<span class="wt" style="--c:${DMG_TYPES[WEAPONS[id].type].css}">${WEAPONS[id].name}</span>`).join('') + `<span class="wt" style="--c:#8a96a6">${LEGS[E.lo.legs].name}</span>`;
   $('wRName').textContent = pack.name;
+  document.querySelector('#watch .whint').textContent = 'Esc 暫停 / 下一場 / 回主選單';
   toast(`第 ${MODE.round} 場・雜魚 ${reds.length} 台`);   // 小隊名字在右下的面板
 }
 // 據點戰（src/conquest.js，docs/CONQUEST_PLAN.md）：3 對 3 主力機 + 三座蟲巢據點；第一版全 AI 觀戰
-const CQ_ARENA = bigArena(undefined, true);
+const CQ_ARENA = conquestArena();
 function startConquestMode(fresh = false) {
   resetWorld(CQ_ARENA);
   applyHeavy();
@@ -209,6 +210,8 @@ function startConquestMode(fresh = false) {
   setSensorsVisible(false);
   $('wBName').textContent = '藍隊'; $('wRName').textContent = '紅隊';
   G.noKillCam = true;
+  cqCam.free = false; cqCam.zoom = 1;
+  document.querySelector('#watch .whint').textContent = '拖曳 / WASD 移動鏡頭・滾輪縮放・1～6 跟隨機體・0 自由鏡頭・Esc 暫停';
   startConquest(SIDE_B.x, toast);
 }
 // 雜魚的派系色：裝甲混 78% 隊伍色、腳下一圈光環
@@ -1544,9 +1547,13 @@ function step(t) {
   // 觀戰：鏡頭看兩台的中間，離得越遠拉得越遠
   let fx = player.x, fz = player.z, restZ = REST_Z, distK = 1;   // restZ：畫面方向（往上）的偏移，觀戰 / 特寫不用
   if (watching && MODE.kind === 'conquest') {
-    const f = focusMech();
-    if (f) { fx = f.x; fz = f.z - 0.8; }
-    distK = 1.25; lx = lz = 0; restZ = 0;
+    // 據點戰：跟一台主力機（數字鍵 1～6），或自由鏡頭（拖曳 / WASD 移動、滾輪縮放；0 鍵或拖曳就切過去）
+    const C = cqCam, f = C.free ? null : focusMech();
+    if (C.free) {
+      if (Math.hypot(input.move.x, input.move.y) > 0.1) { C.x += input.move.x * 34 * C.zoom * raw; C.z += input.move.y * 34 * C.zoom * raw; }
+      fx = C.x; fz = C.z;
+    } else if (f) { fx = f.x; fz = f.z - 0.8; C.x = fx; C.z = fz; }
+    distK = 1.25 * C.zoom; lx = lz = 0; restZ = 0;
   } else if (watching) {
     const pool = enemies;
     const live = pool.filter(e => e.alive && !e.drop), all = live.length ? live : pool;
@@ -1634,9 +1641,29 @@ addEventListener('pointerdown', unlockAudio);
 // 面板上的按鈕可以用數字鍵選（1 = 第一個）
 addEventListener('keydown', e => { if (panelOpen() && !settingsOpen() && /^Digit[1-9]$/.test(e.code)) $('pButtons').children[+e.code.slice(5) - 1]?.click(); });
 addEventListener('keydown', unlockAudio);
-// 據點戰觀戰：數字鍵 1～6 切換鏡頭跟的機體（1～3 藍、4～6 紅）
-addEventListener('keydown', e => { if (MODE.name === 'watch' && MODE.kind === 'conquest' && !panelOpen() && /^Digit[1-6]$/.test(e.code)) setFocus(+e.code.slice(5) - 1); });
-window.__dbg = { get player() { return player; }, startConquestMode, get cq() { return cqState(); }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startBrainPack, startEndless, startRun, startStage, callReinforcements, warpOut, startBoss, useLink, switchLayer, props, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
+// 據點戰觀戰：數字鍵 1～6 跟一台機體（1～3 藍、4～6 紅）、0 自由鏡頭；左鍵拖曳移動鏡頭（變成自由鏡頭）、滾輪縮放
+const cqCam = { free: false, x: 0, z: 0, zoom: 1, drag: null };
+const cqOn = () => MODE.name === 'watch' && MODE.kind === 'conquest' && !panelOpen() && !G.paused;
+addEventListener('keydown', e => {
+  if (!cqOn()) return;
+  if (/^Digit[1-6]$/.test(e.code)) { setFocus(+e.code.slice(5) - 1); cqCam.free = false; }
+  else if (e.code === 'Digit0') cqCam.free = true;
+});
+const cqUi = e => e.target.closest?.('button, .wside, #panel, #menu');   // 觀戰畫面蓋在畫布上 → 監聽整個視窗，點在介面上的不算
+addEventListener('pointerdown', e => { if (cqOn() && e.button === 0 && !cqUi(e)) cqCam.drag = { x: e.clientX, y: e.clientY }; });
+addEventListener('pointermove', e => {
+  const D = cqCam.drag;
+  if (!D || !cqOn()) return;
+  const k = 2 * lastCd * Math.tan(camera.fov * Math.PI / 360) / innerHeight;   // 一個像素 ≈ 地面上多少格
+  const dx = e.clientX - D.x, dy = e.clientY - D.y;
+  if (!cqCam.free && Math.hypot(dx, dy) < 4) return;   // 小小的點一下不算拖曳
+  cqCam.free = true;
+  cqCam.x -= dx * k; cqCam.z -= dy * k / Math.sin(CAM_PITCH);
+  D.x = e.clientX; D.y = e.clientY;
+});
+addEventListener('pointerup', () => { cqCam.drag = null; });
+addEventListener('wheel', e => { if (cqOn() && !cqUi(e)) { cqCam.zoom = Math.max(0.5, Math.min(2.6, cqCam.zoom * Math.exp(e.deltaY * 0.0012))); e.preventDefault(); } }, { passive: false });
+window.__dbg = { get player() { return player; }, cqCam, startConquestMode, get cq() { return cqState(); }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startBrainPack, startEndless, startRun, startStage, callReinforcements, warpOut, startBoss, useLink, switchLayer, props, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
 showMenu();
 camTarget.set(player.x, 0, player.z);
 nextFrame(frame);

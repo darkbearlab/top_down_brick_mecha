@@ -116,9 +116,9 @@ function fire(m, slot, d, locks, aim, salvoN = d.salvo ?? 1) {
     const gun = m.guns[slot], st = mzStyle(d);
     if (gun && gun.fxT !== G.now) {
       gun.fxT = G.now;
-      muzzleFx(mz.x, mz.y, mz.z, f.x, f.z, st, d.kind === 'beam' ? DMG_TYPES.energy.hex : d.heavy ? 0xffc060 : enemy ? 0xff6040 : 0xffd070);
+      muzzleFx(mz.x, mz.y, mz.z, f.x, f.z, st, d.shotHex ?? (d.kind === 'beam' ? DMG_TYPES.energy.hex : d.heavy ? 0xffc060 : enemy ? 0xff6040 : 0xffd070));
     }
-    if (gun && st !== 'beam' && G.now - (gun.caseT ?? -9) >= CASE_GAP) {
+    if (gun && st !== 'beam' && !d.organic && G.now - (gun.caseT ?? -9) >= CASE_GAP) {
       gun.caseT = G.now;
       const back = st === 'cannon' ? 1 : st === 'sniper' ? 0.6 : 0.35;
       casing(mz.x - f.x * back, mz.y + 0.05, mz.z - f.z * back, f.x, f.z, st, slot.endsWith('L') ? -1 : 1, m.vx, m.vz);
@@ -162,7 +162,7 @@ function shotMesh(color, w, len) {
 }
 function spawnShot(m, d, x, y, z, dx, dz, speed) {
   const enemy = m.team !== 'player', beam = d.kind === 'beam';
-  const color = beam ? DMG_TYPES.energy.hex : enemy ? 0xff3a30 : d === WEAPONS.sniper ? 0xfff0c0 : 0xffd070;
+  const color = d.shotHex ?? (beam ? DMG_TYPES.energy.hex : enemy ? 0xff3a30 : d === WEAPONS.sniper ? 0xfff0c0 : 0xffd070);
   const len = beam ? 1.1 : d === WEAPONS.sniper ? 1.6 : (d.size ?? 0.1) * (enemy ? 2.5 : 6);
   const g = shotMesh(color, d.size ?? 0.1, len);
   g.position.set(x, y, z); g.rotation.y = Math.atan2(dx, dz);

@@ -7,6 +7,9 @@
 // 佔領：站在圈裡讀條（主力 1、雜魚 0.5，最快 ×1.5）；兩邊都有人 = 暫停；對方的據點要先讀回中立再讀成自己的
 // 勝負：持有的巢穴每秒得分（母巢 ×2），先到 600 分，或 12 分鐘到時分數高的贏
 // 主力機損毀 → 重組（4 秒 + 每多死一次 1 秒，最多 8），從大本營空降；不放擊墜特寫（G.noKillCam）
+// 大本營：要塞砲車（parts.js ELITES，遠征停用的據點防守機），耐久 ×2.5、綁在大本營 9 格內不追出去、不會重組；被打爆 = 直接敗北
+//   大本營 12 格內的己方機體（要塞自己除外）：部位每秒回 8%、壞掉的部位重新長回來（25%）、彈藥每秒回 6%
+// 主力機、要塞腳下有派系色的光環，裝甲混一點隊伍色
 // 落後方（分數差 60 以上）：重組、增援條 ×0.8 時間
 // AI：隊伍指揮每 2 秒替每台主力機挑一個巢穴（價值 ÷ 距離、分散、回防）；附近 24 格（雜魚 18 格）沒有看得到的敵人 → 照路線走去目標，有 → 照原本的戰術打
 import * as THREE from 'three';
@@ -14,7 +17,9 @@ import { G, addMat, scene } from './core.js';
 import { rayBlock, isSolid } from './arena.js';
 import { mechs } from './mech.js';
 import { DIFFS, enemies, spawnEnemy } from './ai.js';
-import { NEW_ACES, SQUADS, gruntOf } from './parts.js';
+import { ELITES, NEW_ACES, SQUADS, gruntOf } from './parts.js';
+import { syncWear } from './mech.js';
+import { repairFx } from './fx.js';
 import { packUnits } from './heavy.js';
 import { routeDir } from './pathing.js';
 import { CQ_NODES } from './blockgen.js';
@@ -24,6 +29,7 @@ export const CQ = {
   reinforceT: 90,   // 增援條：什麼巢都沒有 90 秒滿一次；每座增援巢 +1 倍速、母巢 +2
   respawn: 4, respawnAdd: 1, respawnMax: 8, behindGap: 60, behindK: 0.8,
   engageAce: 24, engageGrunt: 18, bugWake: 20, bugHold: 8,
+  fortHpK: 2.5, fortHold: 9, healR: 12, healK: 0.08, ammoK: 0.06,
   dropSquads: ['patrol', 'missile', 'breakers', 'gunline', 'hunters'],
 };
 // 巢穴種類：value = 隊伍指揮眼中的價值；guards = 守衛小隊
@@ -39,8 +45,8 @@ export const HIVES = {
 const LAYOUT = ['attack', 'speed', 'armor', 'reinforce', 'core', 'reinforce', 'armor', 'energy', 'attack'];
 const TEAMS = ['blue', 'red'];
 const COLORS = {
-  blue: { accent: 0x3a8cff, glow: 0x90c0ff },
-  red: { accent: 0xff5a30, glow: 0xffa080 },
+  blue: { accent: 0x3a8cff, glow: 0x90c0ff, tint: 0.45 },
+  red: { accent: 0xff5a30, glow: 0xffa080, tint: 0.45 },
   bluegrunt: { accent: 0x2a5ab8, glow: 0x50a8ff, tint: 0.78 },
   redgrunt: { accent: 0xa8321a, glow: 0xff5a30, tint: 0.78 },
   native: { accent: 0x5a4a2a, glow: 0xb8ff40, tint: 0.6 },
@@ -95,13 +101,21 @@ function spreadAt(x, z, taken, r0 = 1.5, r1 = 3.2) {
 export function startConquest(side, toast) {
   clearConquest();
   S = { t: 0, side, toast, score: { blue: 0, red: 0 }, drops: { blue: 0, red: 0 }, kills: { blue: 0, red: 0 }, bar: { blue: 0, red: 0 }, buffs: { blue: {}, red: {} },
-    result: null, cmdT: 0, focus: 0, aces: { blue: [], red: [] }, deaths: new Map(), respawns: [],
+    result: null, cmdT: 0, focus: 0, aces: { blue: [], red: [] }, forts: {}, deaths: new Map(), respawns: [],
     nodes: CQ_NODES.map((p, i) => ({ i, type: LAYOUT[i], name: HIVES[LAYOUT[i]].name, x: p.x, z: p.z, owner: 'native', prog: 0, guards: [], contested: false, capturing: null })) };
   for (const n of S.nodes) buildNode(n);
   const anchor = { x: 0, z: 0, alive: true, team: 'none' };
   for (const team of TEAMS) {
     const B = baseOf(team);
-    for (let k = 0; k < 3; k++) S.aces[team].push(spawnAce(team, pickAce(), { x: B.x, z: B.z + (k - 1) * 6 }, true));
+    for (let k = 0; k < 3; k++) S.aces[team].push(spawnAce(team, pickAce(), { x: B.x + (team === 'blue' ? 5 : -5), z: B.z + (k - 1) * 6 }, true));
+    // 大本營：要塞砲車
+    const F = spawnEnemy({ x: 0, z: 0, alive: true, team: 'none' }, { ...ELITES.find(E => E.name === '要塞砲車'), id: 'fortress' }, { x: B.x, z: B.z }, { team, colors: COLORS[team], diff: DIFFS.hard, noDrop: true });
+    for (const q of Object.values(F.parts)) { q.max *= CQ.fortHpK; q.hp = q.max; }
+    F.hold = { x: B.x, z: B.z, r: CQ.fortHold };
+    F.aimYaw = F.torsoYaw = F.legYaw = team === 'blue' ? Math.PI / 2 : -Math.PI / 2;
+    tagUnit(F, team, { fort: true });
+    addRing(F, team);
+    S.forts[team] = F;
   }
   // 蟲巢守衛
   for (const n of S.nodes) {
@@ -116,16 +130,24 @@ export function startConquest(side, toast) {
   toast('據點戰・壓制蟲巢、佔領後收割：每座巢穴有不同的全隊效果，持有越多得分越快・先到 600 分');
 }
 function tagUnit(e, team, extra) {
-  e.cq = { team, goal: null, base: { dmg: e.dmgMul ?? 1, vmax: e.spec.vmax, regen: e.spec.regen ?? 1 }, ...extra };
+  e.cq = { team, goal: null, base: { dmg: e.dmgMul ?? 1, vmax: e.spec.vmax, regen: e.spec.regen ?? 1 }, legHex: e.parts.legs?.mat?.color.getHex(), ...extra };
   return e;
 }
 function spawnAce(team, lo, at, noDrop = false) {
   const e = spawnEnemy({ x: 0, z: 0, alive: true, team: 'none' }, lo, at, { team, colors: COLORS[team], diff: DIFFS.hard, noDrop });
   tagUnit(e, team, { ace: true, lo });
+  addRing(e, team);
   e.aimYaw = e.torsoYaw = e.legYaw = team === 'blue' ? Math.PI / 2 : -Math.PI / 2;
   return e;
 }
 
+// 派系光環（雜魚 makeMech 自己有；主力機、要塞另外加，大一點）
+const ACE_RING = new THREE.RingGeometry(1.2, 1.5, 32);
+function addRing(e, team) {
+  const ring = new THREE.Mesh(ACE_RING, addMat(COLORS[team].glow, 0.6));
+  ring.rotation.x = -Math.PI / 2; ring.position.y = 0.04;
+  e.model.root.add(ring); e.model.teamRing = ring;
+}
 const hostile = (a, b) => b !== a && b.alive && !b.drop && b.team !== a.team && b.team !== 'none';
 function nearestHostile(e) {
   let best = null, bd = Infinity;
@@ -190,7 +212,7 @@ export function preUpdate(dt) {
 }
 // 每幀，updateEnemy 之後（driveMech 之前）：附近沒有看得到的敵人 → 照路線走去目標
 export function postUpdate(e) {
-  if (!S || !e.alive || !e.cq || e.team === 'native' || e.drop) return;
+  if (!S || !e.alive || !e.cq || e.team === 'native' || e.drop || e.cq.fort) return;
   const H = e.cq.near, R = e.grunt ? CQ.engageGrunt : CQ.engageAce;
   if (H && (H.d < 12 || (H.d < R && sees(e, H.o, H.d)))) return;
   const n = e.grunt ? (e.cq.goal ??= gruntGoal(e)) : e.cq.goal;
@@ -249,6 +271,22 @@ export function updateConquest(dt) {
     S.bar[t] = Math.min(1, S.bar[t] + dt * (1 + (S.buffs[t].reinforce ?? 0)) / (CQ.reinforceT * (behind(t) ? CQ.behindK : 1)));
     if (S.bar[t] >= 1 && dropSquad(t)) S.bar[t] = 0;
   }
+  // 大本營旁：修理、長回壞掉的部位、補彈藥
+  for (const e of enemies) {
+    if (!e.alive || !e.cq || e.cq.fort || e.team === 'native' || e.drop) continue;
+    const B = baseOf(e.team);
+    if (Math.hypot(e.x - B.x, e.z - B.z) > CQ.healR) continue;
+    let fixed = false;
+    for (const [k, q] of Object.entries(e.parts)) {
+      if (q.broken) {
+        q.broken = false; q.hp = q.max * 0.25; fixed = true;
+        if (k === 'legs') { if (e.cq.legHex != null) q.mat.color.setHex(e.cq.legHex); } else if (!e.bug) q.g.visible = true;
+        syncWear(e, k, 0, 0, true);
+      } else if (q.hp < q.max) { q.hp = Math.min(q.max, q.hp + q.max * CQ.healK * dt); if (Math.random() < dt * 2) syncWear(e, k, 0, 0, true); }
+    }
+    for (const g of Object.values(e.guns)) if (g.max !== Infinity && g.ammo < g.max) g.ammo = Math.min(g.max, g.ammo + g.max * CQ.ammoK * dt);
+    if (fixed) repairFx(e, e.x, 0.9, e.z, 20, 0.4, 4);
+  }
   // 重組
   for (let i = S.respawns.length - 1; i >= 0; i--) {
     const R = S.respawns[i];
@@ -257,6 +295,7 @@ export function updateConquest(dt) {
     const B = baseOf(R.team);
     S.aces[R.team][R.k] = spawnAce(R.team, R.lo, spreadAt(B.x, B.z, [], 0, 5));
   }
+  if (S.result) return S.result;   // 大本營被打爆（conquestDeath）
   for (const t of TEAMS) if (S.score[t] >= CQ.winScore) S.result = t;
   if (!S.result && S.t >= CQ.timeLimit) S.result = Math.abs(S.score.blue - S.score.red) < 1 ? 'draw' : S.score.blue > S.score.red ? 'blue' : 'red';
   return S.result;
@@ -275,7 +314,9 @@ function dropSquad(team) {
 }
 // 主力機損毀（main.js AI.onEnemyDeath）
 export function conquestDeath(e) {
-  if (!S || !e.cq?.ace) return;
+  if (!S) return;
+  if (e.cq?.fort && !S.result) { S.result = foeTeam(e.cq.team); S.baseKill = true; S.toast(`${e.cq.team === 'blue' ? '藍隊' : '紅隊'}的大本營被摧毀`); return; }
+  if (!e.cq?.ace) return;
   const team = e.cq.team, k = S.aces[team].indexOf(e);
   S.kills[foeTeam(team)]++;
   if (k < 0) return;
@@ -304,5 +345,5 @@ export function teamList(team) {
   return S.aces[team].map((e, k) => {
     const R = S.respawns.find(r => r.team === team && r.k === k);
     return `<span class="wt" style="--c:${CSS[team]}${e.alive ? '' : ';opacity:.45'}">${e.cq.lo.name}${R ? ` 重組 ${Math.ceil(R.t)}s` : ''}</span>`;
-  }).join('') + `<span class="wt" style="--c:#8a96a6">增援 ${Math.round(S.bar[team] * 100)}%・雜魚 ${enemies.filter(e => e.alive && e.grunt && e.team === team).length}</span>` + (buff ? `<span class="wt" style="--c:#c8d070">${buff}</span>` : '');
+  }).join('') + (S.forts[team] ? `<span class="wt" style="--c:${CSS[team]}">大本營 ${S.forts[team].alive ? Math.round(S.forts[team].parts.torso.hp / S.forts[team].parts.torso.max * 100) : 0}%</span>` : '') + `<span class="wt" style="--c:#8a96a6">增援 ${Math.round(S.bar[team] * 100)}%・雜魚 ${enemies.filter(e => e.alive && e.grunt && e.team === team).length}</span>` + (buff ? `<span class="wt" style="--c:#c8d070">${buff}</span>` : '');
 }

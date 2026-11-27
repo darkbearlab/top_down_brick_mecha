@@ -82,6 +82,7 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   if (AI_TUNE.discipline && !opts.grunt && e.ai.want === 3 && has('shotgun') && !has('saber') && !has('pile') && !has('flamer') && ['backL', 'backR'].some(s => ['rocket', 'missile', 'split', 'vmissile', 'cannon'].includes(P[s]))) e.ai.want = 8;
   if (AI_TUNE.wantK !== 1 && e.ai.want >= 6) e.ai.want *= AI_TUNE.wantK;
   if (AI_TUNE.indirectWant && Object.values(e.guns).some(g => g.def.indirect)) e.ai.want = AI_TUNE.indirectWant;
+  if (P.want) e.ai.want = P.want;   // 定義裡指定的理想距離（射擊型蟲子）
   if (P.scout) e.ai.want = 16;   // 偵察無人機：站遠看著（迫擊砲的觀測者）
   // noDrop：直接站在地上（遠征模式的遭遇小隊），不然從天上降落
   if (opts.noDrop) { e.drive = { mx: 0, mz: 0 }; e.aimYaw = e.torsoYaw; }

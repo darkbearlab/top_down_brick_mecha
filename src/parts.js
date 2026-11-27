@@ -144,6 +144,10 @@ low('flamer', '小火焰噴射器', { dmg: 2, range: 5.6, arc: 0.4, burn: 0.26, 
 low('napalm', '燒夷砲', { dmg: 16, zone: 2.2, zoneT: 4.5, burn: 1.2, interval: 2.3, range: 17, ammo: 14 });
 // 酸液囊（投擲蟲）：燒夷彈的邏輯，落地濺酸 + 一灘腐蝕的酸（status: 'corrode'）；彈藥很多（蟲子自己會產酸）
 WEAPONS.acid_l = { ...WEAPONS.napalm, name: '酸液囊', low: true, dmg: 14, splash: 1.5, zone: 2.1, zoneT: 4.5, burn: 1.1, interval: 1.9, range: 17, ammo: 60, status: 'corrode', model: [], size: 0.24 };
+// 蟲族的射擊器官（2026-11-27，射擊型蟲子用；整備裡沒有）：organic = 不退彈殼、子彈 / 槍口火焰用 shotHex 的顏色；ammo 0 = 打不完（蟲子自己長）
+WEAPONS.spine_l = { ...WEAPONS.mg_l, name: '棘刺', organic: true, shotHex: 0xc8ff60, ammo: 0, model: [] };
+WEAPONS.acidgun_l = { ...WEAPONS.autocannon_l, name: '酸砲', type: 'chemical', organic: true, shotHex: 0x90ff30, ammo: 0, size: 0.15, dmg: 10, model: [] };
+WEAPONS.boneneedle_l = { ...WEAPONS.sniper_l, name: '骨針', organic: true, shotHex: 0xf0f0d0, ammo: 0, trail: true, model: [] };
 // 榴彈砲（菁英專用，整備裡沒有）：燒夷彈的拋射，但飛得慢（lobT 秒）、地上先出現落點警示圈、落地只爆炸不留火海
 WEAPONS.howitzer = { name: '榴彈砲', type: 'chemical', mount: 'back', weight: 7, kind: 'napalm', low: true, interval: 2.4, ammo: 40, dmg: 40, splash: 2.0, range: 20, zone: 0, lobT: 1.05, mark: true, size: 0.2,
   model: [[-2, -2, -3, 5, 5, 6, 'f'], [-1, -1, 3, 3, 3, 8, 'f'], [-2, -2, 9, 1, 5, 2, 'w'], [2, -2, 9, 1, 5, 2, 'w'], [-1, -2, 9, 3, 1, 2, 'w'], [-1, 2, 9, 3, 1, 2, 'w'], [-2, 3, -2, 5, 1, 3, 'w']], muzzle: [0.5, 0.5, 11] };
@@ -227,6 +231,11 @@ export const GRUNTS_LOW = {
     melee: { dmg: 13, cd: 0.75, reach: 0.7, kb: 0.4, corrode: 0.4 } },
   ram: { name: '衝鋒蟲', faction: 'bug', head: 'dome', core: 'std', legs: 'reverse', armL: null, armR: null, backL: null, backR: null, hp: 140, bug: 'charger', charger: true, shell: 130, entries: ['stand'] },
   spitter: { name: '投擲蟲', faction: 'bug', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: null, backL: 'acid_l', backR: null, hp: 75, bug: 'spitter', entries: ['stand'] },
+  // 射擊型蟲子（2026-11-27，取代戰士蟲 / 衝鋒蟲 / 蟲群：近戰的被守備範圍綁住、只能單方面挨打）：want = 理想交戰距離
+  //   針刺蟲：從頭部噴一串棘刺（輕機槍）；酸砲蟲：大隻、正面甲殼、嘴裡吐酸彈（輕機砲，化學）；骨針蟲：尾巴翹過頭頂，遠距離射骨針（步槍）
+  needler: { name: '針刺蟲', faction: 'bug', head: 'std', core: 'light', legs: 'reverse', armL: null, armR: 'spine_l', backL: null, backR: null, hp: 85, bug: 'needler', want: 9, entries: ['stand'] },
+  gunner: { name: '酸砲蟲', faction: 'bug', head: 'dome', core: 'std', legs: 'reverse', armL: null, armR: 'acidgun_l', backL: null, backR: null, hp: 130, bug: 'gunner', shell: 110, want: 10, speedMul: 0.85, entries: ['stand'] },
+  lancer: { name: '骨針蟲', faction: 'bug', head: 'hunter', core: 'light', legs: 'reverse', armL: null, armR: 'boneneedle_l', backL: null, backR: null, hp: 70, bug: 'lancer', want: 14, entries: ['stand'] },
   // 噴火兵：貼近用火焰噴射器燒；燒夷兵：遠遠丟燒夷彈封路（縱火隊）
   pyro: { name: '噴火兵', faction: 'base', head: 'std', core: 'light', legs: 'biped', armL: null, armR: 'flamer_l', backL: null, backR: null, hp: 90 },
   igniter: { name: '燒夷兵', faction: 'base', head: 'dome', core: 'std', legs: 'reverse', armL: null, armR: 'mg_l', backL: 'napalm_l', backR: null, hp: 85 },
@@ -258,7 +267,7 @@ export const pickEntry = (k, allowed) => allowed.find(h => canEnter(k, h)) ?? nu
 // 出場比例：步兵最多，砲車 / 狙擊兵少
 export const GRUNT_WEIGHT = { rifle: 5, rocket: 3, heavy: 2, gun: 1.2, sniper: 1.2, blade: 2,
   turret: 0, scout: 5, trooper: 3, launcher: 2.5, brawler: 2, stick: 1.8, marksman: 1.2, mortar: 1, bazooka: 1.5,
-  bomber: 0, charger: 0, gunship: 0, swarm: 0, shielder: 0, pyro: 0, igniter: 0, warrior: 0, ram: 0, spitter: 0 };   // 新的特殊雜魚只在遠征的小隊裡出現
+  bomber: 0, charger: 0, gunship: 0, swarm: 0, shielder: 0, pyro: 0, igniter: 0, warrior: 0, ram: 0, spitter: 0, needler: 0, gunner: 0, lancer: 0 };   // 新的特殊雜魚只在遠征的小隊裡出現
 export function randomGrunt(pool = GRUNTS) {
   const keys = Object.keys(pool);
   let r = Math.random() * keys.reduce((a, k) => a + GRUNT_WEIGHT[k], 0);
@@ -297,9 +306,9 @@ export const SQUADS = {
   breakers: { name: '衝鋒隊', faction: 'base', units: ['charger', 'trooper', 'trooper'], themes: { open: 2, plaza: 2, chasm: 3, ruins: 1 }, minDepth: 1 },
   gunships: { name: '旋停機隊', faction: 'base', units: ['gunship', 'gunship', 'marksman'], themes: { chasm: 4, open: 1, plaza: 1 }, minDepth: 1 },
   arson: { name: '縱火隊', faction: 'base', units: ['pyro', 'pyro', 'igniter'], themes: { ruins: 2, city: 2, plaza: 1 }, minDepth: 1 },
-  hive: { name: '蟲巢守衛', faction: 'bug', units: ['warrior', 'warrior', 'spitter'], themes: { ruins: 2, chasm: 2, city: 1 }, minDepth: 1 },
-  stampede: { name: '衝鋒蟲群', faction: 'bug', units: ['ram', 'warrior', 'spitter'], themes: { ruins: 1, chasm: 2, open: 2 }, minDepth: 2 },
-  swarm: { name: '蟲群', faction: 'bug', units: ['swarm', 'swarm', 'warrior'], themes: { ruins: 2, city: 1, chasm: 2 }, minDepth: 2 },
+  hive: { name: '蟲巢守衛', faction: 'bug', units: ['needler', 'needler', 'spitter'], themes: { ruins: 2, chasm: 2, city: 1 }, minDepth: 1 },
+  stampede: { name: '酸砲蟲群', faction: 'bug', units: ['gunner', 'needler', 'spitter'], themes: { ruins: 1, chasm: 2, open: 2 }, minDepth: 2 },
+  swarm: { name: '骨針蟲群', faction: 'bug', units: ['lancer', 'needler', 'lancer'], themes: { ruins: 2, city: 1, chasm: 2 }, minDepth: 2 },
   elite: { name: '精英小隊', faction: 'base', units: ['rocket*', 'blade*', 'rifle*'], themes: { city: 1, open: 1, ruins: 1, plaza: 1 }, minDepth: 3 },
 };
 // terrain：這張地圖的地形（stagegen.js），只挑主題合得來的小隊（factionFits）

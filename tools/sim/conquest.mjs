@@ -14,11 +14,11 @@ const { updateStatus } = await import('../../src/status.js');
 const { clearWrecks, updateWrecks } = await import('../../src/wreck.js');
 const { updateParticles } = await import('../../src/fx.js');
 const { applyHeavy } = await import('../../src/heavy.js');
-const { bigArena } = await import('../../src/blockgen.js');
+const { conquestArena } = await import('../../src/blockgen.js');
 const C = await import('../../src/conquest.js');
 
 const mulberry = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
-const map = bigArena(undefined, true);
+const map = conquestArena();
 loadMap(map); setLayout(map.buildings);
 applyHeavy();
 AI.onEnemyDeath = e => C.conquestDeath(e);
