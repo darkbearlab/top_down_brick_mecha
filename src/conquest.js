@@ -23,7 +23,7 @@ import { H as MAP_H, W as MAP_W, grid, isSolid, rayBlock } from './arena.js';
 import { mechs, syncWear } from './mech.js';
 import { DIFFS, enemies, spawnEnemy } from './ai.js';
 import { EFFECT, ELITES, ENEMY_PRESETS, NEW_ACES, SQUADS, WEAPONS, gruntOf } from './parts.js';
-import { repairFx } from './fx.js';
+import { burst, repairFx, spawnPuff } from './fx.js';
 import { packUnits } from './heavy.js';
 import { routeDir } from './pathing.js';
 import { CQ_CAMPS, CQ_NODES } from './blockgen.js';
@@ -72,18 +72,39 @@ const CAMP_RING = new THREE.RingGeometry(2.6, 2.85, 32);
 function buildNode(n) {
   const g = new THREE.Group(), big = n.type === 'core' ? 1.4 : 1;
   const dirt = new THREE.MeshLambertMaterial({ color: 0x4a3a2a }), sac = addMat(HIVES[n.type].sac, 0.9);
+  const mounds = [], sacs = [];
   for (const [x, z, w, h, d] of [[0, 0, 2.2, 0.9, 2.2], [0.3, -0.2, 1.4, 1.5, 1.3], [-0.5, 0.6, 1, 0.7, 1], [0.9, 0.8, 0.8, 0.5, 0.9], [-0.8, -0.7, 0.9, 0.6, 0.8]]) {
-    const m = new THREE.Mesh(MOUND, dirt); m.scale.set(w * big, h * big, d * big); m.position.set(x * big, h * big / 2, z * big); g.add(m);
+    const m = new THREE.Mesh(MOUND, dirt); m.scale.set(w * big, h * big, d * big); m.position.set(x * big, h * big / 2, z * big); g.add(m); mounds.push(m);
   }
   for (const [x, y, z] of [[0.6, 1.1, 0.3], [-0.3, 1.4, -0.4], [-0.7, 0.75, 0.6], [1.1, 0.55, 1]]) {
-    const m = new THREE.Mesh(MOUND, sac); m.scale.setScalar(0.32 * big); m.position.set(x * big, y * big, z * big); g.add(m);
+    const m = new THREE.Mesh(MOUND, sac); m.scale.setScalar(0.32 * big); m.position.set(x * big, y * big, z * big); g.add(m); sacs.push(m);
   }
   n.sacMat = sac;
   const ring = new THREE.Mesh(RING, addMat(HEX.native, 0.75)); ring.rotation.x = -Math.PI / 2; ring.position.y = 0.05; g.add(ring);
   const disc = new THREE.Mesh(DISC, addMat(HEX.blue, 0.22)); disc.rotation.x = -Math.PI / 2; disc.position.y = 0.04; disc.scale.setScalar(0.001); g.add(disc);
   g.position.set(n.x, 0, n.z);
   scene.add(g);
-  Object.assign(n, { g, ring, disc });
+  Object.assign(n, { g, ring, disc, big, collapse: null });
+  for (const m of [...mounds, ...sacs]) m.userData.h0 = { y: m.position.y, sy: m.scale.y, sx: m.scale.x };
+  n.mounds = mounds; n.sacs = sacs;
+}
+// 第一次被佔領：巢體塌掉（土丘壓扁、卵囊掉到地上），免得看起來像能躲的掩體（本來就不擋子彈）
+function startCollapse(n) {
+  if (n.collapse) return;
+  n.collapse = { t: 0 };
+  const b = n.big;
+  burst(n.x, 0.8 * b, n.z, [0x4a3a2a, 0x6a5440, 0x2e241a], 26, 5);
+  burst(n.x, 1 * b, n.z, [HIVES[n.type].sac, 0x40301a], 10, 4);
+  for (let i = 0; i < 10; i++) { const a = Math.random() * Math.PI * 2, r = Math.random() * 1.6 * b;
+    spawnPuff({ x: n.x + Math.cos(a) * r, y: 0.3, z: n.z + Math.sin(a) * r, vx: Math.cos(a) * 1.2, vy: 0.6 + Math.random() * 0.6, vz: Math.sin(a) * 1.2, life: 1 + Math.random() * 0.8, s: 0.5 + Math.random() * 0.4, c0: 0x6a5a48, c1: 0x3a3028, drag: 2 }); }
+}
+function animCollapse(n, dt) {
+  const C = n.collapse;
+  if (!C || C.t >= 1) return;
+  C.t = Math.min(1, C.t + dt / 0.9);
+  const k = C.t * C.t;   // 越塌越快
+  for (const m of n.mounds) { const h = m.userData.h0, sy = h.sy * (1 - 0.85 * k); m.scale.y = sy; m.scale.x = m.scale.z = h.sx * (1 + 0.25 * k); m.position.y = sy / 2; }
+  for (const m of n.sacs) { const h = m.userData.h0; m.position.y = h.y + (0.12 - h.y) * k; m.scale.y = h.sy * (1 - 0.5 * k); }
 }
 // 營地：地上一圈（顏色 = 效果種類；蟲還沒長出來時變暗）
 function buildCamp(c) {
@@ -93,6 +114,7 @@ function buildCamp(c) {
   c.g = ring;
 }
 export function clearConquest() {
+  G.noCrashDmg = false;
   if (!S) return;
   for (const n of S.nodes) scene.remove(n.g);
   for (const c of S.camps) scene.remove(c.g);
@@ -137,6 +159,7 @@ const faceCenter = (e, team) => { const B = baseOf(team); e.aimYaw = e.torsoYaw 
 // map：conquestArena 的地圖（bases = [藍, 紅]）；toast：main.js 的提示
 export function startConquest(map, toast) {
   clearConquest();
+  G.noCrashDmg = true;   // 這個模式：撞地形、撞隊友不扣血（撞敵人照舊，mech.js）
   const stat = () => ({ k: 0, d: 0, cap: 0, camp: 0 });
   S = { t: 0, toast, bases: { blue: map.bases[0], red: map.bases[1] },
     score: { blue: 0, red: 0 }, drops: { blue: 0, red: 0 }, kills: { blue: 0, red: 0 }, bar: { blue: 0, red: 0 }, buffs: { blue: {}, red: {} },
@@ -345,7 +368,7 @@ export function updateConquest(dt) {
         n.prog = Math.max(-1, Math.min(1, n.prog + sg * k * dt / CQ.capT));
         if (n.owner === foeTeam(T)) { if (sg * n.prog >= 0) { n.owner = 'none'; note(`${n.name}被中立化`); } }   // 對方的：先讀回中立
         else if (sg * n.prog >= 1) {
-          n.owner = T; note(`${TEAM_NAME[T]}佔領${n.name}・${HIVES[n.type].desc}`);
+          n.owner = T; startCollapse(n); note(`${TEAM_NAME[T]}佔領${n.name}・${HIVES[n.type].desc}`);
           for (const e of S.aces[T]) if (e.alive && Math.hypot(e.x - n.x, e.z - n.z) <= CQ.nodeR + 1) S.stats[T][e.cq.k].cap++;
         }
       }
@@ -365,6 +388,7 @@ export function updateConquest(dt) {
     n.ring.material.opacity = n.contested ? 0.4 + 0.4 * Math.abs(Math.sin(G.now * 8)) : 0.75;
     n.disc.scale.setScalar(Math.max(0.001, Math.abs(n.prog)));
     n.disc.material.color.setHex(n.prog >= 0 ? HEX.blue : HEX.red);
+    animCollapse(n, dt);
     n.sacMat.opacity = n.owner === 'native' ? 0.6 + 0.3 * Math.sin(G.now * 3 + n.i) : owned(n) ? 0.95 : 0.35;
   }
   // 營地重生

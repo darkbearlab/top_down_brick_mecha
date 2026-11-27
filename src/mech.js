@@ -300,7 +300,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
     m.charge = null;
     // 拿騎槍的那隻手扛下撞擊（那隻手已經沒了就算軀幹）
     log('charge', { m: m.id, phase: 'wall', dmg: Math.round(dmg) });
-    att(m, 'lance', () => hitMech(m, dmg, hit.nx, hit.nz, 0, 'kinetic', m.parts[C2.slot] && !m.parts[C2.slot].broken ? C2.slot : 'torso', dmg));
+    if (!G.noCrashDmg) att(m, 'lance', () => hitMech(m, dmg, hit.nx, hit.nz, 0, 'kinetic', m.parts[C2.slot] && !m.parts[C2.slot].broken ? C2.slot : 'torso', dmg));
     damageBuilding(m.x - hit.nx * (m.r + 0.05), 1, m.z - hit.nz * (m.r + 0.05), dmg * 1.5, -hit.nx, -hit.nz);
     hitSparks(m.x - hit.nx * m.r, 1, m.z - hit.nz * m.r, hit.nx, hit.nz, 2.4);
     burst(m.x - hit.nx * m.r, 0.8, m.z - hit.nz * m.r, [0x7a8090, 0x4a505c], 6, 3.5);
@@ -373,7 +373,7 @@ function skidDust(m) {
 
 function crash(m, over, nx, nz) {
   const dmg = over * 6;
-  att(null, 'crash', () => { damagePart(m, 'legs', dmg * 0.6, nx, nz); if (m.alive) damagePart(m, 'torso', dmg * 0.4, nx, nz); });
+  if (!G.noCrashDmg) att(null, 'crash', () => { damagePart(m, 'legs', dmg * 0.6, nx, nz); if (m.alive) damagePart(m, 'torso', dmg * 0.4, nx, nz); });
   hitSparks(m.x - nx * m.r, 1, m.z - nz * m.r, nx, nz, 1.2 + over * 0.15);
   damageBuilding(m.x - nx * (m.r + 0.05), 1, m.z - nz * (m.r + 0.05), over * 30, -nx, -nz);   // 衝撞建築：撞得夠快會撞垮
   burst(m.x - nx * m.r, 0.8, m.z - nz * m.r, [0x7a8090, 0x4a505c], 4, 3);
@@ -771,6 +771,7 @@ export function collideMechs() {
     if (a.grunt && b.grunt && a.team === b.team) continue;
     if (rel > STICK_SPEED) { stick(a, rel * ka * 2, -nx, -nz); stick(b, rel * kb * 2, nx, nz); }
     if (rel > 5) {
+      if (G.noCrashDmg && a.team === b.team) continue;   // 據點戰：撞隊友只推開、不扣血
       const dmg = (rel - 5) * 9;
       // 衝角推進：主動撞過去的那台（沿撞擊方向在動）自己受傷 −70%、對方 ×2.5 並失衡
       const ramA = hasChip(a, 'ram') && a.vx * nx + a.vz * nz > 2, ramB = hasChip(b, 'ram') && -(b.vx * nx + b.vz * nz) > 2;
