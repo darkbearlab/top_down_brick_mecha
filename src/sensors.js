@@ -63,7 +63,7 @@ function markFor(t) {
 
 export function setSensorsVisible(v) { fanG.visible = v; for (const [, m] of lockMarks) m.g.visible = v; }
 
-// 頭部受損 → 鎖定跟著衰退：
+// 頭部受損 → 鎖定跟著衰退（BAL.headLockDmg；2026-11-27 起關掉，下面這段只在打開時用）：
 //   健康度 k = hp / max；鎖定時間 ×(1 + 1.2(1-k))、鎖定距離 ×(1 - 0.5(1-k))
 //   半血：鎖定 ×1.6 慢、距離 ×0.75；剩兩成：×1.96、×0.6；1/4 以下只能鎖 1 台、長距鎖定頭不能再隔牆鎖
 //   打掉：距離 ×0.45、時間 ×2.2、1 台、沒有敵情
@@ -71,6 +71,8 @@ export function setSensorsVisible(v) { fanG.visible = v; for (const [, m] of loc
 const headCache = new WeakMap(), brokenCache = new WeakMap();
 export function headStats(p) {
   const H = p.spec.head, hp = p.parts.head;
+  // BAL.headLockDmg 關掉：頭受損 / 打掉都不影響鎖定（距離、時間、台數、隔牆）；打掉照樣沒有敵情
+  if (!BAL.headLockDmg) { if (!hp.broken) return H; let b = brokenCache.get(p); if (!b || b.H !== H) brokenCache.set(p, b = { ...H, intel: false, health: 0, broken: true, H }); return b; }
   if (hp.broken) {
     let b = brokenCache.get(H);
     if (!b || b.srcRange !== H.lockRange) brokenCache.set(H, b = { ...H, lockTime: H.lockTime * 2.2, lockRange: H.lockRange * 0.45, lockCount: 1, radarLock: false, intel: false, health: 0, broken: true, srcRange: H.lockRange });   // srcRange：重火力測試會改鎖定距離，改了就重算

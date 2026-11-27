@@ -162,6 +162,7 @@ for (const k in WEAPONS) WEAPONS[k].id = k;
 //   relock：飛彈逐發鎖定：'off' 鎖上了就一直打；'during'（2026-11-26 起預設）每次發射清掉鎖定、冷卻中可以重新鎖；'after' 清掉、而且冷卻結束才開始重新鎖
 //   relock 'heat'（FCS 提案）：射一輪鎖定進度扣 lockHeat（不是清掉），留在扇形裡會自己補回
 //   fcsPassive：頭部隨時在追蹤（不用先架起飛彈）；lockHold：鎖上的目標躲到牆後 / 離開扇形，鎖定保留幾秒
+//   headLockDmg：頭受損會不會讓鎖定變差（sensors.js headStats）；2026-11-27 起 false = 不影響（模擬：頭部每場只吃 35～60，很少打壞，差別約一成飛彈傷害）；頭打掉照樣散布 ×2.5、轉向 ×0.7、沒有敵情
 //   fcsAI：上面這些 FCS 改動電腦用不用：false 只有玩家、'ace' 玩家 + 王牌級（不是雜魚：觀戰王牌、遠征頭目）、true 全部；
 //     武器的 playerSalvo：用新火控的機體射的時候一次幾發（fcsOn）
 //   missilePerLock：直射飛彈一次射的發數 = 每個鎖定目標 salvo 發（鎖 2 台射 4 發）；missileTurnK：直射飛彈離目標 8 格內的轉向倍率
@@ -172,7 +173,7 @@ for (const k in WEAPONS) WEAPONS[k].id = k;
 // lobHitsBuildings：拋射彈（燒夷 / 酸液 / 榴彈 / 迫擊砲）和垂直飛彈飛得比建築低就撞上那棟，不再穿過去
 // bldByWeapon：武器打建築的倍率照類型（小口徑 ×0.25、機砲 ×0.6、能量 ×0.5、高爆爆風 ×1.5、打樁 ×2；REALISM_REPORT H2）
 export const fcsOn = m => !!m && (m.team === 'player' || BAL.fcsAI === true || (BAL.fcsAI === 'ace' && !m.grunt));
-export const BAL = { fcsAI: false, fcsPassive: false, lockHold: 0, lockHeat: 0.4, missilePerLock: false, missileTurnK: 1, bldByWeapon: true, lobHitsBuildings: true, massMove: true, massImpulse: true, hullFacing: true, wallLockK: 2, relock: 'during', staggerAccum: false, staggerDecay: 0.6, missileK: 0.8, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4, clearAheadK: 1, lanceWallK: 1 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
+export const BAL = { headLockDmg: false, fcsAI: false, fcsPassive: false, lockHold: 0, lockHeat: 0.4, missilePerLock: false, missileTurnK: 1, bldByWeapon: true, lobHitsBuildings: true, massMove: true, massImpulse: true, hullFacing: true, wallLockK: 2, relock: 'during', staggerAccum: false, staggerDecay: 0.6, missileK: 0.8, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4, clearAheadK: 1, lanceWallK: 1 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
 export const HP_MUL = 1.35;
 
 // ---------- 敵人的主題（派系） ----------
