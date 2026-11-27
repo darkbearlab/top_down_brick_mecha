@@ -31,7 +31,7 @@ for (let i = 0; i < N; i++) {
   G.now = 0; G.paused = false; G.slowMo = 0; G.hitStop = 0;
   AI.passive = false; AI.sandbox = false; AI.diff = DIFFS.hard;
   const log = [];
-  C.startConquest(map.side, msg => log.push(msg));
+  C.startConquest(map, msg => log.push(msg));
   const S = C.cqState();
   let flips = 0, last = S.nodes.map(n => n.owner), firstCap = null, lead = { blue: 0, red: 0 };
   while (!S.result) {
@@ -51,9 +51,9 @@ for (let i = 0; i < N; i++) {
     S.nodes.forEach((n, j) => { if (n.owner !== last[j]) { if (last[j] === 'blue' || last[j] === 'red') flips++; if (!firstCap && (n.owner === 'blue' || n.owner === 'red')) firstCap = Math.round(S.t); last[j] = n.owner; } });
     if (S.score.blue > S.score.red + 1) lead.blue += DT; else if (S.score.red > S.score.blue + 1) lead.red += DT;
   }
-  const r = { result: S.result, t: Math.round(S.t), score: [Math.floor(S.score.blue), Math.floor(S.score.red)], kills: [S.kills.blue, S.kills.red], drops: [S.drops.blue, S.drops.red], flips, firstCap, lead: [Math.round(lead.blue), Math.round(lead.red)] };
+  const r = { campBuffs: S.team.blue.camps + S.team.red.camps, result: S.result, t: Math.round(S.t), score: [Math.floor(S.score.blue), Math.floor(S.score.red)], kills: [S.kills.blue, S.kills.red], drops: [S.drops.blue, S.drops.red], flips, firstCap, lead: [Math.round(lead.blue), Math.round(lead.red)] };
   res.push(r);
-  console.log(`第 ${i + 1} 場 ${r.result === 'draw' ? '平手' : r.result === 'blue' ? '藍勝' : '紅勝'}  ${Math.floor(r.t / 60)}:${String(r.t % 60).padStart(2, '0')}  分數 ${r.score.join(':')}  擊墜 ${r.kills.join(':')}  空投 ${r.drops.join(':')}  據點換手 ${r.flips}  首次佔領 ${r.firstCap}s  領先秒數 ${r.lead.join(':')}`);
+  console.log(`第 ${i + 1} 場 ${r.result === 'draw' ? '平手' : r.result === 'blue' ? '藍勝' : '紅勝'}  ${Math.floor(r.t / 60)}:${String(r.t % 60).padStart(2, '0')}  分數 ${r.score.join(':')}  擊墜 ${r.kills.join(':')}  空投 ${r.drops.join(':')}  營地 ${r.campBuffs}  據點換手 ${r.flips}  首次佔領 ${r.firstCap}s  領先秒數 ${r.lead.join(':')}`);
   if (!args.quiet) console.log('   ', log.slice(0, 14).join(' / '));
 }
 const avg = f => (res.reduce((a, r) => a + f(r), 0) / res.length).toFixed(1);

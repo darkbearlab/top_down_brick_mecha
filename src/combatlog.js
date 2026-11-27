@@ -11,15 +11,20 @@
 //   charge   騎槍：m, phase（ignite / dash / hit / wall）
 //   intent   AI 自己寫的意圖（brain 用 note(m, text)）：m, text
 // 攻擊者：打傷害之前用 att(攻擊者, 武器 id, () => …) 包起來，裡面的 hitMech / damagePart 都記到它頭上
-export const CL = { on: false, t: 0, events: [], src: null };
+export const CL = { on: false, t: 0, events: [], src: null, who: null };
 export function logStart() { CL.on = true; CL.t = 0; CL.events = []; CL.src = null; }
 export function logStop() { CL.on = false; return CL.events; }
 export function log(type, o) { if (CL.on) CL.events.push({ t: Math.round(CL.t * 1000) / 1000, type, ...o }); }
+// CL.who：現在是誰在打（紀錄關著也記；mech.js hitMech 寫進 m.lastHitBy → 據點戰的野怪獎勵給最後一擊的人）
 export function att(owner, w, fn) {
-  if (!CL.on) return fn();
-  const prev = CL.src;
-  CL.src = { id: owner?.id ?? null, w };
-  try { return fn(); } finally { CL.src = prev; }
+  const pw = CL.who;
+  CL.who = owner;
+  try {
+    if (!CL.on) return fn();
+    const prev = CL.src;
+    CL.src = { id: owner?.id ?? null, w };
+    try { return fn(); } finally { CL.src = prev; }
+  } finally { CL.who = pw; }
 }
 export const srcOf = () => CL.src ? { src: CL.src.id, w: CL.src.w } : {};
 export function note(m, text) { if (CL.on && m.lastNote !== text) { m.lastNote = text; log('intent', { m: m.id, text }); } }

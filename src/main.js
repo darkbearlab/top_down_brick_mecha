@@ -6,7 +6,7 @@ import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayer
 import { THEMES, rng } from './mapgen.js';
 import { TERRAINS, genStage, terrainOf } from './stagegen.js';
 import { bigArena, conquestArena } from './blockgen.js';
-import { clearConquest, conquestDeath, cqState, conquestHud, focusMech, postUpdate as cqPost, preUpdate as cqPre, setFocus, startConquest, teamList, updateConquest } from './conquest.js';
+import { clearConquest, conquestDeath, cqState, drawOverview, overviewStats, conquestHud, focusMech, postUpdate as cqPost, preUpdate as cqPre, setFocus, startConquest, teamList, updateConquest } from './conquest.js';
 import { expDiff, planSquads } from './explan.js';
 import { updateTacView } from './tacview.js';
 import { HEAVY, applyHeavy, clearHeavy, packUnits } from './heavy.js';
@@ -83,7 +83,7 @@ function fxHide(id, now = false) {
 const ARENA = arenaMap();
 function resetWorld(map = null) {
   clearEnemies();
-  clearConquest(); G.noKillCam = false;
+  clearConquest(); G.noKillCam = false; $('cqOver').classList.add('hidden');
   clearHeavy();   // 重火力測試的數值覆蓋：任何模式重設場地都先還原（startStage 再視需要套上）
   const want = map ?? ARENA;
   SIDE_B.x = want.side ?? 26; SIDE_A.x = -SIDE_B.x;
@@ -212,7 +212,7 @@ function startConquestMode(fresh = false) {
   G.noKillCam = true;
   cqCam.free = false; cqCam.zoom = 1;
   document.querySelector('#watch .whint').textContent = '拖曳 / WASD 移動鏡頭・滾輪縮放・1～6 跟隨機體・0 自由鏡頭・Esc 暫停';
-  startConquest(SIDE_B.x, toast);
+  startConquest(CQ_ARENA, toast);
 }
 // 雜魚的派系色：裝甲混 78% 隊伍色、腳下一圈光環
 const GRUNT_COLORS = { accent: 0xa8321a, glow: 0xff5a30, tint: 0.78 };
@@ -1623,6 +1623,7 @@ function step(t) {
     $('wScore').innerHTML = CS ? `<b class="blue">${Math.floor(CS.score.blue)}</b> : <b class="red">${Math.floor(CS.score.red)}</b>` : `<b class="blue">${MODE.score.blue}</b> : <b class="red">${MODE.score.red}</b>`;
     $('wRound').textContent = CS ? `第 ${MODE.round} 場（藍 ${MODE.score.blue} : 紅 ${MODE.score.red}）・${mmss(CS.t)} / 12:00` : `第 ${MODE.round} 場`;
     if (CS && !(MODE.result && MODE.endT > 0)) $('wNext').innerHTML = conquestHud();
+    if (CS && !$('cqOver').classList.contains('hidden') && (cqOverT -= raw) <= 0) { cqOverT = 0.2; drawOverview($('cqMap'), cqCam); $('cqStats').innerHTML = overviewStats(); }
     else $('wNext').textContent = MODE.result && MODE.endT > 0 ? `${Math.ceil(MODE.endT)} 秒後下一場` : '';
   }
   updateHaze(raw, camTarget.x, camTarget.z);
@@ -1648,8 +1649,18 @@ addEventListener('keydown', e => {
   if (!cqOn()) return;
   if (/^Digit[1-6]$/.test(e.code)) { setFocus(+e.code.slice(5) - 1); cqCam.free = false; }
   else if (e.code === 'Digit0') cqCam.free = true;
+  else if (e.code === 'Tab') { e.preventDefault(); $('cqOver').classList.toggle('hidden'); cqOverT = 0; }   // 地圖與戰績總覽
 });
-const cqUi = e => e.target.closest?.('button, .wside, #panel, #menu');   // 觀戰畫面蓋在畫布上 → 監聽整個視窗，點在介面上的不算
+// 總覽地圖：點一下 → 自由鏡頭飛到那裡
+let cqOverT = 0;
+$('cqMap').addEventListener('pointerdown', e => {
+  const cv = $('cqMap'), R = cv.getBoundingClientRect(), S = cqState();
+  if (!S) return;
+  cqCam.free = true;
+  cqCam.x = (e.clientX - R.left) / R.width * cv.width / 4 - cv.width / 8;
+  cqCam.z = (e.clientY - R.top) / R.height * cv.height / 4 - cv.height / 8;
+});
+const cqUi = e => e.target.closest?.('button, .wside, #panel, #menu, #cqOver');   // 觀戰畫面蓋在畫布上 → 監聽整個視窗，點在介面上的不算
 addEventListener('pointerdown', e => { if (cqOn() && e.button === 0 && !cqUi(e)) cqCam.drag = { x: e.clientX, y: e.clientY }; });
 addEventListener('pointermove', e => {
   const D = cqCam.drag;

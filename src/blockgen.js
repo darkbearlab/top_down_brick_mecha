@@ -101,15 +101,33 @@ export function bigArena(seed = BIG_ARENA_SEED) {
   return { id: 'bigarena' + seed, W, H, grid, buildings, side };
 }
 
-// ---------- 據點戰的大地圖（2026-11-27）：128 × 96，點對稱 ----------
-// 兩邊大本營在 x = ±56；九座巢穴 3 × 3（x = -32 / 0 / 32、z = -28 / 0 / 28），每座周圍一塊 14 × 14 的空地 + 4 棟矮房掩體
-// 路線感：三條東西向的路（z = -28 / 0 / 28，7 格寬，地形不會長在上面）；路與路之間是「叢林帶」：
-//   打不壞的岩壁 '#'、深坑 'v'（擋路，但子彈、視線過得去）一大塊一大塊堆著，中間一道屏障；
-//   只有幾條南北向的連接道（大本營前、隨機一條、正中央）能換路
-// 剩下的空間蓋可破壞的街區建築
-// 生成：只做左半邊，右半邊 = 左半邊轉 180°；大本營到每座巢穴、對面大本營一定走得到（不通就換種子重做）
-export const CQ_W = 128, CQ_H = 96, CQ_SIDE = 56;
-export const CQ_NODES = [-28, 0, 28].flatMap(z => [-32, 0, 32].map(x => ({ x, z })));
+// ---------- 據點戰的大地圖（2026-11-27 第三版）：128 × 96，點對稱，大本營在左上 / 右下 ----------
+// 路（地形不會長在上面）：
+//   上路：左上大本營 → 沿著上緣往右 → 右上角轉下 → 右下大本營（轉 180° 就是下路：沿左緣往下 → 沿下緣往右）
+//   中路：兩個大本營之間的斜線，經過正中央
+//   叢林小徑（5 格寬）：連接巢穴、野怪營地
+// 九座巢穴散在路上和叢林裡（點對稱；神經巢 / 發光巢放在兩個大本營的垂直平分線附近 → 兩邊一樣遠，可以是不同種類）
+// 野怪營地（CQ_CAMPS）：叢林裡的小空地
+// 剩下的地方：打不壞的岩壁 '#'、深坑 'v'（擋路，但子彈、視線過得去）一塊一塊堆著，空隙蓋可破壞的建築
+// 生成：只做左半邊，右半邊 = 左半邊轉 180°；大本營到每座巢穴、每個營地、對面大本營一定走得到（不通就換種子重做）
+export const CQ_W = 128, CQ_H = 96;
+export const CQ_BASES = [{ x: -54, z: -38 }, { x: 54, z: 38 }];   // 藍、紅
+const sym = L => [...L, ...L.filter(p => p.x || p.z).map(p => ({ ...p, x: -p.x, z: -p.z }))];
+export const CQ_NODES = [
+  { x: 0, z: 0, type: 'core' },
+  ...sym([{ x: -26, z: -18, type: 'reinforce' }, { x: -14, z: -38, type: 'attack' }, { x: -52, z: -4, type: 'armor' }]),
+  { x: 26, z: -36, type: 'speed' }, { x: -26, z: 36, type: 'energy' },
+];
+export const CQ_CAMPS = sym([{ x: -12, z: -22, kind: 'rage' }, { x: 14, z: -20, kind: 'haste' }, { x: -38, z: 16, kind: 'rage' }]);
+const SEGS = (() => {
+  const L = [
+    [-54, -38, 50, -40, 7], [50, -40, 54, 38, 7],                 // 上路（轉過去是下路）
+    [-54, -38, -26, -18, 7], [-26, -18, 0, 0, 7],                 // 中路
+    [-14, -38, -12, -22, 5], [-12, -22, -26, -18, 5], [26, -36, 14, -20, 5], [14, -20, 0, 0, 5],
+    [-52, -4, -26, -18, 5], [-52, -4, -38, 16, 5], [-38, 16, -26, 36, 5],
+  ];
+  return [...L, ...L.map(([a, b, c, d, w]) => [-a, -b, -c, -d, w])];
+})();
 export function conquestArena(seed = 7) {
   for (let k = 0; k < 40; k++) { const m = tryConquest(seed + k * 101); if (m) return m; }
   throw new Error('conquestArena: 找不到連通的地圖');
@@ -119,73 +137,52 @@ function tryConquest(seed) {
   const ri = (a, b) => a + Math.floor(R() * (b - a + 1));
   const grid = Array.from({ length: H }, (_, r) => Array.from({ length: W }, (_, c) => (r < 1 || c < 1 || r >= H - 1 || c >= W - 1) ? '#' : '.'));
   const toC = x => x + HW, toR = z => z + H / 2;
-  const mirror = ([c0, r0, c1, r1]) => [W - 1 - c1, H - 1 - r1, W - 1 - c0, H - 1 - r0];
-  const both = L => [...L, ...L.map(mirror)];
-  const hit = (L, c, r, pad = 0) => L.some(([c0, r0, c1, r1]) => c >= c0 - pad && c <= c1 + pad && r >= r0 - pad && r <= r1 + pad);
-  // 巢穴空地、大本營
-  const open = [...CQ_NODES.map(p => [toC(p.x) - 7, toR(p.z) - 7, toC(p.x) + 6, toR(p.z) + 6]), [1, toR(0) - 11, toC(-CQ_SIDE) + 9, toR(0) + 10]];
-  // 三條路（地形禁區 = 路寬 7；建築禁區 = 中間 5 格）
-  const lanes = [-28, 0, 28].map(z => [1, toR(z) - 3, HW - 1, toR(z) + 3]);
-  const laneCore = [-28, 0, 28].map(z => [1, toR(z) - 2, HW - 1, toR(z) + 2]);
-  // 連接道（5 格寬）：大本營前 c 12～16、每條叢林帶各一條隨機的、正中央 c 60～63（右半邊轉過來補成 8 格）
-  const conns = [];
-  for (const [z0, z1] of [[-28, 0], [0, 28]]) {
-    const r0 = toR(z0), r1 = toR(z1);
-    conns.push([12, r0, 16, r1], [60, r0, HW - 1, r1]);
-    const c = ri(24, 48); conns.push([c, r0, c + 4, r1]);
+  const wx = c => c - HW + 0.5, wz = r => r - H / 2 + 0.5;
+  const segD = (x, z, [ax, az, bx, bz]) => { const dx = bx - ax, dz = bz - az, t = Math.max(0, Math.min(1, ((x - ax) * dx + (z - az) * dz) / (dx * dx + dz * dz))); return Math.hypot(x - ax - dx * t, z - az - dz * t); };
+  // 禁區：路（半寬 + pad）、巢穴空地（半徑 7.5）、營地（4.5）、大本營（11）
+  const spots = [...CQ_NODES.map(p => [p.x, p.z, 7.5]), ...CQ_CAMPS.map(p => [p.x, p.z, 4.5]), ...CQ_BASES.map(p => [p.x, p.z, 11])];
+  const clearAt = (c, r, pad = 0) => { const x = wx(c), z = wz(r); return spots.some(([sx, sz, rr]) => Math.hypot(x - sx, z - sz) < rr + pad) || SEGS.some(S => segD(x, z, S) < S[4] / 2 + pad); };
+  // 路邊矮房可以蓋的格子：靠近大路（中線 2～5.5 格）、離小徑 3.5 格以上、不在巢穴 / 營地 / 大本營旁邊 → 大路中間永遠留 4 格以上
+  const roadside = (c, r) => { const x = wx(c), z = wz(r); return spots.some(([sx, sz, rr]) => Math.hypot(x - sx, z - sz) < rr + 1) || SEGS.some(S => segD(x, z, S) < (S[4] > 6 ? 2 : 3.5)) || !SEGS.some(S => S[4] > 6 && segD(x, z, S) < 5.5); };
+  // 叢林：岩壁 / 深坑一塊一塊（碰到禁區就裁掉那幾格）
+  for (let i = 0; i < 150; i++) {
+    const w = ri(3, 8), h = ri(3, 7), c0 = ri(1, HW - 2), r0 = ri(1, H - h - 1), t = R() < 0.6 ? '#' : 'v';
+    for (let r = r0; r < r0 + h; r++) for (let c = c0; c < Math.min(HW, c0 + w); c++) if (!clearAt(c, r, 1)) grid[r][c] = t;
   }
-  const noTerrain = both([...open, ...lanes, ...conns]), noBuild = both([...open, ...laneCore, ...conns]);
-  const fill = (c0, r0, w, h, t) => { for (let r = r0; r < r0 + h; r++) for (let c = c0; c < c0 + w; c++) if (c > 0 && c < HW && r > 0 && r < H - 1 && !hit(noTerrain, c, r)) grid[r][c] = t; };
-  // 叢林帶：中間一道屏障（3 格厚，岩壁 / 深坑一段一段）＋ 一堆岩塊 / 坑
-  for (const z of [-14, 14]) {
-    const r0 = toR(z) - 1;
-    for (let c = 1; c < HW;) { const L = ri(6, 12); fill(c, r0, L, 3, R() < 0.5 ? '#' : 'v'); c += L; }
-  }
-  for (let i = 0; i < 70; i++) {
-    const w = ri(3, 8), h = ri(3, 7), c = ri(1, HW - w), r = ri(1, H - h - 1);
-    let ok = true;
-    for (let y = r; y < r + h && ok; y++) for (let x = c; x < c + w; x++) if (hit(noTerrain, x, y, 1)) { ok = false; break; }
-    if (ok) fill(c, r, w, h, R() < 0.6 ? '#' : 'v');
-  }
-  // 街區建築：碰到禁區、地形（含旁邊一格）就不蓋
+  // 建築：叢林裡剩下的空隙（不碰地形、不碰禁區）＋ 路邊的掩體
   const half = [];
-  const addB = (c, r, w, h, f, st) => {
-    if (c + w > HW) return;
+  const canB = (c, r, w, h, pad) => {
+    if (c < 1 || c + w > HW) return false;
     for (let y = r - 1; y <= r + h; y++) for (let x = c - 1; x <= c + w; x++) {
       const t = grid[y]?.[x] ?? '#', inside = x >= c && x < c + w && y >= r && y < r + h;
-      if (hit(noBuild, x, y) || (inside ? t !== '.' : (t === 'v' || t === '#') && x > 0 && y > 0 && y < H - 1)) return;
+      if (inside ? (t !== '.' || pad(x, y)) : (t === 'v' || t === '#') && x > 0 && y > 0 && y < H - 1) return false;
     }
-    half.push([c, r, w, h, f, st]); for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) grid[y][x] = 'B';
+    return true;
   };
-  fillBlocks(R, streetCuts(R, 1, HW, 3, 4, true), streetCuts(R, 1, H - 1, 3, 4), addB, grid, (c, r) => hit(noBuild, Math.floor(c), Math.floor(r)), 0.15, 0.2);
-  // 路上的掩體：每 7～10 格一棟 2 × 2 / 3 × 2 的矮房，貼著路的上緣或下緣（路中間留 3 格以上）
-  for (const z of [-28, 0, 28]) {
-    const r = toR(z);
-    for (let c = 4 + ri(0, 4), k = 0; c < HW - 3; c += ri(7, 10), k++) {
-      const w = ri(2, 3), rr = k % 2 ? r - 3 : r + 2, f = ri(1, 2);
-      let ok = true;
-      for (let y = rr - 1; y <= rr + 2 && ok; y++) for (let x = c - 1; x <= c + w && ok; x++) if (hit(both(open), x, y) || grid[y]?.[x] !== '.' && (y === rr || y === rr + 1) && x >= c && x < c + w) ok = false;
-      if (ok && c + w <= HW) { half.push([c, rr, w, 2, f, ri(0, 2)]); for (let y = rr; y < rr + 2; y++) for (let x = c; x < c + w; x++) grid[y][x] = 'B'; }
-    }
+  const addB = (c, r, w, h, f, st) => { half.push([c, r, w, h, f, st]); for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) grid[y][x] = 'B'; };
+  fillBlocks(R, streetCuts(R, 1, HW, 3, 4, true), streetCuts(R, 1, H - 1, 3, 4), (c, r, w, h, f, st) => { if (canB(c, r, w, h, (x, y) => clearAt(x, y))) addB(c, r, w, h, f, st); }, grid, () => false, 0.1, 0.25);
+  for (let i = 0; i < 600; i++) {   // 路邊的矮房：在路上、但不在路中間（留得出 3 格以上）、不在巢穴 / 營地 / 大本營
+    const w = ri(2, 3), h = 2, c = ri(1, HW - w), r = ri(1, H - 3);
+    if (canB(c, r, w, h, roadside)) addB(c, r, w, h, ri(1, 2), ri(0, 2));
   }
-  // 巢穴空地的掩體：每塊左半邊 2 棟（轉過去另一半再 2 棟）
+  // 巢穴空地的掩體：每座 2 棟（正中央那座左右各 1）
   for (const p of CQ_NODES) {
-    if (p.x > 0) continue;
+    if (p.x > 0 || p.x === 0 && p.z > 0) continue;
     const c = toC(p.x), r = toR(p.z);
-    for (const [dc, dr] of [[-5, -5], [-5, 3]]) half.push([c + dc, r + dr, 2, 2, 1, ri(0, 2)]);
+    for (const [dc, dr] of p.x === 0 && p.z === 0 ? [[-5, -1]] : [[-5, -5], [3, 3]]) if (c + dc + 2 <= HW) addB(c + dc, r + dr, 2, 2, 1, ri(0, 2));
   }
   // 右半邊 = 左半邊轉 180°
   for (let r = 0; r < H; r++) for (let c = HW; c < W; c++) grid[r][c] = grid[H - 1 - r][W - 1 - c];
   const buildings = [...half, ...half.map(([c, r, w, h, f, st]) => [W - c - w, H - r - h, w, h, f, (st + 1) % 3])];
   for (const [c, r, w, h] of buildings) for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) grid[y][x] = 'B';
   // 連通：只走空地（建築打得壞，但不能靠它）
-  const seen = new Uint8Array(W * H), q = [toR(0) * W + toC(-CQ_SIDE)];
+  const seen = new Uint8Array(W * H), q = [toR(CQ_BASES[0].z) * W + toC(CQ_BASES[0].x)];
   seen[q[0]] = 1;
   for (let i = 0; i < q.length; i++) {
     const j = q[i], c = j % W, r = (j - c) / W;
     for (const [dc, dr] of [[1, 0], [-1, 0], [0, 1], [0, -1]]) { const x = c + dc, y = r + dr, k = y * W + x; if (!seen[k] && grid[y]?.[x] === '.') { seen[k] = 1; q.push(k); } }
   }
-  const reach = (x, z) => seen[toR(z) * W + toC(x)];
-  if (!CQ_NODES.every(p => reach(p.x + 3, p.z)) || !reach(CQ_SIDE, 0)) return null;
-  return { id: 'cq' + seed, W, H, grid, buildings, side: CQ_SIDE };
+  const reach = p => seen[toR(p.z) * W + toC(p.x + 3)] || seen[toR(p.z + 3) * W + toC(p.x)];
+  if (![...CQ_NODES, ...CQ_CAMPS, CQ_BASES[1]].every(reach)) return null;
+  return { id: 'cq' + seed, W, H, grid, buildings, side: 54, bases: CQ_BASES };
 }

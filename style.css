@@ -313,3 +313,15 @@ body.killcam::before, body.killcam::after { height: 9vh; transition: height .12s
 .lockArrow { position: absolute; left: -7px; top: -6px; width: 0; height: 0; border-top: 6px solid transparent; border-bottom: 6px solid transparent; border-left: 14px solid #ffd040; display: none; filter: drop-shadow(0 0 3px rgba(0,0,0,.8)); }
 .lockArrow.la-l { border-left-color: #ff5040; }
 .lockArrow.la-m { border-left-color: #ff2a10; border-top-width: 8px; border-bottom-width: 8px; border-left-width: 18px; animation: lwBlink .2s steps(2) infinite; }
+
+/* 據點戰：Tab 總覽（地圖 + 戰績） */
+#cqOver { position: absolute; inset: 0; display: flex; gap: 16px; align-items: center; justify-content: center; flex-wrap: wrap; background: rgba(6,8,12,.72); z-index: 30; padding: 16px; box-sizing: border-box; overflow: auto; }
+#cqOver.hidden { display: none; }
+#cqMap { width: min(62vw, 640px); max-width: 100%; height: auto; border: 1px solid #556; border-radius: 6px; cursor: crosshair; image-rendering: pixelated; }
+#cqStats { color: #dde; font-size: 13px; min-width: 300px; max-width: 520px; }
+#cqStats table { border-collapse: collapse; width: 100%; }
+#cqStats td { padding: 3px 6px; border-bottom: 1px solid #2a2f3a; white-space: nowrap; }
+#cqStats tr.hd td { color: #8a96a6; font-size: 11px; }
+#cqStats tr.th td { padding-top: 10px; white-space: normal; }
+#cqStats .cqlog { margin-top: 10px; color: #9aa4b4; font-size: 12px; line-height: 1.6; }
+#cqOver .cqhint { position: absolute; bottom: 10px; left: 0; right: 0; text-align: center; color: #8a96a6; font-size: 12px; }

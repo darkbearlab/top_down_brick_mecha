@@ -409,6 +409,7 @@ const lanceMassK = m => BAL.massImpulse ? Math.max(0.7, Math.min(1.4, (m.spec.ma
 export function hitMech(m, dmg, dx, dz, kb = 0, type = 'kinetic', forced = null, power = dmg, splash = false) {
   kb *= impulseK(m);
   if (!m.alive) return null;
+  if (CL.who && CL.who !== m) m.lastHitBy = CL.who;   // 最後打中它的（combatlog.js att）
   if (m.takeK) dmg *= m.takeK;   // 承受傷害倍率（據點戰：甲殼巢的全隊耐久）
   // 蟲群：單發攻擊一次最多打掉一隻；爆風打到一大片
   if (m.swarm) dmg = splash ? dmg * 1.8 : Math.min(dmg, m.swarm.per);
