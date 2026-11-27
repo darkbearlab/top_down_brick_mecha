@@ -54,7 +54,8 @@ for (let i = 0; i < N; i++) {
   const r = { campBuffs: S.team.blue.camps + S.team.red.camps, result: S.result, t: Math.round(S.t), score: [Math.floor(S.score.blue), Math.floor(S.score.red)], kills: [S.kills.blue, S.kills.red], drops: [S.drops.blue, S.drops.red], flips, firstCap, lead: [Math.round(lead.blue), Math.round(lead.red)] };
   res.push(r);
   console.log(`第 ${i + 1} 場 ${r.result === 'draw' ? '平手' : r.result === 'blue' ? '藍勝' : '紅勝'}  ${Math.floor(r.t / 60)}:${String(r.t % 60).padStart(2, '0')}  分數 ${r.score.join(':')}  擊墜 ${r.kills.join(':')}  空投 ${r.drops.join(':')}  營地 ${r.campBuffs}  據點換手 ${r.flips}  首次佔領 ${r.firstCap}s  領先秒數 ${r.lead.join(':')}`);
-  if (!args.quiet) console.log('   ', log.slice(0, 14).join(' / '));
+  if (!args.quiet) console.log("   ", log.slice(0, 14).join(" / "));
+  if (args.log) console.log(log.filter(l => l.includes(args.log)).join('\n'));   // --log 文字：印出含這段文字的事件（例如 --log 改裝）
 }
 const avg = f => (res.reduce((a, r) => a + f(r), 0) / res.length).toFixed(1);
 console.log(`\n${res.length} 場：藍 ${res.filter(r => r.result === 'blue').length} 紅 ${res.filter(r => r.result === 'red').length} 平 ${res.filter(r => r.result === 'draw').length}・平均 ${avg(r => r.t / 60)} 分鐘・擊墜 ${avg(r => r.kills[0] + r.kills[1])}・換手 ${avg(r => r.flips)}・翻盤（落後方最後贏）${res.filter(r => r.result !== 'draw' && r.lead[r.result === 'blue' ? 1 : 0] > 60).length}`);

@@ -9,6 +9,7 @@
 // 佔領：站在圈裡讀條（主力 1、雜魚 0.5，最快 ×1.5）；兩邊都有人 = 暫停；對方的據點要先讀回中立再讀成自己的
 // 勝負：持有的巢穴每秒得分（母巢 ×2），先到 600 分，或 12 分鐘到時分數高的贏；大本營被打爆 = 直接敗北
 // 主力機損毀 → 重組（4 秒 + 每多死一次 1 秒，最多 8），從大本營空降；不放擊墜特寫（G.noKillCam）
+//   重組時調整陣容（counterPick）：照對面主力機的裝甲挑剋得住的配裝
 // 大本營：要塞砲車（parts.js ELITES，遠征停用的據點防守機），耐久 ×2.5、綁在大本營 9 格內不追出去、不會重組
 //   大本營 12 格內的己方機體（要塞自己除外）：部位每秒回 8%、壞掉的部位重新長回來（25%）、彈藥每秒回 6%
 // 主力機、要塞腳下有派系色的光環，裝甲混一點隊伍色
@@ -20,7 +21,7 @@ import { G, addMat, scene } from './core.js';
 import { H as MAP_H, W as MAP_W, grid, isSolid, rayBlock } from './arena.js';
 import { mechs, syncWear } from './mech.js';
 import { DIFFS, enemies, spawnEnemy } from './ai.js';
-import { ELITES, ENEMY_PRESETS, NEW_ACES, SQUADS, gruntOf } from './parts.js';
+import { EFFECT, ELITES, ENEMY_PRESETS, NEW_ACES, SQUADS, WEAPONS, gruntOf } from './parts.js';
 import { repairFx } from './fx.js';
 import { packUnits } from './heavy.js';
 import { routeDir } from './pathing.js';
@@ -100,6 +101,20 @@ export function clearConquest() {
 // 主力機的配裝池：一般機體（ENEMY_PRESETS，各種武器類型）+ 新數值王牌（NEW_ACES）→ 打得掉建築的、穿牆的、近戰的都有機會出場
 const ACE_POOL = [...new Map([...ENEMY_PRESETS, ...NEW_ACES].map(p => [p.name, p])).values()];
 const pickAce = () => ACE_POOL[Math.floor(Math.random() * ACE_POOL.length)];
+// 重新出擊時調整陣容：照對面主力機的裝甲挑剋得住的配裝（武器屬性 × 裝甲的倍率平均，加一點隨機），隊友正在用的不重複
+function counterPick(team, k) {
+  const foes = S.aces[foeTeam(team)].map(e => e.cq.lo.armor?.torso ?? 'composite');
+  const mates = new Set(S.aces[team].filter((e, j) => j !== k).map(e => e.cq.lo.name));
+  let best = null, bs = -Infinity;
+  for (const lo of ACE_POOL) {
+    if (mates.has(lo.name)) continue;
+    const types = ['armL', 'armR', 'backL', 'backR'].map(sl => WEAPONS[lo[sl]]).filter(d => d && d.kind !== 'shield' && d.kind !== 'module').map(d => d.type);
+    if (!types.length) continue;
+    const sc = foes.reduce((a, ar) => a + types.reduce((b, t) => b + (EFFECT[t]?.[ar] ?? 1), 0) / types.length, 0) / foes.length + Math.random() * 0.25;
+    if (sc > bs) { bs = sc; best = lo; }
+  }
+  return best ?? pickAce();
+}
 const baseOf = team => S.bases[team];
 const foeTeam = t => t === 'blue' ? 'red' : 'blue';
 const owned = n => n.owner === 'blue' || n.owner === 'red';
@@ -392,7 +407,9 @@ export function conquestDeath(e) {
   const n = (S.deaths.get(`${team}${k}`) ?? 0) + 1;
   S.deaths.set(`${team}${k}`, n);
   const t = Math.min(CQ.respawnMax, CQ.respawn + CQ.respawnAdd * (n - 1)) * (behind(team) ? CQ.behindK : 1);
-  S.respawns.push({ team, k, lo: e.cq.lo, t });
+  const lo = counterPick(team, k);
+  if (lo.name !== e.cq.lo.name) note(`${TEAM_NAME[team]} ${(team === 'red' ? 4 : 1) + k} 號改裝成${lo.name}`);
+  S.respawns.push({ team, k, lo, t });
 }
 // 觀戰鏡頭跟哪一台：0～2 藍、3～5 紅（數字鍵 1～6 切換）
 export function focusMech() {

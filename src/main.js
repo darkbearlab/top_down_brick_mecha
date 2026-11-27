@@ -192,6 +192,7 @@ function startBrainPack(fresh = false) {
   $('wBGuns').innerHTML = SLOTS.map(s => E.lo[s]).filter(Boolean).map(id => `<span class="wt" style="--c:${DMG_TYPES[WEAPONS[id].type].css}">${WEAPONS[id].name}</span>`).join('') + `<span class="wt" style="--c:#8a96a6">${LEGS[E.lo.legs].name}</span>`;
   $('wRName').textContent = pack.name;
   document.querySelector('#watch .whint').textContent = 'Esc 暫停 / 下一場 / 回主選單';
+  $('cqCamBar').classList.add('hidden');
   toast(`第 ${MODE.round} 場・雜魚 ${reds.length} 台`);   // 小隊名字在右下的面板
 }
 // 據點戰（src/conquest.js，docs/CONQUEST_PLAN.md）：3 對 3 主力機 + 三座蟲巢據點；第一版全 AI 觀戰
@@ -211,7 +212,8 @@ function startConquestMode(fresh = false) {
   $('wBName').textContent = '藍隊'; $('wRName').textContent = '紅隊';
   G.noKillCam = true;
   cqCam.free = false; cqCam.zoom = 1;
-  document.querySelector('#watch .whint').textContent = '拖曳 / WASD 移動鏡頭・滾輪縮放・1～6 跟隨機體・0 自由鏡頭・Esc 暫停';
+  document.querySelector('#watch .whint').textContent = '拖曳 / WASD 自由鏡頭・滾輪縮放・Q / E 上一台 / 下一台・F 跟隨・V 俯視 / 追尾・1～6 指定・Tab 總覽・Esc 暫停';
+  $('cqCamBar').classList.remove('hidden');
   startConquest(CQ_ARENA, toast);
 }
 // 雜魚的派系色：裝甲混 78% 隊伍色、腳下一圈光環
@@ -1552,8 +1554,13 @@ function step(t) {
     if (C.free) {
       if (Math.hypot(input.move.x, input.move.y) > 0.1) { C.x += input.move.x * 34 * C.zoom * raw; C.z += input.move.y * 34 * C.zoom * raw; }
       fx = C.x; fz = C.z;
+    } else if (f && C.chase) {
+      // 追尾：鏡頭在機體上半身後方、低角度，看著前方 4 格
+      const ux = Math.sin(f.torsoYaw), uz = Math.cos(f.torsoYaw);
+      fx = f.x + ux * 4; fz = f.z + uz * 4; C.x = f.x; C.z = f.z;
+      C.yaw += angleDiff(C.yaw, f.torsoYaw + Math.PI) * (1 - Math.exp(-4 * raw));
     } else if (f) { fx = f.x; fz = f.z - 0.8; C.x = fx; C.z = fz; }
-    distK = 1.25 * C.zoom; lx = lz = 0; restZ = 0;
+    distK = (C.chase && f ? 0.55 : 1.25) * C.zoom; lx = lz = 0; restZ = 0;
   } else if (watching) {
     const pool = enemies;
     const live = pool.filter(e => e.alive && !e.drop), all = live.length ? live : pool;
@@ -1586,9 +1593,11 @@ function step(t) {
     view.yaw += camYawV * raw;
   } else camYawV = 0;
   // 特寫（擊墜、頭目登場）和觀戰：暫時回到固定朝北的鏡頭，結束後轉回來
-  const camYaw = watching ? 0 : view.yaw + angleDiff(view.yaw, 0) * killK;
-  const back = Math.cos(CAM_PITCH) * cd;   // 鏡頭在正前方的反方向（固定模式 = 南邊）
-  camera.position.set(camTarget.x + ox + Math.sin(camYaw) * back, Math.sin(CAM_PITCH) * cd, camTarget.z + Math.cos(camYaw) * back + oz);
+  // 據點戰觀戰的追尾鏡頭：跟著機體轉、角度壓低（35°）
+  const chaseCam = watching && MODE.kind === 'conquest' && cqCam.chase && !cqCam.free && !!focusMech();
+  const camYaw = chaseCam ? cqCam.yaw : watching ? 0 : view.yaw + angleDiff(view.yaw, 0) * killK, pitch = chaseCam ? 0.61 : CAM_PITCH;
+  const back = Math.cos(pitch) * cd;   // 鏡頭在正前方的反方向（固定模式 = 南邊）
+  camera.position.set(camTarget.x + ox + Math.sin(camYaw) * back, Math.sin(pitch) * cd, camTarget.z + Math.cos(camYaw) * back + oz);
   const mm = $('minimap'), mmKey = mm.classList.contains('hidden') ? 'off' : `${view.yaw}|${mm.offsetWidth}|${innerWidth}`;
   if (minimapYaw !== mmKey) {   // 小地圖跟著轉（上方 = 鏡頭正前方）；指北針貼在小地圖的框上、指著北邊
     minimapYaw = mmKey;
@@ -1623,6 +1632,12 @@ function step(t) {
     $('wScore').innerHTML = CS ? `<b class="blue">${Math.floor(CS.score.blue)}</b> : <b class="red">${Math.floor(CS.score.red)}</b>` : `<b class="blue">${MODE.score.blue}</b> : <b class="red">${MODE.score.red}</b>`;
     $('wRound').textContent = CS ? `第 ${MODE.round} 場（藍 ${MODE.score.blue} : 紅 ${MODE.score.red}）・${mmss(CS.t)} / 12:00` : `第 ${MODE.round} 場`;
     if (CS && !(MODE.result && MODE.endT > 0)) $('wNext').innerHTML = conquestHud();
+    if (CS) {
+      const f = cqCam.free ? null : focusMech();
+      $('cqFocus').textContent = f ? `${f.team === 'blue' ? '藍' : '紅'} ${(f.team === 'red' ? 4 : 1) + f.cq.k}・${f.cq.lo.name}` : '自由鏡頭';
+      $('cqFocus').style.color = f ? (f.team === 'blue' ? '#6aaaff' : '#ff7a40') : '#ccd';
+      $('cqViewBtn').textContent = cqCam.chase ? '視角：追尾' : '視角：俯視';
+    }
     if (CS && !$('cqOver').classList.contains('hidden') && (cqOverT -= raw) <= 0) { cqOverT = 0.2; drawOverview($('cqMap'), cqCam); $('cqStats').innerHTML = overviewStats(); }
     else $('wNext').textContent = MODE.result && MODE.endT > 0 ? `${Math.ceil(MODE.endT)} 秒後下一場` : '';
   }
@@ -1643,14 +1658,23 @@ addEventListener('pointerdown', unlockAudio);
 addEventListener('keydown', e => { if (panelOpen() && !settingsOpen() && /^Digit[1-9]$/.test(e.code)) $('pButtons').children[+e.code.slice(5) - 1]?.click(); });
 addEventListener('keydown', unlockAudio);
 // 據點戰觀戰：數字鍵 1～6 跟一台機體（1～3 藍、4～6 紅）、0 自由鏡頭；左鍵拖曳移動鏡頭（變成自由鏡頭）、滾輪縮放
-const cqCam = { free: false, x: 0, z: 0, zoom: 1, drag: null };
+const cqCam = { free: false, x: 0, z: 0, zoom: 1, drag: null, chase: false, yaw: Math.PI };
+// 鏡頭操作（鍵盤和觀戰畫面下方的按鈕共用）
+const cqFollow = d => { const S = cqState(); if (!S) return; if (d) setFocus(((S.focus + d) % 6 + 6) % 6); cqCam.free = false; const f = focusMech(); if (f) cqCam.yaw = f.torsoYaw + Math.PI; };
+const cqView = () => { cqCam.chase = !cqCam.chase; if (cqCam.free) cqFollow(0); };
 const cqOn = () => MODE.name === 'watch' && MODE.kind === 'conquest' && !panelOpen() && !G.paused;
 addEventListener('keydown', e => {
   if (!cqOn()) return;
-  if (/^Digit[1-6]$/.test(e.code)) { setFocus(+e.code.slice(5) - 1); cqCam.free = false; }
+  if (/^Digit[1-6]$/.test(e.code)) { setFocus(+e.code.slice(5) - 1); cqFollow(0); }
   else if (e.code === 'Digit0') cqCam.free = true;
+  else if (e.code === 'KeyE') cqFollow(1);
+  else if (e.code === 'KeyQ') cqFollow(-1);
+  else if (e.code === 'KeyF') cqFollow(0);
+  else if (e.code === 'KeyV') cqView();
   else if (e.code === 'Tab') { e.preventDefault(); $('cqOver').classList.toggle('hidden'); cqOverT = 0; }   // 地圖與戰績總覽
 });
+$('cqPrev').onclick = () => cqFollow(-1); $('cqNext').onclick = () => cqFollow(1);
+$('cqViewBtn').onclick = cqView; $('cqFreeBtn').onclick = () => { cqCam.free = true; };
 // 總覽地圖：點一下 → 自由鏡頭飛到那裡
 let cqOverT = 0;
 $('cqMap').addEventListener('pointerdown', e => {
