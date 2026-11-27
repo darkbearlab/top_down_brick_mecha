@@ -1,10 +1,10 @@
 // ---------- 據點戰（docs/CONQUEST_PLAN.md）：3 對 3 主力機 + 九座蟲巢 + 野怪營地（全 AI 觀戰） ----------
-// 地圖：blockgen.js conquestArena（128 × 96，點對稱），大本營在左上（藍）/ 右下（紅），上 / 中 / 下三路 + 叢林小徑
+// 地圖：blockgen.js conquestArena（152 × 112，點對稱，整張圖是一張通道網、沒有死路），大本營在左上（藍）/ 右下（紅），上 / 中 / 下三路 + 叢林小徑
 // 據點 = 蟲巢：開場被原生的蟲族守著（隊伍 native，敵視雙方、不會重生）；守衛全滅 → 蟲巢被壓制，可以佔領、收割
 // 巢穴種類：
 //   母巢（正中央）、增援巢：增援條累積速度；條滿了 → 從自己的大本營空投一隊隨機雜魚
 //   甲殼巢：全隊承受傷害 ×0.88、酸腺巢：全隊傷害 +12%、神經巢：全隊極速 +8%、發光巢：全隊能量回復 +30%（每多一座再疊一次）
-// 野怪營地（CQ_CAMPS，6 個）：叢林裡兩隻蟲；整個營地清掉 → 最後一擊的機體拿 45 秒的效果（狂暴：傷害 +20%；迅捷：極速 +15%、能量回復 +50%），
+// 野怪營地（CQ_CAMPS，6 個）：叢林小徑中間兩隻蟲，雜魚和營地的蟲互不理會（只有主力機會去清）；整個營地清掉 → 最後一擊的機體拿 45 秒的效果（狂暴：傷害 +20%；迅捷：極速 +15%、能量回復 +50%），
 //   那一隊的增援條 +12%；75 秒後蟲子重新長出來
 // 佔領：站在圈裡讀條（主力 1、雜魚 0.5，最快 ×1.5）；兩邊都有人 = 暫停；對方的據點要先讀回中立再讀成自己的
 // 勝負：持有的巢穴每秒得分（母巢 ×2），先到 600 分，或 12 分鐘到時分數高的贏；大本營被打爆 = 直接敗北
@@ -181,7 +181,9 @@ function addRing(e, team) {
   ring.rotation.x = -Math.PI / 2; ring.position.y = 0.04;
   e.model.root.add(ring); e.model.teamRing = ring; e.cq.ring = ring;
 }
-const hostile = (a, b) => b !== a && b.alive && !b.drop && b.team !== a.team && b.team !== 'none';
+// 雜魚和營地的蟲互不理會（雜魚推進路上經過營地也不會開打；營地只給主力機清）
+const campPair = (a, b) => (a.cq?.camp && b.grunt && b.team !== 'native') || (b.cq?.camp && a.grunt && a.team !== 'native');
+const hostile = (a, b) => b !== a && b.alive && !b.drop && b.team !== a.team && b.team !== 'none' && !campPair(a, b);
 function nearestHostile(e) {
   let best = null, bd = Infinity;
   for (const o of mechs) {
