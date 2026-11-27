@@ -22,7 +22,7 @@ import { G, GFX, UNIT_BOX, addMat, addTrauma, angleDiff, scene } from './core.js
 import { isBlock, rayBlock, wallFace } from './arena.js';
 import { blastBuildings, buildingTop, damageBuilding, isBuilding } from './buildings.js';
 import { facing, hasModule, hitMech, impulseK, mechs, muzzleOf, slotBroken, slotLive, updateReady, useEnergy } from './mech.js';
-import { RAMP, burnAt, explosion, flame, hitSparks, makeLaser, muzzleFlash, rampOf, scorch, setLaser, smoke, wallMark, sparks, spawnGlow, spawnPuff } from './fx.js';
+import { RAMP, burnAt, casing, explosion, flame, hitSparks, makeLaser, muzzleFlash, muzzleFx, rampOf, scorch, setLaser, smoke, wallMark, sparks, spawnGlow, spawnPuff } from './fx.js';
 import { BAL, DMG_TYPES, SLOTS, WEAPONS, fcsOn } from './parts.js';
 import { sfx } from './audio.js';
 import { chipDmgK, chipRateK, chipSpreadK, empOff } from './tech.js';
@@ -90,6 +90,10 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
   }
 }
 
+// 槍口火焰的樣式 / 彈殼種類（fx.js MUZZLE、CASINGS）：照武器 id（低階版 _l 跟正規版一樣），沒列到的照種類猜
+const MZ_STYLE = { mg: 'mg', autocannon: 'ac', shotgun: 'shot', sniper: 'sniper', cannon: 'cannon', beam: 'beam' };
+const mzStyle = d => MZ_STYLE[(d.id ?? '').replace(/_l$/, '')] ?? (d.kind === 'beam' ? 'beam' : d.heavy ? 'cannon' : d.pellets ? 'shot' : (d.size ?? 0.1) >= 0.1 ? 'ac' : 'mg');
+const CASE_GAP = 0.04;   // 同一把槍最快每 0.04 秒彈一顆殼（機槍一秒 40 發，殼最多 25 顆）
 function fire(m, slot, d, locks, aim, salvoN = d.salvo ?? 1) {
   const enemy = m.team !== 'player';
   const mz = muzzleOf(m, slot), f = facing(m), base = Math.atan2(f.x, f.z);
@@ -108,9 +112,19 @@ function fire(m, slot, d, locks, aim, salvoN = d.salvo ?? 1) {
       const a = base + (Math.random() - 0.5) * 2 * d.spread * spreadK;
       spawnShot(m, d, mz.x, mz.y, mz.z, Math.sin(a), Math.cos(a), d.speed * spMul * (n > 1 ? R(0.85, 1.1) : 1));
     }
-    muzzleFlash(mz.x, mz.y, mz.z, d.kind === 'beam' ? DMG_TYPES.energy.hex : enemy ? 0xff6040 : 0xffd070, (d.size ?? 0.1) * 4.5);
+    // 槍口火焰（照類別）：同一把槍同一幀只畫一次（新數值的機槍一幀可能射好幾發）；實彈武器從機匣彈出彈殼（往掛點外側）
+    const gun = m.guns[slot], st = mzStyle(d);
+    if (gun && gun.fxT !== G.now) {
+      gun.fxT = G.now;
+      muzzleFx(mz.x, mz.y, mz.z, f.x, f.z, st, d.kind === 'beam' ? DMG_TYPES.energy.hex : d.heavy ? 0xffc060 : enemy ? 0xff6040 : 0xffd070);
+    }
+    if (gun && st !== 'beam' && G.now - (gun.caseT ?? -9) >= CASE_GAP) {
+      gun.caseT = G.now;
+      const back = st === 'cannon' ? 1 : st === 'sniper' ? 0.6 : 0.35;
+      casing(mz.x - f.x * back, mz.y + 0.05, mz.z - f.z * back, f.x, f.z, st, slot.endsWith('L') ? -1 : 1, m.vx, m.vz);
+    }
     const rk = d.recoil * impulseK(m); m.vx -= f.x * rk; m.vz -= f.z * rk;   // 後座照自己的重量（BAL.massImpulse）
-    if (d.heavy) { sfx.cannon(); smoke(mz.x + f.x * 0.3, mz.y, mz.z + f.z * 0.3, 6, 1.2, 0x8a8c92); muzzleFlash(mz.x, mz.y, mz.z, 0xffc060, 1.6); if (!enemy) addTrauma(0.4); }
+    if (d.heavy) { sfx.cannon(); if (!enemy) addTrauma(0.4); }
     else if (d.kind === 'beam') sfx.beam();
     else if (d === WEAPONS.sniper) { sfx.sniper(); if (!enemy) addTrauma(0.15); }
     else if (d === WEAPONS.shotgun) { sfx.shotgun(); if (!enemy) addTrauma(0.12); }
@@ -133,7 +147,7 @@ function fire(m, slot, d, locks, aim, salvoN = d.salvo ?? 1) {
         const a = Math.atan2(ff.x, ff.z) + (d.kind === 'rocket' ? R(-1, 1) * d.spread : side);
         spawnMissile(m, d, p.x, p.y, p.z, { vx: Math.sin(a) * d.speed, vy: 0, vz: Math.cos(a) * d.speed }, target, null);
       }
-      smoke(p.x, p.y, p.z, 1, 0.6, 0x9a9ca2);
+      muzzleFx(p.x, p.y, p.z, ff.x, ff.z, d.kind === 'rocket' ? 'rocket' : d.kind === 'vmissile' ? 'vlaunch' : 'missile', enemy ? 0xff7040 : 0xffc070, i === 0);   // 發射：前面小閃光 + 後面尾焰、煙（只有第一發打燈）
     } });
   }
 }
@@ -293,7 +307,7 @@ function lobNapalm(m, d, mz, aim, f) {
   if (d.mark) { mark = new THREE.Mesh(ZONE_GEO, addMat(0xff3020, 0.12)); mark.rotation.x = -Math.PI / 2; mark.position.set(tx, 0.07, tz); mark.scale.setScalar(d.splash); scene.add(mark); }
   shots.push({ kind: 'napalm', g, wid: d.id, mark, t: 0, T, owner: m, team: m.team, x: mz.x, y: mz.y, z: mz.z, vx: (tx - mz.x) / T, vz: (tz - mz.z) / T,
     vy: (0.2 - mz.y + 0.5 * LOB_G * T * T) / T, d, dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: 0.6, type: 'chemical', splash: d.splash });
-  smoke(mz.x, mz.y, mz.z, 2, 0.7, 0x8a8c92);
+  muzzleFx(mz.x, mz.y, mz.z, f.x, f.z, 'lob', acid ? 0xb8ff58 : 0xffb050);   // 拋射：往上竄的火 + 煙
   acid ? sfx.stow() : sfx.missile();
 }
 function stepNapalm(s, i, dt) {
@@ -488,6 +502,7 @@ function updatePunch(m, dt) {
   const wall = rayBlock(mz.x, mz.z, f.x, f.z, d.reach + 0.3), hit = rayMech(m, mz.x, mz.z, f.x, f.z, Math.min(wall, d.reach));
   muzzleFlash(mz.x + f.x * 0.3, mz.y, mz.z + f.z * 0.3, 0xffc060, 1.3);
   smoke(mz.x, mz.y, mz.z, 3, 0.8, 0x8a8c92);
+  casing(mz.x - f.x * 0.5, mz.y + 0.1, mz.z - f.z * 0.5, f.x, f.z, 'pile', P.slot.endsWith('L') ? -1 : 1, m.vx, m.vz);   // 打樁拳：退出一顆鋼殼
   sfx.shotgun();
   if (hit.o) {
     const o = hit.o, px = mz.x + f.x * hit.t - o.x, pz = mz.z + f.z * hit.t - o.z;

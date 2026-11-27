@@ -24,7 +24,7 @@ import { ARENA_LAYOUT, buildLayerBuildings, resetBuildings, setBuildingLayer, se
 import { SLOW_K, clearHusks, clearWrecks, killCam, setHuskLayer, updateWrecks } from './wreck.js';
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
 import { AI, DIFFS, clearEnemies, enemies, keepEnemies, parkEnemy, removeEnemy, spawnEnemy, unparkEnemy, updateEnemy } from './ai.js';
-import { burst, clearRubble, makeLaser, repairFx, setLaser, setRubbleLayer, smoke, updateParticles } from './fx.js';
+import { burst, clearCasings, clearRubble, makeLaser, repairFx, setLaser, setRubbleLayer, smoke, updateParticles } from './fx.js';
 import { clearWarp, startWarp, updateWarp } from './warp.js';
 import { CHIPS, DEVICES, hasChip, smokeBlocks, techName } from './tech.js';
 import { clearDevices, deviceReady, updateDeviceCd, updateDevices, useDevice } from './devices.js';
@@ -102,7 +102,7 @@ function resetWorld(map = null) {
   for (const b of blips) b.visible = false;
   clearShots();
   G.paused = false; G.slowMo = 0; G.hitStop = 0;
-  clearWrecks(); clearHusks(); setHuskLayer(0);
+  clearWrecks(); clearHusks(); setHuskLayer(0); clearCasings();
   clearPickups();
   clearProps();
   $('boss').classList.add('hidden'); $('prompt').classList.add('hidden'); fxHide('warning', true); fxHide('bossIntro', true);
@@ -872,7 +872,7 @@ function switchLayer(to) {
   for (const W of EX.waves) W.layer = to.layer;
   EX.pending = [];
   EX.stash[from] = stashPickups();
-  clearShots(); clearWrecks(); clearDevices();
+  clearShots(); clearWrecks(); clearDevices(); clearCasings();
   sensors.progress.clear(); sensors.locks = [];
   player.x = to.x; player.z = to.z; player.vx = player.vz = 0;
   enterLayer(to.layer);

@@ -327,6 +327,115 @@ export function muzzleFlash(x, y, z, color, size = 1) {
   spawnGlow({ x, y, z, life: 0.06, s0: 0.42 * size, s1: 0.2 * size, ramp: rampOf(color), vr: 0 });
   flashLight(x, y, z, color, 9 * size, 3.5, 0.07);
 }
+// ---------- 槍口火焰（照武器類別，2026-11-27） ----------
+// (fx, fz) = 槍口朝向；style 見 MUZZLE；color = 火光顏色（敵人偏紅、玩家偏黃、光束用能量色）
+// 形狀：中心一顆 + 往前噴一串越來越小的方塊（火舌）+ 側邊噴口（制退器：狙擊、加農砲）；煙、地面揚塵照類別
+//   全部是 0.04～0.1 秒的發光方塊（共用 glow 池），一發大概 4～20 顆
+const chain = (x, y, z, dx, dy, dz, n, len, s, rp, life, sp = 0) => {
+  for (let i = 1; i <= n; i++) {
+    const t = i / n, k = 1 - t * 0.65;
+    spawnGlow({ x: x + dx * len * t, y: y + dy * len * t, z: z + dz * len * t, vx: dx * sp, vy: dy * sp, vz: dz * sp, life: life * (1 - t * 0.3), s0: s * k * R(0.8, 1.15), s1: s * k * 0.3, ramp: rp, vr: R(-20, 20), drag: 8 });
+  }
+};
+export const MUZZLE = {
+  //        core 大小、fwd 前方火舌 [顆數, 長度, 粗細]、side 十字側焰、brake 制退器側噴、cone 霰彈扇形 [顆數, 半角]、smoke [團數, 大小]、life 壽命、light 燈光倍率、dust 地面揚塵
+  mg:      { core: 0.2, fwd: [3, 0.45, 0.13], side: [1, 0.16, 0.07], life: 0.045, light: 0.5 },
+  ac:      { core: 0.3, fwd: [4, 0.75, 0.19], side: [2, 0.3, 0.11], smoke: [1, 0.5], life: 0.06, light: 0.8 },
+  shot:    { core: 0.3, cone: [6, 0.4], smoke: [2, 0.55], life: 0.07, light: 0.9 },
+  sniper:  { core: 0.3, fwd: [6, 1.4, 0.2], brake: [2, 0.55, 0.16], smoke: [2, 0.5], life: 0.07, light: 1.1, dust: 6 },
+  cannon:  { core: 0.7, fwd: [6, 1.9, 0.5], brake: [3, 0.95, 0.34], smoke: [8, 1.3], life: 0.1, light: 1.8, dust: 14, fireball: 8 },
+  beam:    { core: 0.34, fwd: [3, 0.6, 0.14], ring: 6, life: 0.06, light: 0.9 },
+  rocket:  { core: 0.16, back: [4, 1.6], smoke: [3, 0.6], life: 0.06, light: 0.6 },
+  missile: { core: 0.13, back: [2, 1], smoke: [1, 0.4], life: 0.05, light: 0.4 },
+  vlaunch: { core: 0.14, up: [3, 0.7], smoke: [2, 0.5], life: 0.06, light: 0.4 },
+  lob:     { core: 0.32, up: [4, 0.9], smoke: [3, 0.7], life: 0.08, light: 0.9 },
+};
+export function muzzleFx(x, y, z, fx, fz, style, color, light = true) {
+  const M = MUZZLE[style] ?? MUZZLE.mg, rp = rampOf(color), L = M.life, px = fz, pz = -fx;   // (px, pz) = 槍口右手邊
+  spawnGlow({ x, y, z, life: L, s0: M.core * R(0.85, 1.2), s1: M.core * 0.4, ramp: RAMP.flash, vr: R(-10, 10) });
+  if (M.fwd) chain(x, y, z, fx, 0, fz, M.fwd[0], M.fwd[1], M.fwd[2], rp, L, 3);
+  if (M.side) for (const sg of [1, -1]) chain(x, y, z, px * sg, 0, pz * sg, M.side[0], M.side[1], M.side[2], rp, L * 0.8);
+  if (M.brake) for (const sg of [1, -1]) { const bx = x + fx * 0.15, bz = z + fz * 0.15; chain(bx, y, bz, px * sg * 0.9 - fx * 0.25, 0.08, pz * sg * 0.9 - fz * 0.25, M.brake[0], M.brake[1], M.brake[2], rp, L, 4); }
+  if (M.cone) for (let i = 0; i < M.cone[0]; i++) {
+    const a = Math.atan2(fx, fz) + R(-1, 1) * M.cone[1], sp = R(9, 16);
+    spawnGlow({ x, y, z, vx: Math.sin(a) * sp, vy: R(-0.5, 0.8), vz: Math.cos(a) * sp, life: L * R(0.9, 1.4), s0: R(0.1, 0.17), s1: 0.03, ramp: rp, drag: 10, vr: R(-15, 15) });
+  }
+  if (M.ring) for (let i = 0; i < M.ring; i++) {   // 光束：槍口一圈往外散的小光點
+    const a = i / M.ring * Math.PI * 2, u = Math.cos(a), v = Math.sin(a), sp = R(2.5, 4.5);
+    spawnGlow({ x, y, z, vx: px * u * sp + fx * 1.5, vy: v * sp, vz: pz * u * sp + fz * 1.5, life: R(0.12, 0.2), s0: 0.06, s1: 0.01, ramp: rp, drag: 4 });
+  }
+  if (M.back) for (let i = 0; i < M.back[0]; i++) {   // 火箭 / 飛彈：發射管後面噴出來的尾焰
+    const sp = R(5, 9) * M.back[1];
+    spawnGlow({ x: x - fx * 0.3, y, z: z - fz * 0.3, vx: -fx * sp + R(-1, 1), vy: R(-0.3, 0.8), vz: -fz * sp + R(-1, 1), life: R(0.12, 0.22), s0: R(0.14, 0.22), s1: 0.02, ramp: RAMP.fire, drag: 5 });
+  }
+  if (M.up) for (let i = 0; i < M.up[0]; i++) spawnGlow({ x, y, z, vx: R(-0.8, 0.8) + fx, vy: R(5, 9) * M.up[1], vz: R(-0.8, 0.8) + fz, life: R(0.08, 0.14), s0: R(0.12, 0.2), s1: 0.02, ramp: RAMP.fire, drag: 7 });
+  if (M.fireball) for (let i = 0; i < M.fireball; i++) {   // 加農砲：往前滾出去的火球
+    const sp = R(3, 7);
+    spawnGlow({ x: x + fx * 0.4, y, z: z + fz * 0.4, vx: fx * sp + R(-1.2, 1.2), vy: R(-0.2, 1.2), vz: fz * sp + R(-1.2, 1.2), life: R(0.18, 0.32), s0: 0, s1: R(0.3, 0.5), puff: true, ramp: RAMP.fire, drag: 5, g: -1 });
+  }
+  if (M.smoke) for (let i = 0; i < M.smoke[0]; i++) {
+    const back = M.back ? -1 : 1, sp = R(0.6, 1.8) * back;
+    spawnPuff({ x: x + fx * 0.25 * back, y, z: z + fz * 0.25 * back, vx: fx * sp + R(-0.4, 0.4), vy: R(0.4, 1.1), vz: fz * sp + R(-0.4, 0.4), life: R(0.6, 1.1), s: R(0.7, 1.1) * M.smoke[1] * 0.35, c0: 0x6a6a6e, c1: 0x9a9a9e, drag: 2.2, delay: R(0, 0.04) });
+  }
+  if (M.dust && y < 1.6) for (let i = 0; i < M.dust; i++) {   // 狙擊 / 加農砲：地面被震起一圈塵
+    const a = Math.atan2(fx, fz) + R(-1.4, 1.4), sp = R(3, 6);
+    spawnPuff({ x: x + fx * 0.5, y: 0.12, z: z + fz * 0.5, vx: Math.sin(a) * sp, vy: R(0, 0.3), vz: Math.cos(a) * sp, life: R(0.5, 0.8), s: R(0.18, 0.3), c0: 0x8a8478, c1: 0x6a665e, drag: 3.5 });
+  }
+  if (light) flashLight(x, y, z, color, 9 * M.light * (style === 'cannon' ? 1.4 : 1), 3 + M.light * 1.5, 0.06 + M.light * 0.02);
+}
+
+// ---------- 彈殼 ----------
+// 實彈武器（機槍、機砲、霰彈、狙擊、加農砲、打樁拳）每發從機匣往旁邊彈出一顆：拋物線、旋轉、在地上彈兩下，1.2～1.6 秒後縮掉
+// 一個共用的 InstancedMesh（最多 CASE_MAX 顆，滿了就不再加）；顏色照種類（黃銅、霰彈的紅殼、打樁拳的鋼殼）
+const CASE_MAX = 900;
+export const CASINGS = {
+  mg:     { w: 0.045, l: 0.11, c: 0xd4a640 },
+  ac:     { w: 0.065, l: 0.17, c: 0xc89a38 },
+  shot:   { w: 0.075, l: 0.15, c: 0xb8281c },
+  sniper: { w: 0.06, l: 0.22, c: 0xd8b050 },
+  cannon: { w: 0.15, l: 0.4, c: 0xb8902e },
+  pile:   { w: 0.11, l: 0.28, c: 0x9a9ca2 },
+};
+const caseMesh = new THREE.InstancedMesh(UNIT_BOX, new THREE.MeshLambertMaterial({ color: 0xffffff }), CASE_MAX);
+caseMesh.frustumCulled = false; caseMesh.count = 0; caseMesh.setColorAt(0, new THREE.Color());
+scene.add(caseMesh);
+const cases = [], caseE = new THREE.Euler(), caseQ = new THREE.Quaternion(), caseS = new THREE.Vector3(), caseP = new THREE.Vector3(), caseM = new THREE.Matrix4();
+// side：+1 往槍口右手邊彈、-1 左手邊；(bvx, bvz)：機體的速度（彈殼跟著機體一起走）
+export function casing(x, y, z, fx, fz, type, side = 1, bvx = 0, bvz = 0) {
+  if (cases.length >= CASE_MAX) return;
+  const T = CASINGS[type] ?? CASINGS.mg, px = fz * side, pz = -fx * side, big = T.w > 0.1;
+  const sp = big ? R(1.6, 2.6) : R(2.6, 4.2);
+  cases.push({ x, y, z, vx: px * sp - fx * R(0.3, 1.2) + bvx * 0.8, vy: big ? R(2, 3.5) : R(3, 5), vz: pz * sp - fz * R(0.3, 1.2) + bvz * 0.8,
+    rx: R(0, 6), ry: Math.atan2(fx, fz) + Math.PI / 2, vrx: R(14, 26) * (Math.random() < 0.5 ? -1 : 1), vry: R(-8, 8), life: R(1.2, 1.6), T, c: new THREE.Color(T.c).multiplyScalar(R(0.85, 1.1)) });
+}
+export function clearCasings() { cases.length = 0; caseMesh.count = 0; }
+function updateCasings(dt) {
+  let n = 0;
+  for (let i = cases.length - 1; i >= 0; i--) {
+    const k = cases[i];
+    k.life -= dt;
+    if (k.life <= 0 || k.y < -6) { cases[i] = cases[cases.length - 1]; cases.pop(); continue; }   // 時間到 / 掉進坑
+    k.vy -= 22 * dt;
+    k.x += k.vx * dt; k.y += k.vy * dt; k.z += k.vz * dt;
+    k.rx += k.vrx * dt; k.ry += k.vry * dt;
+    const h = k.T.w / 2;
+    if (k.y < h && !pitTest(k.x, k.z)) {
+      k.y = h;
+      if (k.vy < -1.2) { k.vy *= -0.38; k.vx *= 0.55; k.vz *= 0.55; k.vrx *= 0.5; }   // 彈一下
+      else { k.vy = 0; k.vx *= 0.82; k.vz *= 0.82; k.vrx *= 0.8; k.rx += (Math.round(k.rx / (Math.PI / 2)) * (Math.PI / 2) - k.rx) * Math.min(1, dt * 10); }   // 停下來躺平
+    }
+    if (wallTest(k.x, k.z) && k.y < WALL_H) { k.vx *= -0.4; k.vz *= -0.4; k.x += k.vx * dt * 2; k.z += k.vz * dt * 2; }
+    const sc = Math.min(1, k.life / 0.3);
+    caseE.set(k.rx, k.ry, 0); caseQ.setFromEuler(caseE);
+    caseM.compose(caseP.set(k.x, k.y, k.z), caseQ, caseS.set(k.T.w * sc, k.T.w * sc, k.T.l * sc));
+    caseMesh.setMatrixAt(n, caseM); caseMesh.setColorAt(n, k.c);
+    n++;
+  }
+  caseMesh.count = n;
+  caseMesh.instanceMatrix.needsUpdate = true;
+  if (caseMesh.instanceColor) caseMesh.instanceColor.needsUpdate = true;
+}
+
 // 推進器火焰
 export function flame(x, y, z, dx, dz) {
   const p = R(5, 9);
@@ -428,6 +537,7 @@ function updateMenders(dt) {
 
 export function updateParticles(dt) {
   updateLights(dt);
+  updateCasings(dt);
   updateMenders(dt);
   for (let i = debris.length - 1; i >= 0; i--) {
     const d = debris[i];
