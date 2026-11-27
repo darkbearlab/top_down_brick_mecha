@@ -42,11 +42,13 @@ export function startWreck(m, dx, dz) {
   wrecks.push(w);
   while (wrecks.length > MAX_WRECKS) removeWreck(wrecks[0]);
 
-  G.hitStop = Math.max(G.hitStop, 0.08);
-  G.slowMo = Math.max(G.slowMo, KILL_SLOW);
-  killCam.t = KILL_CAM; killCam.x = m.x; killCam.z = m.z;
-  document.body.classList.add('killcam');
-  addTrauma(0.5);
+  if (!G.noKillCam) {   // 據點戰：主力機一直在死、一直在重組 → 不放擊墜特寫（慢動作、鏡頭飛過去）
+    G.hitStop = Math.max(G.hitStop, 0.08);
+    G.slowMo = Math.max(G.slowMo, KILL_SLOW);
+    killCam.t = KILL_CAM; killCam.x = m.x; killCam.z = m.z;
+    document.body.classList.add('killcam');
+    addTrauma(0.5);
+  }
   sfx.partBreak();
   return w;
 }

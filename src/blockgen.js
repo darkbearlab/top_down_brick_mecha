@@ -77,7 +77,10 @@ export function genBlocks(seed = Math.floor(Math.random() * 1e9), { W = 96, H = 
 // 兩邊出發點（x = ±side, z = 0）周圍清出一塊空地（11 × 25 格），放得下一整隊；正中央一棟 2 × 10 的長條建築擋火力巷
 // 固定種子 → 每次都是同一張圖（觀戰、無頭模擬一樣）
 export const BIG_ARENA_SEED = 4;   // 挑過的：建築約 24%
-export function bigArena(seed = BIG_ARENA_SEED) {
+// conquest：據點戰用（src/conquest.js）——清出 3 × 3 塊據點空地（世界座標 x = -22 / 0 / 22、z = -22 / 0 / 22），每塊周圍有 2 × 2 的矮房當掩體；
+//   正中央那棟長條建築不蓋（中央據點在那裡）；一樣點對稱（巢穴種類也照點對稱配：轉 180° 後同一種）
+export const CQ_NODES = [-22, 0, 22].flatMap(z => [-22, 0, 22].map(x => ({ x, z })));
+export function bigArena(seed = BIG_ARENA_SEED, conquest = false) {
   const W = 96, H = 72, R = rng(seed);
   const grid = Array.from({ length: H }, (_, r) => Array.from({ length: W }, (_, c) => (r === 0 || c === 0 || r === H - 1 || c === W - 1) ? '#' : '.'));
   const half = [];
@@ -85,7 +88,9 @@ export function bigArena(seed = BIG_ARENA_SEED) {
   const AVE = W / 2 - 3;   // 大道左緣（c 45～50）
   const side = 42, sc = Math.floor(W / 2 - side), sr = H / 2;   // 出發點那格（左邊）
   const clearC = [1, sc + 5], clearR = [sr - 12, sr + 12];
-  const inClear = (c, r, w = 1, h = 1) => c < clearC[1] + 1 && c + w > clearC[0] && r < clearR[1] + 1 && r + h > clearR[0];
+  const box = (c0, c1, r0, r1) => (c, r, w, h) => c < c1 + 1 && c + w > c0 && r < r1 + 1 && r + h > r0;
+  const clears = [box(clearC[0], clearC[1], clearR[0], clearR[1]), ...(conquest ? [box(39, 56, 8, 19), box(39, 56, 30, 41), box(39, 56, 52, 63), box(20, 31, 8, 19), box(20, 31, 30, 41), box(20, 31, 52, 63)] : [])];   // 據點空地（左半邊的部分；右半邊轉 180° 自己有）
+  const inClear = (c, r, w = 1, h = 1) => clears.some(f => f(c, r, w, h));
   fillBlocks(R, streetCuts(R, 1, AVE, 3, 4, true), streetCuts(R, 1, H - 1, 3, 4), (c, r, w, h, f, st) => { if (!inClear(c, r, w, h)) addB(c, r, w, h, f, st); }, grid, (c, r) => inClear(Math.floor(c), Math.floor(r)), 0.1, 0.3);
   // 中央建築（c 47～48、r 32～39）兩側只有 2 格（c 45～46）：貼著大道、又跟它的兩端差不到 2 列的街廓建築削掉最靠大道那一行，
   //   不然街廓的角跟中央建築的角之間只剩 2 格的縫（機體寬 1.7～1.9 格，斜著走一定卡角），削完是 3 格
@@ -94,9 +99,10 @@ export function bigArena(seed = BIG_ARENA_SEED) {
     if (c + w === AVE && w > 2 && r < H / 2 + 6 && r + h > H / 2 - 6) { for (let y = r; y < r + h; y++) grid[y][c + w - 1] = '.'; b[2] = w - 1; }
   }
   // （大道上原本有兩棟 2 × 2 的矮房當掩體：貼著街廓只留 1 格縫、卡尋路，2026-11-26 拿掉，掩體改由正中央的長條建築負責）
+  if (conquest) for (const [c, r] of [[41, 9], [41, 16], [53, 9], [53, 16], [41, 31], [41, 37], [21, 9], [29, 16], [21, 31], [29, 38], [21, 53], [29, 60]]) addB(c, r, 2, 2, 1, 0);   // 據點掩體（轉 180° 後上下、中央各 4 棟）
   const buildings = [...half, ...half.map(([c, r, w, h, f, st]) => [W - c - w, H - r - h, w, h, f, (st + 1) % 3])];
   // 正中央一棟南北長、東西窄的建築（自己就對中心點對稱）：擋住大道上的直線火力巷，兩邊不會一直在中間對射；兩側各留 2 格通道
-  buildings.push([W / 2 - 1, H / 2 - 4, 2, 8, 3, 1]);   // 8 格長：兩端跟大道上的矮房之間留得出路（18 格時剛好卡住，尋路得繞一大圈；10 格時跟旁邊街廓的角重疊一列，只剩 2 格縫、機體斜著走會卡 → 改 8 格 + 削街廓的角，見上面）
+  if (!conquest) buildings.push([W / 2 - 1, H / 2 - 4, 2, 8, 3, 1]);   // 8 格長：兩端跟大道上的矮房之間留得出路（18 格時剛好卡住，尋路得繞一大圈；10 格時跟旁邊街廓的角重疊一列，只剩 2 格縫、機體斜著走會卡 → 改 8 格 + 削街廓的角，見上面）
   for (const [c, r, w, h] of buildings) for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) grid[y][x] = 'B';
-  return { id: 'bigarena' + seed, W, H, grid, buildings, side };
+  return { id: (conquest ? 'cqarena' : 'bigarena') + seed, W, H, grid, buildings, side };
 }
