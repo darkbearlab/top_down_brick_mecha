@@ -110,7 +110,7 @@ export function bigArena(seed = BIG_ARENA_SEED) {
 //   上路：左上大本營 → 沿上緣蛇行 → 右上角轉下 → 紅隊的甲殼巢（轉 180° = 下路）；左緣那段：藍隊的甲殼巢 → 大本營
 //   中路：大本營 → 增援巢 → 折兩次 → 母巢
 //   叢林小徑：酸腺巢 ↔ 增援巢（經過營地）、甲殼巢 ↔ 增援巢（經過營地）、甲殼巢 → 營地 → 岔路口 → 發光巢、岔路口 → 母巢
-// 路上、空地有可破壞的矮房當掩體（路中間永遠留 4 格以上）；被通道圍起來的小島整塊是可破壞的建築（打穿 = 捷徑）
+// 路上、空地有可破壞的矮房當掩體（路中間永遠留 4 格以上）；被通道圍起來的小島整塊是可破壞的建築、大岩塊也大部分是建築（只留零散的岩心）→ 越打越寬闊
 // 生成：只做左半邊，右半邊 = 左半邊轉 180°；大本營到每座巢穴、每個營地、對面大本營一定走得到（不通就換種子重做）
 export const CQ_W = 152, CQ_H = 112;
 export const CQ_BASES = [{ x: -64, z: -44 }, { x: 64, z: 44 }];   // 藍、紅
@@ -197,48 +197,24 @@ function tryConquest(seed) {
     if (!edge && q.length < 700) for (const j of q) isl[j] = 1;
     else { for (const j of q) comp[j] = bigs.length; bigs.push(q); }
   }
-  // 大塊的岩壁（含外圍那一圈）：裡面埋 1～2 條 3 格寬、填滿建築的「隧道」，兩頭都通到通道 → 打穿就是一條新路（不會是死路）
-  //   從岩塊的中心附近找橫的、直的直線，穿過去兩頭都碰到空地、長度 6～34 格
-  const tunnel = new Uint8Array(W * H);
-  for (const [id, q] of bigs.entries()) {
-    let sx = 0, sy = 0;
-    for (const j of q) { sx += j % W; sy += (j - j % W) / W; }
-    const cx = Math.round(sx / q.length), cy = Math.round(sy / q.length);
-    const inC = (x, y) => x > 0 && y > 0 && x < W - 1 && y < H - 1 && comp[y * W + x] === id;
-    const span = (x, y, dx, dy) => {   // 從 (x, y) 往兩邊走到空地；三排都要在岩塊裡
-      if (!inC(x, y)) return null;
-      const ends = [];
-      for (const sg of [-1, 1]) {
-        let n = 0, X = x, Y = y;
-        while (inC(X + dx * sg, Y + dy * sg) && n < 40) { X += dx * sg; Y += dy * sg; n++; }
-        const ex = X + dx * sg, ey = Y + dy * sg;
-        if (grid[ey]?.[ex] !== '.') return null;
-        ends.push([X, Y]);
-      }
-      const [[x0, y0], [x1, y1]] = ends, len = Math.abs(x1 - x0) + Math.abs(y1 - y0) + 1;
-      if (len < 6 || len > 34) return null;
-      for (let k = 0; k < len; k++) for (const o of [-1, 1]) { const X = x0 + dx * k + dy * o, Y = y0 + dy * k + dx * o; if (!inC(X, Y)) return null; }
-      return { x0, y0, len };
-    };
-    let made = 0;
-    for (const [dx, dy] of [[1, 0], [0, 1]]) {
-      for (let off = 0; off <= 14 && made < 2; off++) {
-        const o = (off % 2 ? 1 : -1) * Math.ceil(off / 2) * 2, x = cx + (dx ? 0 : o), y = cy + (dx ? o : 0);
-        const T = span(x, y, dx, dy);
-        if (!T) continue;
-        for (let k = 0; k < T.len; k++) for (let w = -1; w <= 1; w++) tunnel[(T.y0 + dy * k + dx * w) * W + T.x0 + dx * k + dy * w] = 1;
-        made++; break;
-      }
+  // 大塊的岩壁（含外圍那一圈）：大部分也換成建築，只留下零散的岩心（打不壞的柱子 / 小岩堆）和地圖邊緣 3 格
+  //   → 越打地圖越寬闊（爆炸型、穿牆型的武器有發揮的地方）；岩心照種子撒（每 110 格一顆、半徑 1.5～3.5）
+  const keep = new Uint8Array(W * H);
+  for (const q of bigs) {
+    const n = Math.max(2, Math.round(q.length / 110));
+    for (let i = 0; i < n; i++) {
+      const j = q[Math.floor(R() * q.length)], x0 = j % W, y0 = (j - x0) / W, rr = 1.5 + R() * 2;
+      for (let y = Math.floor(y0 - rr); y <= y0 + rr; y++) for (let x = Math.floor(x0 - rr); x <= x0 + rr; x++) if (Math.hypot(x - x0, y - y0) <= rr && x >= 0 && y >= 0 && x < W && y < H) keep[y * W + x] = 1;
     }
   }
-  // 隧道切成建築：左半邊切（最大 4 格長）、右半邊轉過去
-  const usedT = new Uint8Array(W * H), canT = (x, y) => x < HW && tunnel[y * W + x] && !usedT[y * W + x];
+  const usedT = new Uint8Array(W * H), canT = (x, y) => x < HW && comp[y * W + x] >= 0 && !keep[y * W + x] && !usedT[y * W + x] && grid[y][x] === '#'
+    && x > 3 && y > 3 && y < H - 4;
   for (let r = 0; r < H; r++) for (let c = 0; c < HW; c++) {
     if (!canT(c, r)) continue;
     let w = 1; while (w < 4 && canT(c + w, r)) w++;
     let h = 1; while (h < 4) { let okRow = true; for (let x = c; x < c + w; x++) if (!canT(x, r + h)) { okRow = false; break; } if (!okRow) break; h++; }
     for (let y = r; y < r + h; y++) for (let x = c; x < c + w; x++) usedT[y * W + x] = 1;
-    half.push([c, r, w, h, ri(2, 4), ri(0, 2)]);
+    half.push([c, r, w, h, ri(1, 4), ri(0, 2)]);
   }
   const used = new Uint8Array(W * H), canI = (x, y) => x < HW && isl[y * W + x] && !used[y * W + x] && grid[y][x] === '#';
   for (let r = 0; r < H; r++) for (let c = 0; c < HW; c++) {

@@ -20,7 +20,7 @@ import { G, addMat, scene } from './core.js';
 import { H as MAP_H, W as MAP_W, grid, isSolid, rayBlock } from './arena.js';
 import { mechs, syncWear } from './mech.js';
 import { DIFFS, enemies, spawnEnemy } from './ai.js';
-import { ELITES, NEW_ACES, SQUADS, gruntOf } from './parts.js';
+import { ELITES, ENEMY_PRESETS, NEW_ACES, SQUADS, gruntOf } from './parts.js';
 import { repairFx } from './fx.js';
 import { packUnits } from './heavy.js';
 import { routeDir } from './pathing.js';
@@ -97,7 +97,9 @@ export function clearConquest() {
   S = null;
 }
 
-const pickAce = () => NEW_ACES[Math.floor(Math.random() * NEW_ACES.length)];
+// 主力機的配裝池：一般機體（ENEMY_PRESETS，各種武器類型）+ 新數值王牌（NEW_ACES）→ 打得掉建築的、穿牆的、近戰的都有機會出場
+const ACE_POOL = [...new Map([...ENEMY_PRESETS, ...NEW_ACES].map(p => [p.name, p])).values()];
+const pickAce = () => ACE_POOL[Math.floor(Math.random() * ACE_POOL.length)];
 const baseOf = team => S.bases[team];
 const foeTeam = t => t === 'blue' ? 'red' : 'blue';
 const owned = n => n.owner === 'blue' || n.owner === 'red';
