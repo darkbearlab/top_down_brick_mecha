@@ -18,7 +18,8 @@ export const DT = 1 / 60;
 const mulberry = a => () => { a |= 0; a = a + 0x6D2B79F5 | 0; let t = Math.imul(a ^ a >>> 15, 1 | a); t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t; return ((t ^ t >>> 14) >>> 0) / 4294967296; };
 let map = null;
 const none = { x: 0, z: 0, alive: false, team: 'none' };
-export function newMatch(seed = 1) {
+export function newMatch(seed = 1, opt = {}) {
+  if (opt.gruntCap) C.CQ.gruntCap = opt.gruntCap;   // 記憶體實驗：場上雜魚上限
   if (!map) { map = conquestArena(); loadMap(map); setLayout(map.buildings); applyHeavy(); AI.onEnemyDeath = e => C.conquestDeath(e); }
   Math.random = mulberry(seed * 9973);
   for (const m of mechs.slice()) removeMech(m);
