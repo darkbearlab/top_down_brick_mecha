@@ -1,0 +1,9 @@
+# Pages 入口（測試）：pages.dev 從台灣走台北機房（workers.dev 會繞到美國聖荷西），請求轉給 mecha-bench Worker 的 Durable Object
+name = "mecha-bench-pages"
+pages_build_output_dir = "./public"
+compatibility_date = "2025-11-01"
+
+[[durable_objects.bindings]]
+name = "BENCH"
+class_name = "Bench"
+script_name = "mecha-bench"
