@@ -1,0 +1,4 @@
+# 測試網站（Cloudflare Pages，pages.dev 從台灣走台北機房）；部署方式見 build.mjs
+name = "brick-mecha"
+pages_build_output_dir = "./dist"
+compatibility_date = "2025-11-01"
