@@ -117,11 +117,17 @@ export function canReady(m, side) {
 const deployT = m => hasChip(m, 'quickSwap') ? 0.05 : DEPLOY_T;   // 快速換裝
 // 盾牌那一邊：盾一直舉著、不能被選成使用中，那一側的滑鼠鍵固定打背部武器
 const shieldArm = (m, side) => m.guns?.['arm' + side]?.def.kind === 'shield' && !slotBroken(m, 'arm' + side);
-export function toggleReady(m, side) {
+// 現在切不切得過去（不改狀態；控制器插槽的預判用）
+export function canToggle(m, side) {
   if (!m.alive || m.swing) return false;
   const on = !m.ready[side];
   if (!on && shieldArm(m, side)) return false;
   if (on && !canReady(m, side)) return false;
+  return true;
+}
+export function toggleReady(m, side) {
+  if (!canToggle(m, side)) return false;
+  const on = !m.ready[side];
   m.ready[side] = on;
   m.deployT[side] = deployT(m);
   log('ready', { m: m.id, side, back: on });
@@ -160,8 +166,10 @@ export function boostDirOf(m, mx, mz) {
 export const boostKOf = m => m.spec.boost * (m.parts.legs.broken ? 0.75 : 1) * (hasChip(m, 'lowCG') ? 0.6 : 1);   // 低重心：推進短
 // 推進耗能（供能模組 ×0.75）
 export const boostCost = m => BOOST_COST * (hasModule(m, 'power') ? WEAPONS.power.boostK : 1);
+// 現在推不推得動（不改狀態；控制器插槽的預判用）
+export const canBoost = m => !(!m.alive || m.grunt || !m.spec.boost || m.staggerT > 0 || m.boostCd > 0 || m.energy < boostCost(m) || m.charge);
 export function tryBoost(m, mx, mz) {
-  if (!m.alive || m.grunt || !m.spec.boost || m.staggerT > 0 || m.boostCd > 0 || m.energy < boostCost(m) || m.charge) return false;
+  if (!canBoost(m)) return false;
   const d = boostDirOf(m, mx, mz), k = boostKOf(m);
   // 噴射只往一個方向：原本的速度只留沿著噴射方向的分量（往反方向跑的會被抵銷），橫向的全部吃掉
   const along = Math.max(0, m.vx * d.x + m.vz * d.z);

@@ -27,6 +27,8 @@
 //   到了可以讀條的巢穴 → 綁在圈裡打；清蟲機 30 格外就把整窩叫醒（先手）；路線繞太遠就打穿建築開捷徑（breach）；主動裝置照情況用（aceDevice）
 //   回營：軀幹 < 40%（旁邊有修理機 < 25%）、腳壞了、或剩下的火力 < 40%（主力武器打光、拿武器的手斷了）
 // 戰績（S.stats）：每台主力機的擊墜 / 損毀 / 佔領 / 營地；隊伍的雜魚擊破、空投（main.js 的 Tab 總覽）
+// 控制器插槽（2026-11-28，control.js）：每個主力機位置可以指定誰在操作（opts.ctrl：'ai' / 'remote'；opts.player = 藍隊 1 號本地玩家）；
+//   遠端的主力機一樣有隊伍指揮給的目標（e.cq.goal = 指令），只是不跑 postUpdate（不會被自動駕駛）、不會自動用裝置
 // 參戰（2026-11-28，startConquest 的 opts.player）：玩家 = 藍隊 1 號機（S.player，k 0），另外兩台藍隊和整個紅隊是 AI
 //   隊伍指揮照樣替玩家挑目標 = 給玩家的指令（cqOrder：文字 + 地上的光柱 + 腳邊照路線指的箭頭）；玩家不會被自動駕駛
 //   被擊破 / 開場：S.prespawn = 重組倒數，main.js 開選機體畫面（cqPickInfo：開放的配裝、AI 建議），選好 → cqJoin 接回 1 號機的位置
@@ -34,7 +36,8 @@ import * as THREE from 'three';
 import { G, addMat, scene } from './core.js';
 import { H as MAP_H, W as MAP_W, grid, gridVer, isSolid, rayBlock } from './arena.js';
 import { isBuilding } from './buildings.js';
-import { updateDeviceCd, useDevice, deviceReady } from './devices.js';
+import { deviceReady } from './devices.js';
+import { ctrlOf, qDevice, setCtrl } from './control.js';
 import { hasModule, mechs, syncWear } from './mech.js';
 import { DIFFS, breakPow, breakReach, enemies, removeEnemy, spawnEnemy } from './ai.js';
 import { CQ_ACES, EFFECT, ELITES, SQUADS, WEAPONS, fireTime, gruntOf } from './parts.js';
@@ -295,6 +298,9 @@ export function startConquest(map, toast, opts = {}) {
       ...OUTPOSTS.map((p, i) => ({ i: CQ_CAMPS.length + i, key: `cqo${i}`, camp: true, outpost: true, kind: 'outpost', x: p.x, z: p.z, units: [], respawn: 0, owner: null }))] };
   for (const n of S.nodes) buildNode(n);
   for (const c of S.camps) { buildCamp(c); spawnCamp(c); }
+  // 控制器插槽：opts.ctrl = { blue: ['ai', 'ai', 'remote'], red: [...] }（沒給 = 全部內建 AI；opts.player = 藍隊 1 號是本地玩家）
+  S.slots = { blue: [...(opts.ctrl?.blue ?? [])], red: [...(opts.ctrl?.red ?? [])] };
+  if (opts.player) S.slots.blue[0] = 'local';
   S.opening = true;
   for (const team of TEAMS) {
     const B = baseOf(team), F0 = front(team, 6);
@@ -345,6 +351,8 @@ function tagUnit(e, team, extra) {
 }
 function spawnAce(team, lo, at, k, noDrop = false) {
   const e = spawnEnemy(ANCHOR, lo, at, { team, colors: COLORS[team], diff: DIFFS.hard, noDrop });
+  const kind = S.slots?.[team]?.[k];
+  if (kind && kind !== 'ai') setCtrl(e, kind);   // 控制器插槽（control.js）：這個位置是誰在操作（重組也一樣）
   tagUnit(e, team, { ace: true, lo, k });
   addRing(e, team);
   faceCenter(e, team);
@@ -496,6 +504,7 @@ function driveTo(e, n, keepAim = false) {
 // 每幀，updateEnemy 之前：挑對手、蟲醒不醒、全隊 / 個人效果
 export function preUpdate(dt) {
   if (!S) return;
+  S.dt = dt;
   for (const e of S.player?.alive ? [...enemies, S.player] : enemies) {
     if (!e.alive || !e.cq) continue;
     const H = nearestHostile(e);
@@ -518,7 +527,7 @@ export function preUpdate(dt) {
       if (H) e.foe = H.o;
       continue;
     }
-    if (e.cq.ace && !e.isPlayer) aceDevice(e, dt);
+    // 主力機的主動裝置：改在 postUpdate 判斷（這一幀的操作幀 stepMech 開頭才建，太早記會被清掉）
     e.foe = H?.o ?? null;
     e.cq.near = H;
     const B = S.buffs[e.team], b = e.cq.base, P = e.cq.ace ? buffSum(e.team) : {};   // 營地效果：全隊主力機都有
@@ -536,6 +545,7 @@ export function preUpdate(dt) {
 // 每幀，updateEnemy 之後（driveMech 之前）：附近沒有看得到的敵人 → 照路線走去目標
 export function postUpdate(e) {
   if (!S || !e.alive || !e.cq || e.team === 'native' || e.drop || e.cq.fort || e.cq.obody) return;
+  if (e.cq.ace && ctrlOf(e) === 'ai') aceDevice(e, S.dt ?? 0);   // 只給內建 AI 的主力機（玩家 / 遠端自己按）
   const C = e.cq, H = C.near, R = e.grunt ? CQ.engageGrunt : CQ.engageAce;
   if (C.retreat) { if (C.held) { e.hold = null; C.held = false; } e.siegeAt = null; C.breach = null; driveTo(e, C.goal, !!(H && H.d < R && sees(e, H.o, H.d))); return; }   // 回基地：一定走，看得到敵人就邊退邊打
   // 搶點反制（2026-11-28）：35 格內有巢穴正被對面讀條、圈裡有煙 → 直接走進圈裡（兩邊都有人站 = 讀條暫停），邊走邊盲射（ai.js）
@@ -653,7 +663,6 @@ function breach(e, g) {
 }
 // 主動裝置（AI）：手榴彈丟擠在一起的敵人、煙霧掩護讀條 / 撤退、地雷埋在守的巢穴、護盾 / 誘餌被主力機盯上時用、電磁脈衝打貼身的、超載對主力機開火時
 function aceDevice(e, dt) {
-  updateDeviceCd(e, dt);
   if (!e.device || (e.cq.devT = (e.cq.devT ?? 0) - dt) > 0 || !deviceReady(e)) return;
   e.cq.devT = 0.4;
   const C = e.cq, team = e.team, hp = e.parts.torso.hp / e.parts.torso.max;
@@ -662,11 +671,11 @@ function aceDevice(e, dt) {
   if (!foes.length) {
     // 敵人躲進煙裡（ai.js 盲射中）：手榴彈丟最後看到的位置
     const B = e.ai?.blindAt, bd = B ? Math.hypot(B.x - e.x, B.z - e.z) : 0;
-    if (B && e.device.id === 'grenade' && bd > 4 && bd < 13.5 && useDevice(e, B)) { C.devN = (C.devN ?? 0) + 1; S.devices++; }
+    if (B && e.device.id === 'grenade' && bd > 4 && bd < 13.5 && qDevice(e, B)) { C.devN = (C.devN ?? 0) + 1; S.devices++; }
     return;
   }
   const aceNear = r => foes.some(f => f.d < r && f.o.cq?.ace);
-  const use = (x, z) => { if (useDevice(e, { x, z })) { C.devN = (C.devN ?? 0) + 1; S.devices++; } };
+  const use = (x, z) => { if (qDevice(e, { x, z })) { C.devN = (C.devN ?? 0) + 1; S.devices++; } };
   switch (e.device.id) {
     case 'grenade': {
       const t = foes.find(f => f.d > 5 && f.d < 13.5 && foes.filter(q => Math.hypot(q.o.x - f.o.x, q.o.z - f.o.z) < 3).length >= 2)

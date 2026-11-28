@@ -12,7 +12,7 @@ import { wantsLock } from './mech.js';
 import { burnLockK } from './status.js';
 import { BAL } from './parts.js';
 
-export const sensors = { locks: [], progress: new Map(), head: null, seenT: new Map() };
+export const sensors = { locks: [], progress: new Map(), head: null, seenT: new Map(), held: new Set(), live: new Set() };   // 本地玩家的鎖定狀態（HUD 讀這份）
 
 // 鎖定範圍扇形（地上淡淡的一片 + 外緣一條弧）：角度 = 鎖定角度、半徑 = 鎖定距離
 const fanG = new THREE.Group();
@@ -91,36 +91,46 @@ export function headStats(p) {
   return c.s;
 }
 
-export function updateSensors(p, enemies, aim, dt) {
-  const H = sensors.head = headStats(p);
+// 鎖定的狀態（每台機體一份：玩家用上面的 sensors；其他由控制器操作的機體各自 makeLockState()，2026-11-28 控制器插槽）
+export const makeLockState = () => ({ locks: [], progress: new Map(), head: null, seenT: new Map(), held: new Set(), live: new Set() });
+// 鎖定邏輯（沒有畫面）：照頭的扇形、距離、視線慢慢鎖上；targets = 可能的目標（同隊的跳過）；結果寫進 S（S.locks = 鎖上的）
+export function computeLocks(p, targets, aim, dt, S) {
+  const H = S.head = headStats(p);
   const lockTime = H.lockTime * (p.lockMul ?? 1) * burnLockK(p);   // 無盡模式的強化；頭燒起來鎖得慢
-  const key = p.alive ? `${H.lockArc}|${H.lockRange.toFixed(1)}` : '';
-  if (key !== fanKey) { fanKey = key; if (key) buildFan(H.lockArc, H.lockRange); else fanG.clear(); }
-  fanG.position.set(p.x, 0.04, p.z);
-  fanG.rotation.y = p.torsoYaw;
-
-  const held = new Set(), live = new Set(), armed = BAL.fcsPassive || wantsLock(p), half = H.lockArc * Math.PI / 360;
+  const held = S.held, live = S.live, armed = BAL.fcsPassive || wantsLock(p), half = H.lockArc * Math.PI / 360;
+  held.clear(); live.clear();
+  if (p.lockBreak) { S.progress.clear(); S.locks = []; p.lockBreak = false; }   // 失衡：鎖定被打斷
   // 鎖定熱度（BAL.relock 'heat'）：剛射了一輪 → 鎖上的目標進度扣 lockHeat
-  if (p.lockFire) { p.lockFire = false; for (const [e, v] of sensors.progress) if (v >= 1) sensors.progress.set(e, 1 - BAL.lockHeat); }
-  for (const e of enemies) {
-    if (!e.alive || e.drop || e.swarm || e.team === p.team) continue;   // 隊友不鎖（據點戰：玩家在藍隊）；蟲群鎖不到（一大群小東西，鎖了會一直干擾）
+  if (p.lockFire) { p.lockFire = false; for (const [e, v] of S.progress) if (v >= 1) S.progress.set(e, 1 - BAL.lockHeat); }
+  for (const e of targets) {
+    if (e === p || !e.alive || e.drop || e.swarm || e.team === p.team || e.team === 'none') continue;   // 隊友不鎖；蟲群鎖不到（一大群小東西，鎖了會一直干擾）
     const dx = e.x - p.x, dz = e.z - p.z, dist = Math.hypot(dx, dz);
-    if (dist > H.lockRange + 4 && !sensors.progress.has(e)) continue;   // 遠的不用算
+    if (dist > H.lockRange + 4 && !S.progress.has(e)) continue;   // 遠的不用算
     const aimA = Math.abs(angleDiff(p.torsoYaw, Math.atan2(dx, dz)));
     const nearAim = aim && Math.hypot(e.x - aim.x, e.z - aim.z) < 2.5;
     const seen = rayBlock(p.x, p.z, dx / (dist || 1), dz / (dist || 1), dist) >= dist - e.r;
     const can = p.alive && armed && dist <= H.lockRange && (aimA < half || nearAim) && seen;   // 只鎖得到看得見的目標（2026-11-28：長距鎖定頭也不能隔牆鎖）
-    let prog = sensors.progress.get(e) ?? 0;
-    if (can) sensors.seenT.set(e, G.now);
-    const hold = !can && prog >= 1 && p.alive && BAL.lockHold > 0 && G.now - (sensors.seenT.get(e) ?? -99) < BAL.lockHold && dist <= H.lockRange + 4;   // 鎖定保持：躲到牆後 / 離開扇形一下下，鎖定還在
+    let prog = S.progress.get(e) ?? 0;
+    if (can) S.seenT.set(e, G.now);
+    const hold = !can && prog >= 1 && p.alive && BAL.lockHold > 0 && G.now - (S.seenT.get(e) ?? -99) < BAL.lockHold && dist <= H.lockRange + 4;   // 鎖定保持：躲到牆後 / 離開扇形一下下，鎖定還在
     if (hold) { live.add(e); held.add(e); continue; }
-    prog = can && !(G.now < (p.relockUntil ?? 0)) ? Math.min(1, prog + dt / lockTime) : Math.max(0, prog - dt * 4);   // 離開範圍 / 視線：很快退掉（1.5 → 4）   // 逐發鎖定 'after'：冷卻中不鎖；隔牆鎖得慢（BAL.wallLockK）
-    if (prog > 0) { sensors.progress.set(e, prog); live.add(e); } else sensors.progress.delete(e);
+    prog = can && !(G.now < (p.relockUntil ?? 0)) ? Math.min(1, prog + dt / lockTime) : Math.max(0, prog - dt * 4);   // 離開範圍 / 視線：很快退掉；逐發鎖定 'after'：冷卻中不鎖
+    if (prog > 0) { S.progress.set(e, prog); live.add(e); } else S.progress.delete(e);
   }
-  // 鎖上的：進度滿的，依進度排序取前 lockCount 台
-  const full = [...sensors.progress.entries()].filter(([e, v]) => v >= 1 && e.alive).map(([e]) => e);
+  // 鎖上的：進度滿的，照距離排序取前 lockCount 台
+  const full = [...S.progress.entries()].filter(([e, v]) => v >= 1 && e.alive).map(([e]) => e);
   full.sort((a, b) => Math.hypot(a.x - p.x, a.z - p.z) - Math.hypot(b.x - p.x, b.z - p.z));
-  sensors.locks = full.slice(0, H.lockCount);
+  S.locks = full.slice(0, H.lockCount);
+  return S.locks;
+}
+// 本地玩家：鎖定邏輯 + 畫面（地上的扇形、鎖定框）
+export function updateSensors(p, enemies, aim, dt) {
+  computeLocks(p, enemies, aim, dt, sensors);
+  const H = sensors.head, held = sensors.held, live = sensors.live;
+  const key = p.alive ? `${H.lockArc}|${H.lockRange.toFixed(1)}` : '';
+  if (key !== fanKey) { fanKey = key; if (key) buildFan(H.lockArc, H.lockRange); else fanG.clear(); }
+  fanG.position.set(p.x, 0.04, p.z);
+  fanG.rotation.y = p.torsoYaw;
 
   // 鎖定框
   for (const [t, m] of lockMarks) {

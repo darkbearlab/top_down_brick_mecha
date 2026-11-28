@@ -23,7 +23,7 @@ const { arenaMap, loadMap } = await import('../../src/arena.js');
 const { ARENA_LAYOUT, resetBuildings, setLayout, updateBuildings } = await import('../../src/buildings.js');
 const { collideMechs, driveMech, mechs, removeMech } = await import('../../src/mech.js');
 const { clearShots, updateShots } = await import('../../src/weapons.js');
-const { AI, DIFFS, enemies, spawnEnemy, updateEnemy } = await import('../../src/ai.js');
+const { AI, DIFFS, enemies, spawnEnemy, stepMech, updateEnemy } = await import('../../src/ai.js');
 const { ARMORS, CORES, ELITES, ENEMY_PRESETS, GRUNTS, GRUNTS_LOW, HEADS, LEGS, SQUADS, WEAPONS, gruntOf } = await import('../../src/parts.js');
 const { updateStatus } = await import('../../src/status.js');
 const { clearWrecks, updateWrecks } = await import('../../src/wreck.js');
@@ -123,8 +123,7 @@ function battle(i) {
     retarget();
     for (const e of all) {
       if (!e.alive || !e.foe) continue;
-      updateEnemy(e, DT, e.foe);
-      if (e.alive && !e.drop) driveMech(e, DT, e.drive.mx, e.drive.mz, e.aimYaw);
+      stepMech(e, DT, e.foe, null, false);   // 控制器 → 執行器（control.js）；這個模擬原本沒有卡點迴避
     }
     collideMechs();
     updateShots(DT);

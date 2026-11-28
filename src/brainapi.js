@@ -5,8 +5,9 @@
 // 看得到的東西（obs）跟能做的事（act）見 tools/sim/BRAINS.md
 import { G, angleDiff } from './core.js';
 import { rayBlock } from './arena.js';
-import { activeSlot, facing, mechs, muzzleOf, slotBroken, slotLive, toggleReady, tryBoost, wantsLock } from './mech.js';
-import { shots, updateGuns, fireZones } from './weapons.js';
+import { activeSlot, facing, mechs, muzzleOf, slotBroken, slotLive, wantsLock } from './mech.js';
+import { shots, fireZones } from './weapons.js';
+import { qBoost, qGuns, qReady } from './control.js';
 import { headStats } from './sensors.js';
 import { burnLockK } from './status.js';
 import { BAL, SLOTS } from './parts.js';
@@ -126,9 +127,9 @@ function apply(e, act, dt, foe) {
   // 背部武器：back.L / back.R = true 架起、false 收回（切換中不理）
   for (const side of ['L', 'R']) {
     const want = act.back?.[side];
-    if (want != null && e.ready[side] !== want && e.deployT[side] <= 0) toggleReady(e, side);
+    if (want != null && e.ready[side] !== want && e.deployT[side] <= 0) qReady(e, side);
   }
-  if (act.boost) { const b = act.boost === true ? { x: mx, z: mz } : act.boost; tryBoost(e, b.x, b.z); }
+  if (act.boost) { const b = act.boost === true ? { x: mx, z: mz } : act.boost; qBoost(e, b.x, b.z); }
   if (act.note) note(e, act.note);
   // 選目標：act.target = 敵人的 id（obs.enemies[].id）；下一幀起 obs.foe、鎖定、預設的 aimAt 都換成它；null = 交回預設（最近的）
   if (act.target !== undefined) e.btarget = act.target;
@@ -141,7 +142,7 @@ function apply(e, act, dt, foe) {
   const locks = e.block >= 1 ? [foe] : [];
   e.lockOn = e.block > 0 && foe.alive ? { tgt: foe, k: Math.min(1, e.block) } : null;   // 給玩家的被鎖定警示（lockwarn.js）
   const aim = act.aimAt ?? { x: foe.x, z: foe.z };
-  updateGuns(e, { L: !!act.fire?.L && !AI.passive, R: !!act.fire?.R && !AI.passive }, dt, locks, aim);
+  qGuns(e, { L: !!act.fire?.L && !AI.passive, R: !!act.fire?.R && !AI.passive }, locks, aim);   // 記進這一幀（control.js 執行器照做）
   if (e.laser) e.laser.g.visible = false;
 }
 

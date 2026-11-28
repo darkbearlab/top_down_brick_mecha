@@ -24,7 +24,8 @@ import { ENEMY_COLORS, PLAYER_COLORS, activeSlot, collideMechs, driveMech, facin
 import { ARENA_LAYOUT, buildLayerBuildings, resetBuildings, setBuildingLayer, setLayout, updateBuildings } from './buildings.js';
 import { SLOW_K, clearHusks, clearWrecks, killCam, setHuskLayer, updateWrecks } from './wreck.js';
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
-import { AI, DIFFS, antiStuck, clearEnemies, enemies, keepEnemies, parkEnemy, removeEnemy, spawnEnemy, unparkEnemy, updateEnemy } from './ai.js';
+import { AI, DIFFS, clearEnemies, enemies, keepEnemies, parkEnemy, removeEnemy, spawnEnemy, stepMech, unparkEnemy, updateEnemy } from './ai.js';
+import { applyFrame, pushFrame, setCtrl } from './control.js';
 import { burst, clearCasings, clearRubble, makeLaser, repairFx, setLaser, setRubbleLayer, smoke, updateParticles } from './fx.js';
 import { clearWarp, startWarp, updateWarp } from './warp.js';
 import { CHIPS, DEVICES, hasChip, smokeHides, techName } from './tech.js';
@@ -57,6 +58,12 @@ const PLAYER_START = { x: 0, z: 6 }, SIDE_A = { x: -26, z: 0 }, SIDE_B = { x: 26
 // ---------- 玩家 ----------
 let loadout = loadLoadout();
 let player = null, respawnT = 0;
+// 本地玩家的控制器：這一幀的鍵盤 / 手把 → 操作幀（格式見 control.js）
+function localFrame() {
+  const [mx, mz] = s2w(input.move.x, input.move.y);   // WASD / 左搖桿是畫面方向
+  return { mx, mz, aimYaw, aim: aimPoint, fire: { L: input.fireL, R: input.fireR }, ready: { L: input.readyL, R: input.readyR },
+    boost: input.boostPressed ? { x: mx, z: mz } : null, device: input.techPressed && player.device ? { x: aimPoint.x, z: aimPoint.z } : null, locks: sensors.locks };
+}
 const NOBODY = { x: 0, z: 0, vx: 0, vz: 0, alive: false, team: 'none', r: 1 };   // 據點戰：沒有對手時給 AI 的空目標
 function spawnPlayer(x = PLAYER_START.x, z = PLAYER_START.z, yaw = Math.PI, lo = loadout) {
   if (player) removeMech(player);
@@ -1505,16 +1512,7 @@ function step(t) {
   if (playing && !watching && !garage.open) updateAim(raw);
   if (dt > 0) {
     if (watching) { /* 沒有玩家 */ }
-    else if (player.alive) {
-      const [mx, mz] = s2w(input.move.x, input.move.y);   // WASD / 左搖桿是畫面方向
-      if (input.boostPressed) tryBoost(player, mx, mz);
-      driveMech(player, dt, mx, mz, aimYaw);
-      if (input.readyL && !toggleReady(player, 'L')) sfx.click();
-      if (input.readyR && !toggleReady(player, 'R')) sfx.click();
-      if (input.techPressed && player.device) useDevice(player, aimPoint);
-      updateDeviceCd(player, dt);
-      updateGuns(player, { L: input.fireL, R: input.fireR }, dt, sensors.locks, aimPoint);
-    } else if (MODE.name === 'sandbox' && (respawnT -= dt) <= 0) { spawnPlayer(); toast('重新出擊'); }
+    else if (player.alive) applyFrame(player, localFrame(), dt);   // 本地玩家的控制器：鍵盤 / 手把 → 操作幀 → 執行器（control.js） else if (MODE.name === 'sandbox' && (respawnT -= dt) <= 0) { spawnPlayer(); toast('重新出擊'); }
     if (MODE.name === 'endless') updateEndless(dt);
     if (MODE.name === 'explore') updateExplore(dt);
     if (!watching && player.alive) updateFlow(dt, player.x, player.z);
@@ -1527,12 +1525,8 @@ function step(t) {
     }
     const cq = (watching || MODE.name === 'conquest') && MODE.kind === 'conquest';
     if (cq) cqPre(dt);
-    for (const e of enemies.slice()) {
-      updateEnemy(e, dt, e.foe ?? (cq ? NOBODY : player));   // 據點戰：沒有對手就不打（不要拿玩家 = 隊友當目標）
-      if (cq) cqPost(e);
-      antiStuck(e, dt);   // 卡點偵測與迴避（ai.js）
-      if (e.alive && !e.drop) driveMech(e, dt, e.drive.mx, e.drive.mz, e.aimYaw);
-    }
+    // 其他機體：各自的控制器出幀 → 執行器照做（ai.js stepMech：內建 AI / 外掛大腦 / 遠端）；據點戰沒有對手就不打（不要拿玩家 = 隊友當目標）
+    for (const e of enemies.slice()) stepMech(e, dt, e.foe ?? (cq ? NOBODY : player), cq ? cqPost : null);
     if (cq && !MODE.result) {
       const r = updateConquest(dt);
       if (r) { MODE.result = r; if (r !== 'draw') MODE.score[r]++; MODE.endT = MODE.name === 'conquest' ? 4 : 8; toast(r === 'draw' ? '據點戰・平手' : `據點戰・${r === 'blue' ? '藍隊' : '紅隊'}勝利`); }
@@ -1785,7 +1779,7 @@ addEventListener('pointermove', e => {
 });
 addEventListener('pointerup', () => { cqCam.drag = null; });
 addEventListener('wheel', e => { if (cqOn() && !cqUi(e)) { cqCam.zoom = Math.max(0.5, Math.min(2.6, cqCam.zoom * Math.exp(e.deltaY * 0.0012))); e.preventDefault(); } }, { passive: false });
-window.__dbg = { get player() { return player; }, cqCam, startConquestMode, startConquestPlay, cqPickInfo, get cq() { return cqState(); }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startBrainPack, startEndless, startRun, startStage, callReinforcements, warpOut, startBoss, useLink, switchLayer, props, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
+window.__dbg = { get player() { return player; }, cqCam, startConquestMode, startConquestPlay, cqPickInfo, pushFrame, setCtrl, get cq() { return cqState(); }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startBrainPack, startEndless, startRun, startStage, callReinforcements, warpOut, startBoss, useLink, switchLayer, props, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
 showMenu();
 camTarget.set(player.x, 0, player.z);
 nextFrame(frame);

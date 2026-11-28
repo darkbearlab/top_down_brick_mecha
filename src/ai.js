@@ -12,8 +12,9 @@ import * as THREE from 'three';
 import { G, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { isBlock, isSolid, randomOpenSpot, rayBlock, rayWalk, tileAt, tileC, tileR } from './arena.js';
 import { headStats } from './sensors.js';
-import { BOOST_DV, BOOST_PUSH, BOOST_TIME, ENEMY_COLORS, activeSlot, boostDirOf, boostKOf, legK, damagePart, facing, hitMech, makeMech, muzzleOf, mechs, removeMech, slotBroken, stagger, toggleReady, tryBoost, wantsLock } from './mech.js';
-import { LOB_G, NAPALM_T, SHOT_TUNE, makeGuns, shots, updateGuns } from './weapons.js';
+import { BOOST_DV, BOOST_PUSH, BOOST_TIME, ENEMY_COLORS, activeSlot, boostDirOf, boostKOf, legK, damagePart, facing, hitMech, makeMech, muzzleOf, mechs, removeMech, slotBroken, stagger, wantsLock } from './mech.js';
+import { LOB_G, NAPALM_T, SHOT_TUNE, makeGuns, shots } from './weapons.js';
+import { applyFrame, beginFrame, ctrlOf, qBoost, qGuns, qReady, remoteFrame } from './control.js';
 import { BAL, ENEMY_PRESETS, SLOTS, WEAPONS, fcsOn } from './parts.js';
 import { burst, explosion, hitSparks, makeLaser, setLaser, shatterSmall, smoke, sparks } from './fx.js';
 import { blastBuildings, buildingTop } from './buildings.js';
@@ -187,8 +188,7 @@ export function updateEnemy(e, dt, player) {
     if (P && pd > 1 && !e.fixed) { e.drive = steer(e, (P.x - e.x) / pd * 0.4, (P.z - e.z) / pd * 0.4); e.aimYaw = Math.atan2(P.x - e.x, P.z - e.z); }
     else if (Math.random() < dt * 0.25) e.aimYaw = e.torsoYaw + (Math.random() - 0.5) * 2;
     e.laser.g.visible = false;
-    updateGuns(e, { L: false, R: false }, dt, [], null);
-    return;
+    return;   // 不開火（幀預設就是不開火；執行器照樣跑 updateGuns 的冷卻）
   }
   if (e.brain && brainHook.run) { brainHook.run(e, dt, player); return; }
   // gruntTac（實驗，預設關）：雜魚也用王牌戰術 + 戰場意識；'full' = 連紀律（掩體、省彈、推進理由）也給
@@ -210,7 +210,7 @@ export function updateEnemy(e, dt, player) {
   if (AI_TUNE.memory && player.alive) { if (los) remember(e, player); else if (!e.fixed) K = recall(e, player, dist, dt); }   // 砲塔也會回報看到的位置
 
   // 衝鋒機：預告、衝刺、暈眩的時候不走一般的移動
-  if (e.charger && updateCharger(e, dt, player, dist, nx, nz, los)) { updateGuns(e, { L: false, R: false }, dt, [], null); e.laser.g.visible = false; return; }
+  if (e.charger && updateCharger(e, dt, player, dist, nx, nz, los)) { e.laser.g.visible = false; return; }
   // 自爆機：貼近後點火，時間到就炸
   if (e.bomber && updateBomber(e, dt, player, dist, los)) return;
   // 蟲群：貼著玩家就一直啃
@@ -386,7 +386,7 @@ export function updateEnemy(e, dt, player) {
     for (const [cx, cz] of [[ux, uz], [ux * 0.7 - uz * 0.7, uz * 0.7 + ux * 0.7], [ux * 0.7 + uz * 0.7, uz * 0.7 - ux * 0.7], [-ux, -uz]]) {
       const bd = boostDirOf(e, cx, cz), len = boostLen(e, bd.x, bd.z);
       if (disc && ranged && closesOn(e, bd.x, bd.z, W, player)) continue;   // 紀律：遠程機不往任何一台（理想距離 + 4 格內的）敵人噴
-      if (clearAhead(e, bd.x, bd.z, len) >= len) { if (tryBoost(e, cx, cz)) A.lastBoost = { x: e.x, z: e.z, len, t: G.now }; break; }
+      if (clearAhead(e, bd.x, bd.z, len) >= len) { if (qBoost(e, cx, cz)) A.lastBoost = { x: e.x, z: e.z, len, t: G.now }; break; }
     }
   }
   e.drive = { mx, mz };
@@ -467,7 +467,7 @@ export function updateEnemy(e, dt, player) {
   if (blockedSide) A.blockSide = blockedSide;
   // 開路（據點戰 conquest.js 設 e.siegeAt）：附近沒有打得到的敵人 → 瞄著那格建築，用打得壞牆的武器打
   if (e.siegeAt && !(canShoot && dist < 22)) { ind = siegeFire(e, trig, dt); laserSlot = null; }
-  updateGuns(e, trig, dt, locks, ind ?? blindAt ?? { x: player.x, z: player.z });   // 盲射：拋射武器落在最後看到的位置附近
+  qGuns(e, trig, locks, ind ?? blindAt ?? { x: player.x, z: player.z });   // 盲射：拋射武器落在最後看到的位置附近
   if (laserSlot) {
     const mz = muzzleOf(e, laserSlot), f = facing(e);
     const len = Math.min(rayBlock(mz.x, mz.z, f.x, f.z, 30), dist);
@@ -496,7 +496,7 @@ function siegeFire(e, trig, dt) {
     trig[side] = false;
     if (!pick) continue;
     if (activeSlot(e, side) !== pick) {
-      if (e.deployT[side] <= 0 && toggleReady(e, side)) { A.commit ??= { L: 0, R: 0 }; A.commit[side] = 3; A.hold[side] = 3; }
+      if (e.deployT[side] <= 0 && qReady(e, side)) { A.commit ??= { L: 0, R: 0 }; A.commit[side] = 3; A.hold[side] = 3; }
       continue;
     }
     trig[side] = on && e.deployT[side] <= 0;
@@ -531,7 +531,7 @@ function updateReadyChoice(e, dt, dist, canShoot, tgt, disc = false) {
     if (!back || back.def.kind === 'module' || slotBroken(e, 'back' + side) || !arm || slotBroken(e, 'arm' + side)) continue;   // 沒得選（沒手臂武器的會自動架著）
     if (e.deployT[side] > 0) continue;
     const melee = (arm.def.kind === 'saber' || arm.def.kind === 'pile') && dist < 5 || arm.def.kind === 'lance' && dist < 9;
-    if (e.ready[side] && melee) { toggleReady(e, side); A.hold[side] = 1.5; continue; }
+    if (e.ready[side] && melee) { qReady(e, side); A.hold[side] = 1.5; continue; }
     if (disc) {
       // 紀律：照「這把現在打出去的期望傷害」選（weaponScore），另一把要明顯比較好（×1.6）才換；
       //   換了至少用 4 秒；正在鎖定的飛彈不收；盾牌那一邊不換（盾牌不能收）
@@ -541,15 +541,15 @@ function updateReadyChoice(e, dt, dist, canShoot, tgt, disc = false) {
       const on = e.ready[side], cs = on ? 'back' + side : 'arm' + side, as = on ? 'arm' + side : 'back' + side;
       const sc = weaponScore(e, cs, dist, canShoot, tgt), sa = weaponScore(e, as, dist, canShoot, tgt);
       if (sc > 0 && GUIDED.has(e.guns[cs].def.kind) && A.lockT > 0.15) continue;
-      if (sa > sc * 1.6 + 1 && toggleReady(e, side)) A.commit[side] = 4;
+      if (sa > sc * 1.6 + 1 && qReady(e, side)) A.commit[side] = 4;
       continue;
     }
     if ((A.hold[side] -= dt) > 0) continue;
     const useful = back.ammo > 0 && backUseful(e, 'back' + side, back.def, dist, canShoot, headStats(e), tgt);
     if (!e.ready[side]) {
-      if (useful && !melee && Math.random() < 0.6) { toggleReady(e, side); A.hold[side] = 2.5 + Math.random() * 2; }
+      if (useful && !melee && Math.random() < 0.6) { qReady(e, side); A.hold[side] = 2.5 + Math.random() * 2; }
       else A.hold[side] = 0.6 + Math.random() * 0.8;
-    } else if (!useful || Math.random() < 0.6) { toggleReady(e, side); A.hold[side] = 1.5 + Math.random() * 1.5; }
+    } else if (!useful || Math.random() < 0.6) { qReady(e, side); A.hold[side] = 1.5 + Math.random() * 1.5; }
     else A.hold[side] = 1 + Math.random();
   }
 }
@@ -661,7 +661,7 @@ function vmDodge(e, dt) {
   let ux = -hz / hl * V.side, uz = hx / hl * V.side;
   if (Math.min(clearAhead(e, ux, uz, 2), mechAhead(e, ux, uz, 2)) < 0.8) { V.side = -V.side; ux = -ux; uz = -uz; }   // 那邊被擋住：換邊
   e.drive = { mx: ux, mz: uz };
-  if (!e.grunt && !V.boosted && th.dive && td < 8) { V.boosted = true; tryBoost(e, ux, uz); }
+  if (!e.grunt && !V.boosted && th.dive && td < 8) { V.boosted = true; qBoost(e, ux, uz); }
   return true;
 }
 export function antiStuck(e, dt) {
@@ -689,7 +689,19 @@ export function antiStuck(e, dt) {
     if (l > bl) { bl = l; best = [ux, uz]; }
   }
   S.dx = best[0]; S.dz = best[1]; S.esc = 0.7 + 0.2 * Math.min(S.n, 3);
-  if (S.n >= 2) tryBoost(e, S.dx, S.dz);
+  if (S.n >= 2) qBoost(e, S.dx, S.dz);
+}
+
+// ---------- 一台（非本地玩家的）機體這一幀：控制器出幀 → 執行器照做（control.js） ----------
+// foe：AI 的目標；post：模式的 postUpdate（據點戰 conquest.js：照路線走去目標、開路…，只給 AI）；stuck：要不要卡點迴避
+export function stepMech(e, dt, foe, post = null, stuck = true) {
+  if (ctrlOf(e) === 'remote') { if (e.fall) { updateFall(e, dt); return; } applyFrame(e, remoteFrame(e, dt), dt); return; }
+  const f = beginFrame(e);
+  updateEnemy(e, dt, foe);
+  post?.(e);
+  if (stuck) antiStuck(e, dt);
+  f.mx = e.drive?.mx ?? 0; f.mz = e.drive?.mz ?? 0; f.aimYaw = e.aimYaw;
+  applyFrame(e, f, dt);
 }
 
 export function keepEnemies(player) {
@@ -1014,7 +1026,6 @@ function updateBomber(e, dt, player, dist, los) {
   e.model.root.scale.setScalar(e.k * (1 + 0.12 * Math.sin(G.now * 40)));
   if (B.fuse <= 0) { B.done = true; bomberBlast(e, 1); damagePart(e, 'torso', 1e6); }
   e.laser.g.visible = false;
-  updateGuns(e, { L: false, R: false }, dt, [], null);
   return true;
 }
 function bomberBlast(e, k) {
