@@ -195,7 +195,7 @@ const USE = {
     return true;
   },
   decoy: m => {
-    const d = makeMech({ team: m.team, colors: PLAYER_COLORS, loadout: m.loadout, x: m.x, z: m.z, yaw: m.torsoYaw, hpMul: 0.45, ace: false });
+    const d = makeMech({ team: m.team, colors: m.colors ?? PLAYER_COLORS, loadout: m.loadout, x: m.x, z: m.z, yaw: m.torsoYaw, hpMul: 0.45, ace: false });
     d.decoy = true; d.guns = {};
     d.model.root.traverse(o => { if (o.isMesh) { o.material = o.material.clone(); o.material.transparent = true; o.material.opacity = 0.5; o.castShadow = false; } });
     const until = G.now + 6, fooled = [];

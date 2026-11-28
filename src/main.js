@@ -1645,13 +1645,13 @@ function step(t) {
   updateHaze(raw, camTarget.x, camTarget.z);
   updateTacView(raw);   // 戰場意識圖（I 鍵）
   // 零件工坊（src/workshop.js）：自己的場景和鏡頭
-  if (workshopOpen()) { hideMech(scene, player?.model.root); updateWorkshop(raw); renderFrame(wsScene, wsCam); return; }
+  if (workshopOpen()) { hideMech(scene, player && mechs.includes(player) ? player.model.root : null); updateWorkshop(raw); renderFrame(wsScene, wsCam); return; }
   // 主選單、整備：畫展示空間（src/showroom.js），機體搬過去
   const showOn = (MODE.name === 'menu' || garage.open) && !!player;
   if (showOn) {
     const panelPx = garage.open ? Math.min(820, innerWidth * 0.66) : $('menu').classList.contains('hidden') && $('duel').classList.contains('hidden') ? 0 : Math.min(560, innerWidth * 0.5);
     showMech(player.model.root); updateShowroom(raw, player.x, player.z, panelPx);
-  } else hideMech(scene, player?.model.root);
+  } else hideMech(scene, player && mechs.includes(player) ? player.model.root : null);   // 觀戰已經把玩家移出場上（removeMech）：展示空間裡的模型直接丟掉，不要搬回戰場（以前會站在地圖中央）
   renderFrame(showOn ? showScene : scene, showOn ? showCam : camera);   // 模型桌後製（src/post.js），O 鍵開關
 }
 addEventListener('pointerdown', unlockAudio);
