@@ -62,6 +62,7 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   e.seed = Math.random() * 10;
   e.guns = makeGuns(P);
   e.preset = P;
+  e.spawnOpts = { team: opts.team ?? 'enemy', grunt: !!opts.grunt, colors: opts.colors ?? null };
   const ws = SLOTS.map(s => P[s]).filter(Boolean);
   const has = k => ws.includes(k) || ws.includes(k + '_l');   // 低階版也算
   e.ai = {

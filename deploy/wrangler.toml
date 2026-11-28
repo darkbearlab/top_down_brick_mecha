@@ -2,3 +2,9 @@
 name = "brick-mecha"
 pages_build_output_dir = "./dist"
 compatibility_date = "2025-11-01"
+
+# 線上據點戰：/ws 轉給伺服器 Worker（server/）的房間物件
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "ConquestRoom"
+script_name = "brick-mecha-server"

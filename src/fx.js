@@ -1,6 +1,6 @@
 import * as THREE from 'three';
 import { sampleVoxels } from './voxel.js';
-import { DEBRIS_GEO, FLASH_GEO, GFX, HEADLESS, UNIT_BOX, VOID, WALL_H, addMat, camera, debrisMat, scene } from './core.js';
+import { DEBRIS_GEO, FLASH_GEO, G, GFX, HEADLESS, UNIT_BOX, VOID, WALL_H, addMat, camera, debrisMat, scene } from './core.js';
 // 這個檔案全部是畫面：無頭模式（core.js HEADLESS）下每個效果都直接回來、不建任何東西（色帶 RAMP / rampOf 是資料，照常）
 import { fogMaterial, fogU } from './fog.js';
 import { clearLights, flashLight, updateLights } from './lights.js';
@@ -281,7 +281,7 @@ export function sparks(x, y, z, color, n, nx = 0, nz = 0, speed = 1) {
 }
 // 被擊中：一下閃光 + 一束往回彈的火花（nx, nz = 往子彈來的方向）；power 越大越多、越遠；armor = 被裝甲彈開（藍白色）
 export function hitSparks(x, y, z, nx, nz, power = 1, armor = false) {
-  if (HEADLESS) return;
+  if (HEADLESS) { G.tap?.('hs', x, y, z, nx, nz, power, armor ? 1 : 0); return; }   // 線上伺服器：記下來送給客戶端畫（online.js）
   const rp = armor ? RAMP.armor : RAMP.spark;
   spawnGlow({ x, y, z, life: 0.07, s0: 0.3 + 0.15 * power, s1: 0.1, ramp: RAMP.flash, vr: 0 });
   const n = Math.round(7 + 6 * power);
@@ -308,7 +308,7 @@ export function smoke(x, y, z, n = 1, size = 1, color) {
 }
 // 爆炸：閃光 → 往外炸開的火球方塊（很快被空氣擋下來、慢慢上浮）→ 地面一圈塵 → 火星 → 晚一點冒出的黑煙柱
 export function explosion(x, y, z, scale = 1) {
-  if (HEADLESS) return;
+  if (HEADLESS) { G.tap?.('ex', x, y, z, scale); return; }   // 線上伺服器：記下來送給客戶端畫
   flashLight(x, y + 0.4, z, 0xffa050, 70 * scale, 5 + 6 * scale, 0.35 + 0.35 * scale);   // 照亮周圍（src/lights.js）
   // 閃光：不是一顆大白方塊（加法疊上火球會糊成一團白光），而是一顆小一點的核心 + 幾顆往外彈的斜方塊，亮度壓在白以下 → 看得出一顆一顆
   spawnGlow({ x, y, z, life: 0.11, s0: 0.8 * scale, s1: 1.25 * scale, ramp: RAMP.flashCore, vr: 0 });

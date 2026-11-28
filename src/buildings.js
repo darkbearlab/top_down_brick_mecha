@@ -12,7 +12,8 @@
 // 方塊依位置分到 16 × 16 格的區塊，每個區塊一個 InstancedMesh：鏡頭外的區塊整塊不畫（大地圖靠這個撐住）
 import { fogMaterial } from './fog.js';
 import * as THREE from 'three';
-import { HEADLESS, UNIT_BOX, scene } from './core.js';
+import { G, HEADLESS, UNIT_BOX, scene } from './core.js';
+let tapDepth = 0;   // 線上伺服器記錄建築傷害：只記最外層那一次（blastBuildings 裡面再呼叫的不重複記）
 import { H, W, bumpGrid, grid, tileC, tileR, toWorldX, toWorldZ } from './arena.js';
 import { burnAt, burst, chipDebris, explosion, fire, smoke, spawnPuff } from './fx.js';
 import { sfx } from './audio.js';
@@ -197,6 +198,11 @@ export function resetBuildings() {
 
 // 打中建築：x, y, z = 命中點；dx, dz = 子彈方向（往裡面找方塊）；dmg = 傷害
 export function damageBuilding(x, y, z, dmg, dx = 0, dz = 0, splash = 0) {
+  if (G.tap && !tapDepth) G.tap('bd', x, y, z, dmg, dx, dz, splash);
+  tapDepth++;
+  try { return damageBuildingRaw(x, y, z, dmg, dx, dz, splash); } finally { tapDepth--; }
+}
+function damageBuildingRaw(x, y, z, dmg, dx = 0, dz = 0, splash = 0) {
   const t = tiles.get(key(tileC(x + dx * 0.05), tileR(z + dz * 0.05))) ?? tiles.get(key(tileC(x), tileR(z)));
   if (!t || t.down) return false;
   if (HEADLESS) ensureVox(t);
@@ -237,6 +243,11 @@ export function damageBuilding(x, y, z, dmg, dx = 0, dz = 0, splash = 0) {
 
 // 範圍傷害（飛彈、爆炸）：附近的每一格都吃
 export function blastBuildings(x, y, z, dmg, splash) {
+  if (G.tap && !tapDepth) G.tap('bb', x, y, z, dmg, splash);
+  tapDepth++;
+  try { return blastBuildingsRaw(x, y, z, dmg, splash); } finally { tapDepth--; }
+}
+function blastBuildingsRaw(x, y, z, dmg, splash) {
   const c0 = tileC(x), r0 = tileR(z), n = Math.ceil(splash) + 1;
   for (let r = r0 - n; r <= r0 + n; r++) for (let c = c0 - n; c <= c0 + n; c++) {
     const t = tiles.get(key(c, r));

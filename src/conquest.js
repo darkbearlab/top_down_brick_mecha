@@ -507,10 +507,12 @@ function driveTo(e, n, keepAim = false) {
 }
 
 // 每幀，updateEnemy 之前：挑對手、蟲醒不醒、全隊 / 個人效果
+// enemies + 玩家（本地玩家不在 enemies 裡；線上伺服器的遠端玩家在 → 不重複）
+const withPlayer = () => S.player?.alive && !enemies.includes(S.player) ? [...enemies, S.player] : enemies;
 export function preUpdate(dt) {
   if (!S) return;
   S.dt = dt;
-  for (const e of S.player?.alive ? [...enemies, S.player] : enemies) {
+  for (const e of withPlayer()) {
     if (!e.alive || !e.cq) continue;
     const H = nearestHostile(e);
     if (e.team === 'native') {
@@ -771,7 +773,7 @@ export function updateConquest(dt) {
     if (S.bar[t] >= 1 && dropWave(t)) S.bar[t] = 0;
   }
   // 大本營旁：修理、長回壞掉的部位、補彈藥（玩家也一樣）
-  for (const e of S.player?.alive ? [...enemies, S.player] : enemies) {
+  for (const e of withPlayer()) {
     if (!e.alive || !e.cq || e.cq.fort || e.noRepair || e.team === 'native' || e.drop) continue;
     const B = baseOf(e.team);
     if (Math.hypot(e.x - B.x, e.z - B.z) > CQ.healR) continue;
@@ -1075,6 +1077,7 @@ export function cqJoin(p, lo) {
 }
 // 給玩家的指令（隊伍指揮挑的目標）：文字、位置、路線 key
 export function cqOrder() {
+  if (S?.mirror) return S.netOrder ?? null;   // 線上客戶端：伺服器算好的指令
   const p = S?.player;
   if (!p?.alive || !p.cq) return null;
   const C = p.cq, g = C.goal, foe = 'red';
@@ -1122,3 +1125,104 @@ export function updateOrderMark(dt) {
   return { ...O, d };
 }
 export function clearOrderMark() { if (MARK) { scene.remove(MARK.goal, MARK.arrow); MARK = null; } }
+
+// ---------- 線上（伺服器權威，2026-11-28）----------
+// 伺服器（server/room.mjs）：cqNetState() 每幾幀送一次整場的狀態，cqNetPlayer() 送給那位玩家自己的（選機體、指令）
+// 客戶端（src/online.js）：startConquestMirror() 只蓋巢穴 / 營地的外觀、不生任何單位；cqApplyNet() 把伺服器的狀態填進 S → HUD、Tab 地圖、圈圈、指令光柱、選機體畫面都照用
+export { COLORS };
+const idOf = e => e?.id ?? 0;
+const r2 = v => Math.round(v * 100) / 100;
+export function cqNetState() {
+  if (!S) return null;
+  const remain = t => Object.fromEntries(Object.entries(S.cbuff[t]).filter(([, u]) => u > S.t).map(([k, u]) => [k, r2(u - S.t)]));
+  return {
+    t: r2(S.t), score: [r2(S.score.blue), r2(S.score.red)], tier: [S.tier.blue, S.tier.red], tprog: [r2(S.tprog.blue), r2(S.tprog.red)], bar: [r2(S.bar.blue), r2(S.bar.red)],
+    cbuff: { blue: remain('blue'), red: remain('red') }, result: S.result,
+    nodes: S.nodes.map(n => [n.owner, r2(n.prog), n.capturing ?? '', n.contested ? 1 : 0]),
+    camps: S.camps.map(c => { const P = c.ph; return [P.kind, P.team ?? '', P.kind === 'live' ? 0 : r2(S.t - P.t0), P.T ?? 0, P.kind === 'held' ? r2(P.until() - S.t) : 0, c.owner ?? '']; }),
+    aces: { blue: S.aces.blue.map(idOf), red: S.aces.red.map(idOf) }, acelo: { blue: S.aces.blue.map(e => e?.cq?.lo?.name ?? null), red: S.aces.red.map(e => e?.cq?.lo?.name ?? null) },
+    forts: { blue: idOf(S.forts.blue), red: idOf(S.forts.red) },
+    stats: S.stats, team: S.team, drops: S.drops, respawns: S.respawns.map(r => [r.team, r.k, r2(r.t)]), log: S.log.slice(-10),
+  };
+}
+export function cqNetPlayer() {
+  if (!S) return null;
+  const P = S.prespawn, O = S.player?.alive ? cqOrder() : null;
+  return { id: S.player?.alive ? S.player.id : 0, prespawn: P ? { t: r2(P.t), T: r2(P.T ?? 0), first: !!P.first, hint: P.hint?.name ?? null, last: P.last?.name ?? null } : null,
+    order: O ? { text: O.text, x: r2(O.x), z: r2(O.z), key: O.key, kind: O.kind } : null };
+}
+// 客戶端：只有外觀的據點戰（巢穴、營地的圈），狀態全部從伺服器來
+export function startConquestMirror(map, toast) {
+  clearConquest();
+  const stat = () => ({ k: 0, d: 0, cap: 0, camp: 0 });
+  S = { mirror: true, t: 0, toast, bases: { blue: map.bases[0], red: map.bases[1] },
+    score: { blue: 0, red: 0 }, drops: { blue: 0, red: 0 }, kills: { blue: 0, red: 0 }, bar: { blue: 0, red: 0 }, buffs: { blue: {}, red: {} },
+    stats: { blue: [stat(), stat(), stat()], red: [stat(), stat(), stat()] }, team: { blue: { grunts: 0, camps: 0 }, red: { grunts: 0, camps: 0 } },
+    sieges: { blue: { siege: true, key: 'cqsb', x: map.bases[1].x, z: map.bases[1].z }, red: { siege: true, key: 'cqsr', x: map.bases[0].x, z: map.bases[0].z } },
+    homes: { blue: { base: true, key: 'cqhb', x: map.bases[0].x, z: map.bases[0].z }, red: { base: true, key: 'cqhr', x: map.bases[1].x, z: map.bases[1].z } },
+    tier: { blue: 1, red: 1 }, tprog: { blue: 0, red: 0 }, cbuff: { blue: {}, red: {} }, outposts: 0,
+    lo: new Map(), result: null, focus: 0, aces: { blue: [], red: [] }, forts: {}, respawns: [], log: [], prespawn: null, player: null, netOrder: null,
+    nodes: CQ_NODES.map((p, i) => ({ i, key: `cq${i}`, type: p.type, name: HIVES[p.type].name, x: p.x, z: p.z, owner: 'native', prog: 0, guards: [], contested: false, capturing: null })),
+    camps: [...CQ_CAMPS.map((p, i) => ({ i, key: `cqc${i}`, camp: true, kind: p.kind, x: p.x, z: p.z, units: [], respawn: 0 })),
+      ...OUTPOSTS.map((p, i) => ({ i: CQ_CAMPS.length + i, key: `cqo${i}`, camp: true, outpost: true, kind: 'outpost', x: p.x, z: p.z, units: [], respawn: 0, owner: null }))] };
+  for (const n of S.nodes) buildNode(n);
+  for (const c of S.camps) buildCamp(c);
+  G.noCrashDmg = true;
+}
+// 鏡像機體的據點戰標籤（光環、名單用）：主力機 / 大本營 / 增援信標 / 超級小兵 / 雜魚
+export function cqTagMirror(e, info) {
+  e.cq = { team: e.team, base: { dmg: 1, vmax: e.spec.vmax, regen: 1 }, ...info };
+  if (info.ace || info.fort) addRing(e, e.team);
+}
+const loByName = n => n ? ACE_POOL.find(lo => lo.name === n) ?? null : null;
+// 伺服器的狀態 → S（byId：伺服器 id → 客戶端的鏡像機體）
+export function cqApplyNet(st, me, byId) {
+  if (!S?.mirror) return;
+  if (st) {
+    S.t = st.t; S.score = { blue: st.score[0], red: st.score[1] }; S.tier = { blue: st.tier[0], red: st.tier[1] }; S.tprog = { blue: st.tprog[0], red: st.tprog[1] };
+    S.bar = { blue: st.bar[0], red: st.bar[1] }; S.result = st.result;
+    for (const t of TEAMS) S.cbuff[t] = Object.fromEntries(Object.entries(st.cbuff[t]).map(([k, r]) => [k, S.t + r]));
+    st.nodes.forEach(([owner, prog, cap, con], i) => {
+      const n = S.nodes[i];
+      n.owner = owner; n.prog = prog; n.capturing = cap || null; n.contested = !!con;
+      if (owned(n) && !n.collapse) startCollapse(n);
+    });
+    st.camps.forEach(([kind, team, el, T, rem, owner], i) => {
+      const c = S.camps[i];
+      c.owner = owner || null;
+      if (kind === 'live') { if (c.ph.kind !== 'live') c.ph = { kind: 'live' }; return; }
+      const t0 = S.t - el;
+      if (kind === 'held') { const until = S.t + rem; if (c.ph.kind !== 'held' || Math.abs(c.ph.t0 - t0) > 0.5) c.ph = { kind: 'held', team, t0, T, until: () => until }; else c.ph.until = () => until; }
+      else if (c.ph.kind !== 'regrow' || Math.abs(c.ph.t0 - t0) > 0.5) c.ph = { kind: 'regrow', t0, T };
+    });
+    for (const t of TEAMS) {
+      S.aces[t] = st.aces[t].map((id, k) => byId(id) ?? { alive: false, team: t, x: 0, z: 0, parts: {}, cq: { team: t, ace: true, k, lo: loByName(st.acelo[t][k]) } });
+      S.aces[t].forEach((e, k) => { if (e.cq) { e.cq.k = k; e.cq.lo = loByName(st.acelo[t][k]) ?? e.cq.lo; } });
+      S.forts[t] = byId(st.forts[t]) ?? null;
+    }
+    S.stats = st.stats; S.team = st.team; S.drops = st.drops;
+    S.respawns = st.respawns.map(([team, k, t]) => ({ team, k, t }));
+    S.log = st.log;
+  }
+  if (me) {
+    const P = me.prespawn;
+    S.prespawn = P ? { t: P.t, T: P.T, first: P.first, hint: loByName(P.hint), last: loByName(P.last) } : null;
+    S.player = me.id ? byId(me.id) ?? null : null;
+    if (S.player?.cq) S.player.cq.player = true;
+    S.netOrder = me.order;
+  }
+}
+// 客戶端每幀：巢穴的圈 / 讀條 / 塌掉、營地的圈、指令光柱
+export function cqMirrorUpdate(dt) {
+  if (!S?.mirror) return null;
+  for (const n of S.nodes) {
+    n.ring.material.color.setHex(HEX[n.owner]);
+    n.ring.material.opacity = n.contested ? 0.4 + 0.4 * Math.abs(Math.sin(G.now * 8)) : 0.75;
+    n.disc.scale.setScalar(Math.max(0.001, Math.abs(n.prog)));
+    n.disc.material.color.setHex(n.prog >= 0 ? HEX.blue : HEX.red);
+    animCollapse(n, dt);
+    n.sacMat.opacity = n.owner === 'native' ? 0.6 + 0.3 * Math.sin(G.now * 3 + n.i) : owned(n) ? 0.95 : 0.35;
+  }
+  for (const c of S.camps) drawCamp(c);
+  return updateOrderMark(dt);
+}

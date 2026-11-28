@@ -30,7 +30,11 @@ export async function onRequest({ request, env, next }) {
   if (!pw) return new Response('網站密碼還沒設定（SITE_PASSWORD）', { status: 503 });
   const url = new URL(request.url), want = await tokenOf(pw);
   const cookies = (request.headers.get('Cookie') ?? '').split(/;\s*/);
-  if (cookies.includes(`${COOKIE}=${want}`)) return next();
+  if (cookies.includes(`${COOKIE}=${want}`)) {
+    // 線上據點戰：/ws?room=… → 伺服器（brick-mecha-server 的 ConquestRoom 物件）
+    if (url.pathname === '/ws' && env.ROOM) { const room = (url.searchParams.get('room') ?? 'main').slice(0, 40); return env.ROOM.get(env.ROOM.idFromName(room)).fetch(request); }
+    return next();
+  }
   if (url.pathname === '/__login' && request.method === 'POST') {
     const form = await request.formData(), back = String(form.get('next') ?? '/');
     if (String(form.get('pw') ?? '') === pw) {

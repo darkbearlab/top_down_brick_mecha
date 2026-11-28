@@ -127,6 +127,11 @@ export function computeLocks(p, targets, aim, dt, S) {
 // 本地玩家：鎖定邏輯 + 畫面（地上的扇形、鎖定框）
 export function updateSensors(p, enemies, aim, dt) {
   computeLocks(p, enemies, aim, dt, sensors);
+  drawSensors(p);
+}
+// 只畫（扇形、鎖定框）：線上客戶端的鎖定是伺服器算的，填進 sensors 之後叫這個
+export function drawSensors(p) {
+  sensors.head = headStats(p);
   const H = sensors.head, held = sensors.held, live = sensors.live;
   const key = p.alive ? `${H.lockArc}|${H.lockRange.toFixed(1)}` : '';
   if (key !== fanKey) { fanKey = key; if (key) buildFan(H.lockArc, H.lockRange); else fanG.clear(); }

@@ -10,3 +10,5 @@ deploy/node_modules/
 deploy/.wrangler/
 tools/netbench/node_modules/
 tools/netbench/dist/
+server/dist/
+server/.wrangler/

@@ -1,0 +1,13 @@
+# 線上據點戰的伺服器：只讓 Pages（brick-mecha.pages.dev，有密碼）透過 Durable Object 綁定進來
+name = "brick-mecha-server"
+main = "dist/worker.js"
+compatibility_date = "2025-11-01"
+workers_dev = false
+
+[[durable_objects.bindings]]
+name = "ROOM"
+class_name = "ConquestRoom"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["ConquestRoom"]

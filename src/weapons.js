@@ -179,6 +179,7 @@ function spawnShot(m, d, x, y, z, dx, dz, speed) {
   const len = beam ? 1.1 : d === WEAPONS.sniper ? 1.6 : (d.size ?? 0.1) * (enemy ? 2.5 : 6);
   const g = shotMesh(color, d.size ?? 0.1, len);
   g.position.set(x, y, z); g.rotation.y = Math.atan2(dx, dz);
+  if (G.tap) G.tap('sh', d.id, m.team, x, y, z, dx, dz, speed, d.life * d.speed / speed, m.isPlayer ? 1 : 0);   // 線上伺服器：客戶端畫一顆純外觀的（ghostShot）
   shots.push({ kind: 'bullet', g, wid: d.id, owner: m, team: m.team, x, y, z, dx, dz, speed, life: d.life * d.speed / speed, dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m) * powerDmgK(m, d), power: d.dmg, kb: d.kb, type: d.type, trail: d.trail, heavy: d.heavy, splash: d.splash, corrode: d.corrode });
 }
 function missileMesh(m, d) {
@@ -589,6 +590,18 @@ export function updateShots(dt) {
   updateFireZones(dt);
 }
 
+// 線上客戶端：伺服器說有一顆子彈射出去了 → 畫一顆一樣飛的，撞到機體 / 牆就冒火花消失（傷害、建築都是伺服器算）
+export function ghostShot(wid, team, x, y, z, dx, dz, speed, life, mine) {
+  const d = WEAPONS[wid];
+  if (!d) return;
+  const beam = d.kind === 'beam', enemy = !mine;
+  const color = d.shotHex ?? (beam ? DMG_TYPES.energy.hex : enemy ? 0xff3a30 : d === WEAPONS.sniper ? 0xfff0c0 : 0xffd070);
+  const len = beam ? 1.1 : d === WEAPONS.sniper ? 1.6 : (d.size ?? 0.1) * (enemy ? 2.5 : 6);
+  const g = shotMesh(color, d.size ?? 0.1, len);
+  g.position.set(x, y, z); g.rotation.y = Math.atan2(dx, dz);
+  shots.push({ kind: 'bullet', ghost: true, g, wid, team, x, y, z, dx, dz, speed, life, heavy: d.heavy, trail: d.trail });
+  muzzleFx(x, y, z, dx, dz, mzStyle(d), d.shotHex ?? (beam ? DMG_TYPES.energy.hex : d.heavy ? 0xffc060 : enemy ? 0xff6040 : 0xffd070));
+}
 function stepBullet(s, i, dt) {
   const step = s.speed * dt;
   s.life -= dt;
@@ -603,6 +616,14 @@ function stepBullet(s, i, dt) {
     if (tt < ht) { ht = tt; hit = m; }
   }
   const wall = rayBlock(s.x, s.z, s.dx, s.dz, ht);
+  if (s.ghost) {   // 純外觀：碰到就消失（火花由伺服器的命中事件畫，這裡只在撞牆時補一點）
+    if (s.trail) for (let k = 0; k < 3; k++) spawnPuff({ x: s.x + s.dx * ht * k / 3, y: s.y, z: s.z + s.dz * ht * k / 3, life: 0.35, s: 0.07, c0: 0xc8c8c8, c1: 0x6a6a6a, drag: 0 });
+    const end = Math.min(wall, ht);
+    s.x += s.dx * end; s.z += s.dz * end;
+    if (wall < ht || hit || s.life <= 0) { kill(i); return; }
+    s.g.position.set(s.x, s.y, s.z);
+    return;
+  }
   if (s.trail) for (let k = 0; k < 3; k++) spawnPuff({ x: s.x + s.dx * ht * k / 3, y: s.y, z: s.z + s.dz * ht * k / 3, life: 0.35, s: 0.07, c0: 0xc8c8c8, c1: 0x6a6a6a, drag: 0 });
   if (wall < ht) {
     s.x += s.dx * wall; s.z += s.dz * wall;
