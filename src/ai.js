@@ -19,7 +19,7 @@ import { burst, explosion, hitSparks, makeLaser, setLaser, shatterSmall, smoke, 
 import { blastBuildings, buildingTop } from './buildings.js';
 import { sfx } from './audio.js';
 import { flowDir, flyDir, routeDir } from './pathing.js';
-import { smokeBlocks } from './tech.js';
+import { smokeHides } from './tech.js';
 import { UNIT_BOX } from './core.js';
 import { applyStatus, burnLockK } from './status.js';
 import { bugStrike, setupBug, updateBug } from './bugs.js';
@@ -198,7 +198,13 @@ export function updateEnemy(e, dt, player) {
   if (disc) trackPain(e, dt);
   const dx = player.x - e.x, dz = player.z - e.z, dist = Math.hypot(dx, dz) || 1;
   const nx = dx / dist, nz = dz / dist;
-  const los = rayBlock(e.x, e.z, nx, nz, dist) >= dist - 0.9 && !smokeBlocks(e.x, e.z, player.x, player.z);   // 煙霧彈：看不穿
+  const rayOk = rayBlock(e.x, e.z, nx, nz, dist) >= dist - 0.9;
+  const los = rayOk && !smokeHides(e.x, e.z, player.x, player.z);   // 煙霧彈：看不穿（3.5 格內貼身看得到）
+  // 盲射（2026-11-28）：只被煙擋住（沒有牆）、6 秒內看過 → 往最後看到的位置附近打（有範圍的武器優先、精準武器不打）
+  if (los) { A.seenT = G.now; A.seenAt = { x: player.x, z: player.z }; }
+  const blindAt = !los && rayOk && player.alive && !AI.passive && A.seenAt && G.now - (A.seenT ?? -99) < 6 && dist < 30
+    ? { x: A.seenAt.x + Math.sin(G.now * 2.3 + e.seed) * 1.5, z: A.seenAt.z + Math.cos(G.now * 1.9 + e.seed) * 1.5 } : null;
+  A.blindAt = blindAt;
   // 感知（AI_TUNE.memory）：K = 看不到時要去 / 要瞄的地方（null = 照舊用真實位置）；長距鎖定頭看得穿牆，不受限制
   let K = null;
   if (AI_TUNE.memory && player.alive) { if (los) remember(e, player); else if (!e.fixed) K = recall(e, player, dist, dt); }   // 砲塔也會回報看到的位置
@@ -388,14 +394,15 @@ export function updateEnemy(e, dt, player) {
   // 瞄準：稍微預判
   const lead = AI_TUNE.leadReal ? dist / shotSpeedOf(e) : dist / 18 * 0.5;
   e.aimYaw = !los && W?.emerge ? Math.atan2(W.emerge.x - e.x, W.emerge.z - e.z) : K ? (K.free ? Math.atan2(e.drive?.mx || Math.sin(e.torsoYaw), e.drive?.mz || Math.cos(e.torsoYaw)) : Math.atan2(K.x - e.x, K.z - e.z)) : Math.atan2(player.x + player.vx * lead - e.x, player.z + player.vz * lead - e.z) + Math.sin(G.now * 1.7 + e.seed) * DF.err;   // 看不到：預瞄記憶裡的位置
+  if (blindAt) e.aimYaw = Math.atan2(blindAt.x - e.x, blindAt.z - e.z);
   const canShoot = los && player.alive && !AI.passive;
-  const onTarget = Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.14 && canShoot;
+  const onTarget = Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.14 && (canShoot || !!blindAt);   // 盲射也算瞄準了
   // 鎖定玩家（給飛彈用）：在範圍內、看得到就慢慢鎖上
   const H = headStats(e);   // 頭受損鎖定也會變差（sensors.js）
   if (e.lockBreak) { A.lockT = 0; e.lockBreak = false; }   // 失衡：鎖定被打斷
   updateReadyChoice(e, dt, dist, canShoot, player, disc);
   // 要看得到才鎖得到（2026-11-28 起長距鎖定頭也一樣）；頭被打掉還是能鎖（距離短、慢）
-  const lockable = player.alive && !AI.passive && los && !smokeBlocks(e.x, e.z, player.x, player.z);   // 2026-11-28：只鎖得到看得見的目標（長距鎖定頭也不能隔牆鎖）
+  const lockable = player.alive && !AI.passive && los;   // 2026-11-28：只鎖得到看得見的目標（長距鎖定頭也不能隔牆鎖）
   const lockNeed = H.lockTime * DF.lock * burnLockK(e);
   // 新火控（被動追蹤、鎖定保持、鎖定熱度）：王牌級（不是雜魚）照 BAL.fcsAI 決定用不用（fcsOn）；雜魚照舊
   if (e.lockFire) { e.lockFire = false; if (A.lockT >= lockNeed) A.lockT = lockNeed * (1 - BAL.lockHeat); }   // 鎖定熱度（BAL.relock 'heat'）
@@ -451,7 +458,8 @@ export function updateEnemy(e, dt, player) {
     } else if (d.interval >= 1) t = onTarget && inRange && Math.random() < dt * 1.2 / DF.rest;
     else t = A.burst > 0 && onTarget && inRange;
     // 紀律：彈藥少的無導引武器（火箭、加農砲、霰彈）命中機會太低就先不打，留到打得中再打
-    if (t && disc && d.ammo && d.ammo <= 60 && !GUIDED.has(d.kind) && !d.indirect && hitEst(e, d, player, dist) < 0.3) t = false;
+    if (t && disc && d.ammo && d.ammo <= 60 && !GUIDED.has(d.kind) && !d.indirect && !blindAt && hitEst(e, d, player, dist) < 0.3) t = false;
+    if (t && !canShoot && blindAt && (d.kind === 'beam' || d.kind === 'pulse' || d.kind === 'lance' || d.kind === 'saber' || d.kind === 'pile')) t = false;   // 盲射：光束、近戰不打
     trig[side] = t;
   }
   // 連續一陣子所有武器都被擋 → 移動時去讓出射線
@@ -459,7 +467,7 @@ export function updateEnemy(e, dt, player) {
   if (blockedSide) A.blockSide = blockedSide;
   // 開路（據點戰 conquest.js 設 e.siegeAt）：附近沒有打得到的敵人 → 瞄著那格建築，用打得壞牆的武器打
   if (e.siegeAt && !(canShoot && dist < 22)) { ind = siegeFire(e, trig, dt); laserSlot = null; }
-  updateGuns(e, trig, dt, locks, ind ?? { x: player.x, z: player.z });
+  updateGuns(e, trig, dt, locks, ind ?? blindAt ?? { x: player.x, z: player.z });   // 盲射：拋射武器落在最後看到的位置附近
   if (laserSlot) {
     const mz = muzzleOf(e, laserSlot), f = facing(e);
     const len = Math.min(rayBlock(mz.x, mz.z, f.x, f.z, 30), dist);
@@ -702,7 +710,7 @@ function lobClear(e, d, tx, tz) {
 // ---------- 新數值的王牌戰術（AI_TUNE.ace） ----------
 // 敵對、活著、在場上的
 const hostilesOf = e => mechs.filter(o => o !== e && o.alive && !o.drop && o.team !== e.team && o.team !== 'none' && !o.dormant);
-const sees = (e, o) => { const dx = o.x - e.x, dz = o.z - e.z, d = Math.hypot(dx, dz) || 1; return rayBlock(e.x, e.z, dx / d, dz / d, d) >= d - o.r - 0.5 && !smokeBlocks(e.x, e.z, o.x, o.z); };
+const sees = (e, o) => { const dx = o.x - e.x, dz = o.z - e.z, d = Math.hypot(dx, dz) || 1; return rayBlock(e.x, e.z, dx / d, dz / d, d) >= d - o.r - 0.5 && !smokeHides(e.x, e.z, o.x, o.z); };
 // 挑目標（每 0.35 秒）：近的、看得到的、快死的優先；近戰型避開擠在一起的（不衝進一群裡）；現在的目標有 3 格優勢
 function aceTarget(e, cur, dt) {
   const A = e.ai;

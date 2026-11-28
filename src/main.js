@@ -27,7 +27,7 @@ import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
 import { AI, DIFFS, antiStuck, clearEnemies, enemies, keepEnemies, parkEnemy, removeEnemy, spawnEnemy, unparkEnemy, updateEnemy } from './ai.js';
 import { burst, clearCasings, clearRubble, makeLaser, repairFx, setLaser, setRubbleLayer, smoke, updateParticles } from './fx.js';
 import { clearWarp, startWarp, updateWarp } from './warp.js';
-import { CHIPS, DEVICES, hasChip, smokeBlocks, techName } from './tech.js';
+import { CHIPS, DEVICES, hasChip, smokeHides, techName } from './tech.js';
 import { clearDevices, deviceReady, updateDeviceCd, updateDevices, useDevice } from './devices.js';
 import { updateStatus } from './status.js';
 import { closeReasm, openReasm, reasmActive, renderReasm, updateReasm } from './reasm.js';
@@ -543,7 +543,7 @@ function sees(e, o, R) {
   const dx = o.x - e.x, dz = o.z - e.z, d = Math.hypot(dx, dz);
   if (d > R) return false;
   if (d < 1e-3) return true;
-  return rayBlock(e.x, e.z, dx / d, dz / d, d) >= d - o.r && !smokeBlocks(e.x, e.z, o.x, o.z);
+  return rayBlock(e.x, e.z, dx / d, dz / d, d) >= d - o.r && !smokeHides(e.x, e.z, o.x, o.z);
 }
 const rivalNear = (e, R) => enemies.some(o => o.alive && !o.drop && o.team !== e.team && sees(e, o, R));
 // 增援據點：小隊第一次被（玩家）驚動，5 秒後從兩三個方向來增援（用這個區域的駐軍兵種）；同一個區域 45 秒內只叫一次

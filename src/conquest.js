@@ -35,7 +35,7 @@ import { updateDeviceCd, useDevice, deviceReady } from './devices.js';
 import { hasModule, mechs, syncWear } from './mech.js';
 import { DIFFS, breakPow, breakReach, enemies, removeEnemy, spawnEnemy } from './ai.js';
 import { CQ_ACES, EFFECT, ELITES, SQUADS, WEAPONS, fireTime, gruntOf } from './parts.js';
-import { DEVICES } from './tech.js';
+import { DEVICES, inSmoke, smokeHides } from './tech.js';
 import { burst, repairFx, spawnPuff } from './fx.js';
 import { packUnits } from './heavy.js';
 import { routeDir, routeDist } from './pathing.js';
@@ -362,7 +362,7 @@ function nearestHostile(e) {
   }
   return best ? { o: best, d: bd } : null;
 }
-const sees = (e, o, d) => rayBlock(e.x, e.z, (o.x - e.x) / d, (o.z - e.z) / d, d) >= d - o.r - 0.5;
+const sees = (e, o, d) => rayBlock(e.x, e.z, (o.x - e.x) / d, (o.z - e.z) / d, d) >= d - o.r - 0.5 && !smokeHides(e.x, e.z, o.x, o.z);   // 煙霧擋視線（貼身 3.5 格內看得到）
 const behind = team => S.score[team] + CQ.behindGap < S.score[foeTeam(team)];
 // 這一隊正在生效的營地效果（種類清單）、合起來的數值
 const teamBuffs = team => Object.keys(S.cbuff[team]).filter(k => S.t < S.cbuff[team][k]);
@@ -530,6 +530,17 @@ export function postUpdate(e) {
   if (!S || !e.alive || !e.cq || e.team === 'native' || e.drop || e.cq.fort || e.cq.obody) return;
   const C = e.cq, H = C.near, R = e.grunt ? CQ.engageGrunt : CQ.engageAce;
   if (C.retreat) { if (C.held) { e.hold = null; C.held = false; } e.siegeAt = null; C.breach = null; driveTo(e, C.goal, !!(H && H.d < R && sees(e, H.o, H.d))); return; }   // 回基地：一定走，看得到敵人就邊退邊打
+  // 搶點反制（2026-11-28）：35 格內有巢穴正被對面讀條、圈裡有煙 → 直接走進圈裡（兩邊都有人站 = 讀條暫停），邊走邊盲射（ai.js）
+  if (!e.grunt) {
+    const foe = foeTeam(e.team);
+    const n = S.nodes.find(q => q.capturing === foe && Math.hypot(q.x - e.x, q.z - e.z) < 35 && inSmoke(q.x, q.z));
+    if (n) {
+      e.hold = { x: n.x, z: n.z, r: CQ.nodeR - 1.2 }; C.held = true; e.siegeAt = null; C.breach = null;
+      if (Math.hypot(n.x - e.x, n.z - e.z) > CQ.nodeR - 1.5) driveTo(e, n, true);
+      C.contestN = (C.contestN ?? 0) + 1;
+      return;
+    }
+  }
   // 佔點：目標是可以讀條的巢穴（守衛死光、不是自己的或正被搶）、走到旁邊 → 綁在圈裡打（戰術 AI 的射擊位置不會把它拉出去）
   const g = C.goal;
   if (!e.grunt) {
@@ -640,7 +651,12 @@ function aceDevice(e, dt) {
   const C = e.cq, team = e.team, hp = e.parts.torso.hp / e.parts.torso.max;
   const foes = [];
   for (const o of mechs) if (hostile(e, o) && !o.dormant) { const d = Math.hypot(o.x - e.x, o.z - e.z); if (d < 26 && sees(e, o, d)) foes.push({ o, d }); }
-  if (!foes.length) return;
+  if (!foes.length) {
+    // 敵人躲進煙裡（ai.js 盲射中）：手榴彈丟最後看到的位置
+    const B = e.ai?.blindAt, bd = B ? Math.hypot(B.x - e.x, B.z - e.z) : 0;
+    if (B && e.device.id === 'grenade' && bd > 4 && bd < 13.5 && useDevice(e, B)) { C.devN = (C.devN ?? 0) + 1; S.devices++; }
+    return;
+  }
   const aceNear = r => foes.some(f => f.d < r && f.o.cq?.ace);
   const use = (x, z) => { if (useDevice(e, { x, z })) { C.devN = (C.devN ?? 0) + 1; S.devices++; } };
   switch (e.device.id) {

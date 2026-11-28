@@ -68,3 +68,8 @@ export function smokeBlocks(x1, z1, x2, z2) {
   }
   return false;
 }
+// 煙霧擋不擋得住 (x1,z1) 看 (x2,z2)：SMOKE_SEE 格內（貼身）看得到，再遠穿過煙就看不到（2026-11-28）
+export const SMOKE_SEE = 3.5;
+export const smokeHides = (x1, z1, x2, z2) => Math.hypot(x2 - x1, z2 - z1) > SMOKE_SEE && smokeBlocks(x1, z1, x2, z2);
+// 那一點在不在煙裡
+export const inSmoke = (x, z) => smokeBlocks(x, z, x + 0.01, z);
