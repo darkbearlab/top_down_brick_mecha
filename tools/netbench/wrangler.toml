@@ -1,0 +1,15 @@
+name = "mecha-bench"
+main = "dist/worker.js"
+compatibility_date = "2025-11-01"
+workers_dev = true
+
+[limits]
+cpu_ms = 300000
+
+[[durable_objects.bindings]]
+name = "BENCH"
+class_name = "Bench"
+
+[[migrations]]
+tag = "v1"
+new_sqlite_classes = ["Bench"]

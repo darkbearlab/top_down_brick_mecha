@@ -1,0 +1,1 @@
+{ "name": "mecha-netbench", "private": true, "type": "module", "devDependencies": { "esbuild": "0.24.0", "wrangler": "4.45.0" } }
