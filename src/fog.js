@@ -10,7 +10,7 @@
 // 其他模式 fogOn = 0，不受影響
 import * as THREE from 'three';
 import { H, W, grid } from './arena.js';
-import { renderer } from './core.js';
+import { HEADLESS, renderer } from './core.js';
 
 export const RADIUS = 32;
 const THROUGH = 12, DEEP = 8;   // 穿過障礙物最多幾格；地圖邊緣那圈山最多看進去幾格
@@ -187,23 +187,24 @@ const ms = () => Math.min(MS, Math.floor(4096 / Math.max(W, H)));   // 大地圖
 const LIN = { format: THREE.RedFormat, type: THREE.UnsignedByteType, depthBuffer: false, minFilter: THREE.LinearFilter, magFilter: THREE.LinearFilter };
 const maskRT = () => new THREE.WebGLRenderTarget(W * ms(), H * ms(), LIN);
 // 玩家周圍那塊：polyRT = 這一幀的多邊形（4 倍反鋸齒）、visRT 兩張輪流 = 淡入淡出後的結果
-const polyRT = new THREE.WebGLRenderTarget(LN, LN, { ...LIN, samples: 4 });
-const visRT = [new THREE.WebGLRenderTarget(LN, LN, LIN), new THREE.WebGLRenderTarget(LN, LN, LIN)];
+// 無頭（core.js HEADLESS）：迷霧只有畫面用，下面這些 GPU 物件都不建
+const polyRT = HEADLESS ? null : new THREE.WebGLRenderTarget(LN, LN, { ...LIN, samples: 4 });
+const visRT = HEADLESS ? [] : [new THREE.WebGLRenderTarget(LN, LN, LIN), new THREE.WebGLRenderTarget(LN, LN, LIN)];
 let cur = 0, mW = 0, mH = 0, mcam = null;   // mcam：看過的遮罩的 (u, v) = 世界的 (x, z)（用到才建：arena.js 和這裡互相 import，載入時 W、H 還沒好）
 const lcam = new THREE.OrthographicCamera(0, 1, 1, 0, -1, 1);
 // 地圖大小變了（每張遠征地圖不一樣大）：相機重建
 function fitMask() { if (mW !== W || mH !== H) { mW = W; mH = H; mcam = null; } }
-const mscene = new THREE.Scene();
+const mscene = HEADLESS ? null : new THREE.Scene();
 const VS = 'varying vec2 vUv; void main() { vUv = uv; gl_Position = projectionMatrix * modelViewMatrix * vec4(position, 1.0); }';
-const mat = (uniforms, frag, blend = {}) => new THREE.ShaderMaterial({ uniforms, vertexShader: VS, fragmentShader: frag, depthTest: false, depthWrite: false, side: THREE.DoubleSide, ...blend });
+const mat = (uniforms, frag, blend = {}) => HEADLESS ? null : new THREE.ShaderMaterial({ uniforms, vertexShader: VS, fragmentShader: frag, depthTest: false, depthWrite: false, side: THREE.DoubleSide, ...blend });
 const MAX = { transparent: true, blending: THREE.CustomBlending, blendEquation: THREE.MaxEquation, blendSrc: THREE.OneFactor, blendDst: THREE.OneFactor };
 const polyMat = mat({}, 'void main() { gl_FragColor = vec4(1.0); }');
 const belowMat = mat({}, `void main() { gl_FragColor = vec4(${(BELOW / 255).toFixed(4)}); }`, MAX);
 // 看過的：把這幀的多邊形（玩家周圍那塊）以 DIM 的亮度疊進整張地圖的遮罩
-const seenMat = mat({ poly: { value: polyRT.texture } }, `uniform sampler2D poly; varying vec2 vUv;
+const seenMat = mat({ poly: { value: polyRT?.texture } }, `uniform sampler2D poly; varying vec2 vUv;
   void main() { gl_FragColor = vec4(texture2D(poly, vUv).r * ${(DIM / 255).toFixed(4)}); }`, MAX);
 // 淡入淡出：新的 = mix(上一張（換算到新的位置）, 這幀的多邊形, k)
-const fadeMat = new THREE.ShaderMaterial({
+const fadeMat = HEADLESS ? null : new THREE.ShaderMaterial({
   uniforms: { prev: { value: null }, poly: { value: polyRT.texture }, prevR: { value: new THREE.Vector4() }, nowR: { value: new THREE.Vector4() }, k: { value: 1 } },
   vertexShader: 'varying vec2 vUv; void main() { vUv = uv; gl_Position = vec4(position.xy, 0.0, 1.0); }',
   fragmentShader: `uniform sampler2D prev, poly; uniform vec4 prevR, nowR; uniform float k; varying vec2 vUv;
@@ -214,14 +215,16 @@ const fadeMat = new THREE.ShaderMaterial({
     }`,
   depthTest: false, depthWrite: false,
 });
-const polyPos = new Float32Array(MAXR * 9), polyGeo = new THREE.BufferGeometry();
-polyGeo.setAttribute('position', new THREE.BufferAttribute(polyPos, 3).setUsage(THREE.DynamicDrawUsage));
-polyGeo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(MAXR * 6), 2));
-const unit = new THREE.PlaneGeometry(1, 1), full = new THREE.PlaneGeometry(2, 2);
+const polyPos = HEADLESS ? null : new Float32Array(MAXR * 9), polyGeo = HEADLESS ? null : new THREE.BufferGeometry();
+const unit = HEADLESS ? null : new THREE.PlaneGeometry(1, 1), full = HEADLESS ? null : new THREE.PlaneGeometry(2, 2);
 let sqGeo = null;
-const mmesh = new THREE.Mesh(polyGeo, polyMat);
-mmesh.frustumCulled = false;
-mscene.add(mmesh);
+const mmesh = HEADLESS ? null : new THREE.Mesh(polyGeo, polyMat);
+if (!HEADLESS) {
+  polyGeo.setAttribute('position', new THREE.BufferAttribute(polyPos, 3).setUsage(THREE.DynamicDrawUsage));
+  polyGeo.setAttribute('uv', new THREE.BufferAttribute(new Float32Array(MAXR * 6), 2));
+  mmesh.frustumCulled = false;
+  mscene.add(mmesh);
+}
 function draw(rt, geo, m, cam, clear = false) {
   if (!mcam) mcam = new THREE.OrthographicCamera(-W / 2, W / 2, H / 2, -H / 2, -1, 1);
   const prev = renderer.getRenderTarget(), ac = renderer.autoClear;

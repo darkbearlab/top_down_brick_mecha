@@ -8,7 +8,7 @@
 //   needler / gunner / lancer：射擊型（見下面 BUILD 後半）
 // 死掉：不爆炸，碎幾塊、腳縮起來、顏色變暗，屍體留在地上（wreck.js 的殘骸清單）
 import * as THREE from 'three';
-import { G, UNIT_BOX, addMat } from './core.js';
+import { G, HEADLESS, UNIT_BOX, VOID, addMat } from './core.js';
 import { RAMP, burst, smoke, spawnGlow } from './fx.js';
 import { addHusk } from './wreck.js';
 import { spawnZone } from './weapons.js';
@@ -135,9 +135,19 @@ Object.assign(BUILD, {
 // 發射點（本地座標，上半身）：投擲蟲的噴口、射擊型的口器 / 砲口 / 骨針尖
 const MUZZLE = { spitter: [0, 0.75, -0.75], needler: [0, 0.62, 1.0], gunner: [0, 0.9, 1.0], lancer: [0, 1.52, 0.75] };
 
+// 無頭（core.js HEADLESS）：不蓋蟲的方塊，只記哪幾種有甲殼 / 酸液囊（酸液囊破掉會留一灘酸 = 遊戲規則）
+const HEADLESS_PARTS = { charger: { shell: true }, spitter: { sac: true }, gunner: { shell: true, sac: true } };
+const stubMat = c => ({ color: new THREE.Color(c), emissive: new THREE.Color(0), dispose() {} });
+function headlessBug(kind) {
+  const H = HEADLESS_PARTS[kind] ?? {};
+  const mats = { body: stubMat(CHITIN), plate: stubMat(PLATE), joint: stubMat(JOINT), shell: stubMat(SHELL), eye: stubMat(EYE), acid: stubMat(ACID) };
+  return { g: VOID, mats, B: { legs: [], head: VOID, scy: [], sac: H.sac ? VOID : null, shell: H.shell ? VOID : null } };
+}
+
 export function setupBug(e, kind, P) {
   const M = e.model;
   for (const k in e.parts) e.parts[k].g.visible = false;
+  if (HEADLESS) { const { g, mats, B } = headlessBug(kind); return finishBug(e, kind, P, M, g, mats, B); }
   const mats = {
     body: new THREE.MeshLambertMaterial({ color: CHITIN }), plate: new THREE.MeshLambertMaterial({ color: PLATE }),
     joint: new THREE.MeshLambertMaterial({ color: JOINT }), shell: new THREE.MeshLambertMaterial({ color: SHELL }),
@@ -147,6 +157,9 @@ export function setupBug(e, kind, P) {
   g.position.y = -M.hipY;   // 上半身群組在腰的高度 → 蟲從地面算起
   M.torsoG.add(g);
   const B = BUILD[kind](g, mats);
+  finishBug(e, kind, P, M, g, mats, B);
+}
+function finishBug(e, kind, P, M, g, mats, B) {
   // 軀幹的材質換成蟲身體：閃白、燃燒 / 腐蝕的發光都打在身上
   e.parts.torso.mat = mats.body; e.parts.torso.base = 0x000000;
   if (MUZZLE[kind]) M.muzzles.backL = M.muzzles.backR = M.muzzles.armR = [...MUZZLE[kind]].map((v, i) => i === 1 ? v - M.hipY : v);
@@ -165,6 +178,7 @@ export function setupBug(e, kind, P) {
 
 // 每幀：腳交互擺動（三腳一組）、走路時身體微微晃、攻擊的鐮刀 / 頭往前劈、酸液囊一脹一縮
 export function updateBug(e, dt) {
+  if (HEADLESS) return;   // 只有動畫
   const B = e.bug, w = e.walk ?? 0, moving = Math.hypot(e.vx, e.vz) > 0.4;
   for (let i = 0; i < B.legs.length; i++) {
     const L = B.legs[i], ph = w * 1.6 + (i % 2 ? Math.PI : 0) + (Math.floor(i / 2) % 2 ? Math.PI : 0);

@@ -2,7 +2,7 @@
 // 資料在 tech.js（DEVICES）；這裡是用的時候發生什麼、場上的東西（手榴彈、煙、地雷、標記、誘餌）每幀怎麼動
 // 次數型（手榴彈、地雷、煙霧彈）：用完要到彈藥補給站補；冷卻型（其他）：冷卻好了就能再用
 import * as THREE from 'three';
-import { G, UNIT_BOX, addMat, addTrauma, scene } from './core.js';
+import { G, HEADLESS, UNIT_BOX, VOID, addMat, addTrauma, scene } from './core.js';
 import { isBlock } from './arena.js';
 import { PLAYER_COLORS, facing, hitMech, makeMech, mechs, removeMech } from './mech.js';
 import { enemies } from './ai.js';
@@ -49,14 +49,15 @@ function areaBlast(owner, x, z, rad, dmg) {
 }
 
 // 拋物線丟出去：0.22 + 每格 0.022 秒落地（最遠 14 格 ≈ 0.53 秒），弧線比較平，落地呼叫 land(x, z)
-const LOB_G = 22, NADE = new THREE.BoxGeometry(0.22, 0.22, 0.22);
+// 無頭（core.js HEADLESS）：手榴彈、地雷、標記圈、護盾的網格都是 VOID（只有畫面）
+const LOB_G = 22, NADE = HEADLESS ? null : new THREE.BoxGeometry(0.22, 0.22, 0.22);
 function lob(m, aim, color, land) {
   let tx = aim?.x ?? m.x + facing(m).x * 8, tz = aim?.z ?? m.z + facing(m).z * 8;
   const dx = tx - m.x, dz = tz - m.z, d = Math.hypot(dx, dz);
   if (d > 14) { tx = m.x + dx / d * 14; tz = m.z + dz / d * 14; }
   const d2 = Math.min(d, 14);   // 飛行時間照距離：14 格 0.53 秒、6 格 0.35 秒（原本一律 0.7 秒）
-  const T = 0.22 + d2 * 0.022, mesh = new THREE.Mesh(NADE, new THREE.MeshLambertMaterial({ color })), glow = new THREE.Mesh(NADE, addMat(color, 0.6));
-  glow.scale.setScalar(1.8); mesh.add(glow);
+  const T = 0.22 + d2 * 0.022, mesh = HEADLESS ? VOID : new THREE.Mesh(NADE, new THREE.MeshLambertMaterial({ color })), glow = HEADLESS ? VOID : new THREE.Mesh(NADE, addMat(color, 0.6));
+  if (!HEADLESS) { glow.scale.setScalar(1.8); mesh.add(glow); }
   const p = { x: m.x, y: 1.6, z: m.z, vx: (tx - m.x) / T, vz: (tz - m.z) / T, vy: (0.15 - 1.6 + 0.5 * LOB_G * T * T) / T };
   mesh.position.set(p.x, p.y, p.z); scene.add(mesh);
   things.push({
@@ -76,7 +77,7 @@ function lob(m, aim, color, land) {
   return true;
 }
 
-const RING = new THREE.RingGeometry(0.85, 1, 40);
+const RING = HEADLESS ? null : new THREE.RingGeometry(0.85, 1, 40);
 const USE = {
   grenade: (m, aim) => lob(m, aim, 0x6a7a3a, (x, z) => areaBlast(m, x, z, 3.8, 75)),   // 爆炸半徑 2.8 → 3.8（2026-11-28）
   smoke: (m, aim) => lob(m, aim, 0x9aa0a8, (x, z) => {
@@ -99,9 +100,10 @@ const USE = {
   }),
   mine: m => {
     const mine = { x: m.x - facing(m).x * 1.4, z: m.z - facing(m).z * 1.4, arm: G.now + 0.8, owner: m };
-    const g = new THREE.Group(), base = new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.38, 0.12, 12), new THREE.MeshLambertMaterial({ color: 0x3a3d34 }));
-    const lamp = new THREE.Mesh(UNIT_BOX, addMat(0xff3020, 0.9)); lamp.scale.setScalar(0.1); lamp.position.y = 0.1;
-    base.position.y = 0.06; g.add(base, lamp); g.position.set(mine.x, 0, mine.z); scene.add(g);
+    const g = HEADLESS ? VOID : new THREE.Group(), base = HEADLESS ? VOID : new THREE.Mesh(new THREE.CylinderGeometry(0.32, 0.38, 0.12, 12), new THREE.MeshLambertMaterial({ color: 0x3a3d34 }));
+    const lamp = HEADLESS ? VOID : new THREE.Mesh(UNIT_BOX, addMat(0xff3020, 0.9));
+    if (!HEADLESS) { lamp.scale.setScalar(0.1); lamp.position.y = 0.1; base.position.y = 0.06; g.add(base, lamp); }
+    g.position.set(mine.x, 0, mine.z); scene.add(g);
     // 場上最多 3 顆：多的把最舊的引爆
     const mine3 = things.filter(t => t.mine);
     if (mine3.length >= 3) mine3[0].boom = true;
@@ -129,9 +131,9 @@ const USE = {
     }
     if (!best) return false;
     applyStatus(best, 'mark', { dur: 8 });
-    const ring = new THREE.Mesh(RING, addMat(0xffc040, 0.9)); ring.rotation.x = -Math.PI / 2; scene.add(ring);
-    const cross = new THREE.Group();
-    for (const a of [0, Math.PI / 2]) { const b = new THREE.Mesh(UNIT_BOX, ring.material); b.scale.set(2.6, 0.03, 0.06); b.rotation.y = a; cross.add(b); }
+    const ring = HEADLESS ? VOID : new THREE.Mesh(RING, addMat(0xffc040, 0.9)); ring.rotation.x = -Math.PI / 2; scene.add(ring);
+    const cross = HEADLESS ? VOID : new THREE.Group();
+    if (!HEADLESS) for (const a of [0, Math.PI / 2]) { const b = new THREE.Mesh(UNIT_BOX, ring.material); b.scale.set(2.6, 0.03, 0.06); b.rotation.y = a; cross.add(b); }
     scene.add(cross);
     things.push({
       update() {
@@ -158,7 +160,7 @@ const USE = {
       if (e.bomber && e.bomber.fuse >= 0) { e.bomber.fuse = -1; e.model.root.scale.setScalar(e.k); }
       sparks(e.x, 1.2, e.z, 0x80e0ff, 8, 0, 0, 0.8);
     }
-    const ring = new THREE.Mesh(RING, addMat(0x80e0ff, 0.9)); ring.rotation.x = -Math.PI / 2; ring.position.set(m.x, 0.3, m.z); scene.add(ring);
+    const ring = HEADLESS ? VOID : new THREE.Mesh(RING, addMat(0x80e0ff, 0.9)); ring.rotation.x = -Math.PI / 2; ring.position.set(m.x, 0.3, m.z); scene.add(ring);
     let t = 0;
     things.push({
       update(dt) { t += dt; ring.scale.setScalar(0.5 + t / 0.35 * RAD); ring.material.opacity = 0.9 * (1 - t / 0.35); return t < 0.35; },
@@ -169,10 +171,12 @@ const USE = {
   },
   shieldGen: m => {
     m.eshield = { until: G.now + 3 };
-    const mesh = new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.7, 2.4, 20, 1, true, -1.2, 2.4), addMat(0x60d0ff, 0.22));
-    mesh.material.side = THREE.DoubleSide;
-    mesh.position.y = 0.4;
-    m.model.torsoG.add(mesh);
+    const mesh = HEADLESS ? VOID : new THREE.Mesh(new THREE.CylinderGeometry(1.7, 1.7, 2.4, 20, 1, true, -1.2, 2.4), addMat(0x60d0ff, 0.22));
+    if (!HEADLESS) {
+      mesh.material.side = THREE.DoubleSide;
+      mesh.position.y = 0.4;
+      m.model.torsoG.add(mesh);
+    }
     things.push({
       update() { mesh.material.opacity = 0.16 + 0.08 * Math.sin(G.now * 20); return m.alive && G.now < m.eshield.until; },
       dispose() { m.model.torsoG.remove(mesh); mesh.geometry.dispose(); mesh.material.dispose(); },

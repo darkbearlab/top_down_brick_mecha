@@ -5,6 +5,7 @@
 //   打掉外層會露出裡面那層（實心，顏色比較暗 = 內部結構），所以洞是一層一層挖下去的凹痕
 // 同一個外型（同樣的方塊 + 顏色）共用一份樣板和網格；被打到才各自複製一份網格
 import * as THREE from 'three';
+import { HEADLESS } from './core.js';
 
 export const FINE = 2;
 const AO_K = 0.07, AO_MIN = 0.55, AO_MAX = 1.12, NOISE = 0.13, INNER = 0.6;
@@ -75,6 +76,12 @@ export function voxelTemplate(boxes, cell, carve = [], F = FINE, useCache = true
   for (const L of [2, 3, 4]) for (let v = 0; v < n; v++) {
     if (depth[v]) continue;
     for (const f of FACES) { const g = grid[at(gx[v] + f.d[0], gy[v] + f.d[1], gz[v] + f.d[2])]; if (depth[g] === L - 1) { depth[v] = L; break; } }
+  }
+  // 無頭（core.js HEADLESS）：只要格子、深度（磨損 / 核心露出用），不算顏色、不蓋網格
+  if (HEADLESS) {
+    T = { n, nx, ny, nz, x0, y0, z0, gx, gy, gz, grid, depth, col: null, hex: null, s: cell / F, surf: depth.reduce((a, d) => a + (d === 1), 0), list: null, nb: null, geo: null };
+    if (key) cache.set(key, T);
+    return T;
   }
   // 顏色：環境光遮蔽（周圍 26 格有幾格）× 雜訊；裡面的層暗一點
   const col = new Float32Array(n * 3), out = new Uint32Array(n);
@@ -169,7 +176,8 @@ export class VoxBody {
     this.T = T; this.n = T.n; this.hex = T.hex; this.depth = T.depth;
     this.gone = new Uint8Array(T.n); this.scarred = new Uint8Array(T.n);
     this.dirty = false; this.own = false;
-    const mesh = this.mesh = new THREE.Mesh(T.geo, material);
+    // 無頭：沒有網格，只有一個掛位置的節點（磨損照它的座標算）
+    const mesh = this.mesh = HEADLESS ? new THREE.Object3D() : new THREE.Mesh(T.geo, material);
     mesh.userData.vb = this;
   }
   pos(i, out) { const T = this.T; return out.set((T.gx[i] + T.x0 + 0.5) * T.s, (T.gy[i] + T.y0 + 0.5) * T.s, (T.gz[i] + T.z0 + 0.5) * T.s); }
@@ -184,7 +192,7 @@ export class VoxBody {
     }
     return false;
   }
-  mark() { if (!this.dirty) { this.dirty = true; dirtyList.push(this); } }
+  mark() { if (!HEADLESS && !this.dirty) { this.dirty = true; dirtyList.push(this); } }
   hide(i) { if (!this.gone[i]) { this.gone[i] = 1; this.mark(); } }
   show(i) { if (this.gone[i]) { this.gone[i] = 0; this.mark(); } }
   scar(i, on = true) { if (this.scarred[i] !== +on) { this.scarred[i] = +on; this.mark(); } }

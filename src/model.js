@@ -5,7 +5,7 @@
 //   方塊一律換成細格單位（1/32）再蓋；掛點、槍口、手、頭的位置用設計單位（1/16）
 import * as THREE from 'three';
 import { offStream, voxelBody } from './voxbody.js';
-import { addMat } from './core.js';
+import { HEADLESS, addMat } from './core.js';
 import { ARMORS, CORES, DMG_TYPES, ELITES, GRUNTS, GRUNTS_LOW, HEADS, LEGS, WEAPONS } from './parts.js';
 import { SHAPES } from './shapes.js';
 
@@ -109,8 +109,9 @@ const CORE_C = new THREE.Color(2.6, 0.75, 0.28);
 export const shellBox = ([x, y, z, w, h, d]) => [x - 1, y - 1, z - 1, w + 2, h + 2, d + 2, 'a'];
 const fineBox = ([x, y, z, w, h, d, k]) => [x * 2, y * 2, z * 2, w * 2, h * 2, d * 2, k];
 function addCore(part, [x, y, z, w, h, d], crit, gate) {
-  const mat = new THREE.MeshBasicMaterial({ color: CORE_C.clone(), vertexColors: true });
-  const mesh = voxelBody([[x, y, z, w, h, d, 0xffffff]], V, mat);
+  // 無頭：核心只要一個位置節點（coreWorld 拿它的座標）和一個假材質（熄掉時改顏色）
+  const mat = HEADLESS ? { color: CORE_C.clone(), dispose() {} } : new THREE.MeshBasicMaterial({ color: CORE_C.clone(), vertexColors: true });
+  const mesh = HEADLESS ? new THREE.Object3D() : voxelBody([[x, y, z, w, h, d, 0xffffff]], V, mat);
   mesh.castShadow = false; mesh.userData.core = true;
   part.g.add(mesh);
   // 殼的範圍（群組本地座標）：拿來判斷被打掉的方塊在哪一面
@@ -203,7 +204,60 @@ export function mountPos(lo, slot) {
   return pointOf(getShape(shapeKeys(lo).torso), slot) ?? [0, 0, 0];
 }
 
+// ---------- 機體的尺寸資料（模型和無頭模式共用）----------
+// 一個掛點：mount = 掛在上半身哪裡、off = 武器接在哪（手臂：手的位置；背部：原點）、sx = 右邊鏡像、muzzle = 槍口（上半身本地座標，公尺；toWorld 再加 hipY）
+// 都是零件的外型資料（src/parts.js、shapes.js）算出來的，不需要蓋模型
+export function slotLayout(lo, slot, torsoS = getShape(shapeKeys(lo).torso), armS = getShape(shapeKeys(lo).arm)) {
+  const id = lo[slot], W = id ? WEAPONS[id] : null;
+  const mount = pointOf(torsoS, slot) ?? [0, 0, 0];
+  const arm = slot.startsWith('arm');
+  const off = arm ? pointOf(armS, 'hand') ?? HAND : [0, 0, 0];
+  const WS = W && getShape(`weapon:${id}`);
+  const R = slot.endsWith('R'), sx = R ? -1 : 1;
+  let muzzle = null;
+  if (W) {
+    const mu = pointOf(WS, 'muzzle') ?? W.muzzle, [mx, my, mz] = mount;
+    muzzle = [(mx + sx * (off[0] + mu[0])) * V, (my + off[1] + mu[1]) * V, (mz + off[2] + mu[2]) * V];
+  }
+  return { id, W, WS, mount, arm, off, R, sx, muzzle };
+}
+const SLOT_KEYS = ['armL', 'armR', 'backL', 'backR'];
+const pointV = ([x, y, z]) => [x * V, y * V, z * V];
+
+// ---------- 無頭模式的機體（core.js HEADLESS）：沒有方塊網格、材質 ----------
+// 跟 buildMechModel 一樣的骨架（root / legsG / torsoG / 每個部位一個群組，位置相同）和數字（hipY、muzzles），遊戲規則照常讀
+// 只有核心（菁英的 cores）要方塊資料：殼被剝開哪一面決定核心露不露出來（mech.js coreOpen）→ 只蓋那一塊的格子（voxbody.js 無頭樣板，沒有網格）
+const stubMat = () => ({ color: new THREE.Color(0xffffff), emissive: new THREE.Color(0), dispose() {} });
+export function buildMechBody(lo, team) {
+  const K = shapeKeys(lo), CO = lo.cores ?? {};
+  const root = new THREE.Group(), legsG = new THREE.Group(), torsoG = new THREE.Group();
+  const hipY = LEGS[lo.legs].hipY;
+  torsoG.position.y = hipY; torsoG.rotation.order = 'YXZ';
+  root.add(legsG, torsoG);
+  const part = (parent, [x, y, z] = [0, 0, 0]) => { const g = new THREE.Group(); g.position.set(x, y, z); parent.add(g); return { g, mat: stubMat(), base: 0 }; };
+  const parts = { legs: part(legsG) };
+  const torsoS = getShape(K.torso), headS = getShape(K.head), armS = getShape(K.arm);
+  parts.torso = part(torsoG);
+  parts.head = part(torsoG, pointV(pointOf(torsoS, 'head') ?? [0, CORES[lo.core].top, 0]));
+  for (const k of ['torso', 'head']) {
+    if (!CO[k]) continue;
+    const S = k === 'torso' ? torsoS : headS;
+    const body = voxelBody([fineBox(shellBox(CO[k].box)), ...S.boxes].map(([x, y, z, w, h, d, c]) => [x, y, z, w, h, d, pal(lo.armor[k], team)[c] ?? c]), V / 2, null, [fineBox(CO[k].box)], 1);
+    parts[k].g.add(body);
+    addCore(parts[k], CO[k].box, !!CO[k].crit, CO[k].gate);
+  }
+  const muzzles = {};
+  for (const slot of SLOT_KEYS) {
+    const L = slotLayout(lo, slot, torsoS, armS);
+    if (!L.arm && !L.W) continue;
+    parts[slot] = part(torsoG, pointV(L.mount));
+    if (L.muzzle) muzzles[slot] = L.muzzle;
+  }
+  return { root, legsG, legs: [], torsoG, parts, muzzles, weapons: {}, hipY, rig: { legs: [], arms: {} }, body: true };
+}
+
 export function buildMechModel(lo, team) {
+  if (HEADLESS) return buildMechBody(lo, team);
   const K = shapeKeys(lo);
   const root = new THREE.Group();
   const legsG = new THREE.Group();
@@ -261,8 +315,7 @@ export function buildMechModel(lo, team) {
       arms[slot] = { shoulder: p.g, elbow: foreG, elbowP: EP, handP: pv(off, sx) };
     }
     if (W) {
-      const mu = pointOf(WS, 'muzzle') ?? W.muzzle;
-      muzzles[slot] = [(mx + sx * (off[0] + mu[0])) * V, (my + off[1] + mu[1]) * V, (mz + off[2] + mu[2]) * V];
+      muzzles[slot] = slotLayout(lo, slot, torsoS, armS).muzzle;
       // 光束劍：發光的刀身
       if (W.kind === 'saber') {
         const blade = new THREE.Group();

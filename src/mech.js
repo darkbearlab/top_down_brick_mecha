@@ -8,7 +8,7 @@
 // 推進衝刺：直接給一段速度，不受抓地力限制
 // 部位：頭、軀幹、左臂、右臂、左背、右背、腳，各自有血量和裝甲種類
 import * as THREE from 'three';
-import { G, addMat, addTrauma, angleDiff, approachAngle, scene } from './core.js';
+import { G, HEADLESS, addMat, addTrauma, angleDiff, approachAngle, scene } from './core.js';
 import { collideBlocks, surfaceAt } from './arena.js';
 import { animMech } from './anim.js';
 import { RAMP, burnAt, burst, chipDebris, explosion, fire, flame, hitSparks, smoke, sparks, spawnGlow, spawnPuff, voxelBurst } from './fx.js';
@@ -36,7 +36,7 @@ export const ENEMY_COLORS = { accent: 0xe07a2a, glow: 0xff5040 };
 export const mechs = [];
 // grunt：雜魚機（{ hp }）：整台一條血、不能推進、體型 GRUNT_SCALE、不是主力機（壞了直接炸散）
 export const GRUNT_SCALE = 0.8;
-const TEAM_RING = new THREE.RingGeometry(0.95, 1.2, 28);
+const TEAM_RING = HEADLESS ? null : new THREE.RingGeometry(0.95, 1.2, 28);
 let MECH_ID = 0;
 export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, hpMul = 1, ace = true, grunt = null }) {
   const spec = computeSpec(loadout, !!grunt);
@@ -57,7 +57,7 @@ export function makeMech({ team, colors, loadout, x = 0, z = 0, yaw = Math.PI, h
   const k = grunt ? (loadout.gscale ?? GRUNT_SCALE) : E?.scale ?? 1;   // gscale：比較大台的雜魚（戰車）
   M.root.scale.setScalar(k);
   // 雜魚腳下一圈派系色的光環：一群混在一起時一眼分得出誰是哪邊
-  if (grunt) {
+  if (grunt && !HEADLESS) {
     const ring = new THREE.Mesh(TEAM_RING, addMat(colors.glow, 0.55));
     ring.rotation.x = -Math.PI / 2;
     ring.position.y = 0.04;
@@ -564,13 +564,23 @@ function wearPool(m, p) {
   }
   return W;
 }
+// 無頭（core.js HEADLESS）：沒有 poseMech 每幀擺模型 → 要用方塊的世界座標之前，先把骨架擺到現在的位置、朝向
+function poseBody(m) {
+  const M = m.model;
+  M.root.position.set(m.x, m.flyH ?? 0, m.z);
+  M.legsG.rotation.y = m.legYaw; M.torsoG.rotation.y = m.torsoYaw;
+  M.root.updateMatrixWorld(true);
+}
 // quiet：不噴碎片（剛生出來 / 重組時照耐久直接套上去）
+// 無頭：只有有核心的部位要算（殼被剝開哪一面 = 遊戲規則）；其他部位的磨損只是外觀，不算
 export function syncWear(m, name, dx = 0, dz = 0, quiet = false) {
   if (m.bug || m.swarm) return;
   const p = m.parts[name];
   if (!p?.g || p.broken && name !== 'legs') return;
+  if (HEADLESS && !p.core) return;
   const W = wearPool(m, p), NC = W.cb.length;
   if (!NC) return;
+  if (HEADLESS) poseBody(m);
   const want = Math.floor(W.surf * (p.core ? CORE_WEAR : WEAR_MAX) * Math.max(0, 1 - p.hp / p.max));
   let fx = 0;
   // 被打：挑幾顆露在外面的候選，選最朝向攻擊者的那顆打掉
@@ -588,7 +598,7 @@ export function syncWear(m, name, dx = 0, dz = 0, quiet = false) {
     B.b.hide(i);
     W.gone.push(best);
     if (W.cf[best] >= 0) W.open[FACES[W.cf[best]]]++;
-    if (!quiet && fx++ < WEAR_FX_MAX) chipDebris(bx, by, bz, B.b.hex[i], -dx * 0.7, -dz * 0.7);   // 往打過來的那一側彈
+    if (!quiet && fx++ < WEAR_FX_MAX) chipDebris(bx, by, bz, B.b.hex?.[i], -dx * 0.7, -dz * 0.7);   // 往打過來的那一側彈
     // 旁邊的一顆壓暗（焦痕）
     const s = Math.floor(Math.random() * NC), S = W.bodies[W.cb[s]].b, si = W.ci[s];
     if (!S.gone[si] && !S.scarred[si]) { S.scar(si); W.scar.push(s); }
@@ -611,7 +621,7 @@ export function syncWear(m, name, dx = 0, dz = 0, quiet = false) {
 // ---------- 核心 ----------
 // 攻擊從哪一面來（部位本地座標：+z 前、+x 左邊…照模型的 x）；軀幹 / 頭跟著上半身轉，腳跟著腳轉
 const cV = new THREE.Vector3();
-function coreWorld(m, p) { p.core.mesh.updateWorldMatrix(true, false); cV.set(...p.core.c).applyMatrix4(p.core.mesh.matrixWorld); return { x: cV.x, y: cV.y, z: cV.z }; }
+function coreWorld(m, p) { if (HEADLESS) poseBody(m); p.core.mesh.updateWorldMatrix(true, false); cV.set(...p.core.c).applyMatrix4(p.core.mesh.matrixWorld); return { x: cV.x, y: cV.y, z: cV.z }; }
 export function coreOpen(m, name, fromX, fromZ) {
   const p = m.parts[name], W = p?.core && wearPool(m, p);
   if (!W) return false;

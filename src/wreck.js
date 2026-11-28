@@ -5,7 +5,7 @@
 //   3. 殘骸：留在原地一直燒（火勢先大後小、不會熄），冒黑煙柱、斷口發紅；其他機體撞到會卡住
 // 殘骸留到 clearWrecks()（競技場 = 下一局開始；以後的任務 = 任務結束）
 import * as THREE from 'three';
-import { G, addTrauma, scene } from './core.js';
+import { G, HEADLESS, addTrauma, scene } from './core.js';
 import { RAMP, burnAt, explosion, fire, spawnGlow, spawnPuff, voxelBurst } from './fx.js';
 import { sfx } from './audio.js';
 
@@ -46,7 +46,7 @@ export function startWreck(m, dx, dz) {
     G.hitStop = Math.max(G.hitStop, 0.08);
     G.slowMo = Math.max(G.slowMo, KILL_SLOW);
     killCam.t = KILL_CAM; killCam.x = m.x; killCam.z = m.z;
-    document.body.classList.add('killcam');
+    if (!HEADLESS) document.body.classList.add('killcam');
     addTrauma(0.5);
   }
   sfx.partBreak();
@@ -65,7 +65,7 @@ function blowOff(w, k, power) {
 function torsoY(w) { return w.m.model.hipY + 0.9; }
 
 export function updateWrecks(dt, raw) {
-  if (killCam.t > 0 && (killCam.t -= raw) <= 0) document.body.classList.remove('killcam');
+  if (killCam.t > 0 && (killCam.t -= raw) <= 0 && !HEADLESS) document.body.classList.remove('killcam');
   updateDying(dt);
   for (const w of wrecks) {
     w.t += dt;
@@ -276,11 +276,13 @@ function toHusk(d) {
   d.root.position.y = d.y0 - M.hipY * M.root.scale.y * 0.8;
   const i = dyings.indexOf(d);
   if (i >= 0) dyings.splice(i, 1);
+  if (HEADLESS) return;   // 無頭：焦炭殘骸只是外觀，不留
   husks.push({ root: d.root, layer: huskLayer });
   while (husks.length > HUSK_MAX) scene.remove(husks.shift().root);
 }
 // 別的地方做好的殘骸（蟲子的屍體）：直接收進殘骸清單（照層顯示、超過上限拿掉最舊的）
 export function addHusk(root) {
+  if (HEADLESS) return;
   husks.push({ root, layer: huskLayer });
   while (husks.length > HUSK_MAX) scene.remove(husks.shift().root);
 }
@@ -297,5 +299,5 @@ export function clearWrecks() {
   while (dyings.length) dyings[0].mode === 'burn' ? toHusk(dyings[0]) : endDying(dyings[0]);   // 正在燒的直接變成焦炭殘骸
   while (wrecks.length) removeWreck(wrecks[0]);
   killCam.t = 0;
-  document.body.classList.remove('killcam');
+  if (!HEADLESS) document.body.classList.remove('killcam');
 }

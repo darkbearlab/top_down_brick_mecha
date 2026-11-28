@@ -6,7 +6,7 @@
 //   瓦礫   'r'：建築倒塌後留下的，有點卡腳
 // '#' = 擋路、擋子彈：外圍圍牆和大地圖的岩壁打不壞；建築在 buildings.js（可破壞）
 import * as THREE from 'three';
-import { UNIT_BOX, WALL_H, scene } from './core.js';
+import { HEADLESS, UNIT_BOX, WALL_H, scene } from './core.js';
 import { setWallTest } from './fx.js';
 import { fogMaterial, makeFogU } from './fog.js';
 
@@ -137,6 +137,8 @@ function floorGeo(g) {
 }
 function buildLayer(map, L, k) {
   const g = L.grid.map(row => row.slice()), group = new THREE.Group(), U = makeFogU(), mine = [];
+  // 無頭（core.js HEADLESS）：只要格子，不畫地板貼圖、岩塊、崖壁
+  if (HEADLESS) return { grid: g, group, U, own: mine, hasVoid: g.some(row => row.includes('v')), bottomless: !!L.bottomless };
   const own = o => { mine.push(o); group.add(o); return o; };
   const PX = Math.max(4, Math.min(16, Math.floor(4096 / W)));
   const cv = document.createElement('canvas');

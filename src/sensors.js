@@ -6,7 +6,7 @@
 //   長距鎖定頭（radarLock）：鎖定距離最長；2026-11-28 起跟其他頭一樣要看得到才鎖得到（radarLock 只剩敵情：鎖定範圍內看不到的敵人也標出來）
 //   頭被打掉：還是能鎖，只是鎖定距離剩 45%、時間 ×2.2、只能鎖 1 台、不能隔牆鎖
 import * as THREE from 'three';
-import { G, addMat, angleDiff, scene } from './core.js';
+import { G, HEADLESS, addMat, angleDiff, scene } from './core.js';
 import { rayBlock } from './arena.js';
 import { wantsLock } from './mech.js';
 import { burnLockK } from './status.js';
@@ -15,8 +15,9 @@ import { BAL } from './parts.js';
 export const sensors = { locks: [], progress: new Map(), head: null, seenT: new Map(), held: new Set(), live: new Set() };   // 本地玩家的鎖定狀態（HUD 讀這份）
 
 // 鎖定範圍扇形（地上淡淡的一片 + 外緣一條弧）：角度 = 鎖定角度、半徑 = 鎖定距離
-const fanG = new THREE.Group();
-scene.add(fanG);
+// 扇形、鎖定框只有本地玩家的畫面用（main.js updateSensors）；無頭不建
+const fanG = HEADLESS ? null : new THREE.Group();
+if (fanG) scene.add(fanG);
 let fanKey = '';
 function buildFan(arc, range) {
   fanG.clear();
@@ -37,7 +38,7 @@ function buildFan(arc, range) {
 }
 
 // 鎖定框：四個角，鎖定中從大縮到小（琥珀色），鎖上變紅、轉 45°
-const CORNER = new THREE.PlaneGeometry(0.5, 0.09);
+const CORNER = HEADLESS ? null : new THREE.PlaneGeometry(0.5, 0.09);
 const lockMarks = new Map();
 function markFor(t) {
   if (lockMarks.has(t)) return lockMarks.get(t);

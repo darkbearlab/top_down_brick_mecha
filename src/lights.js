@@ -3,12 +3,12 @@
 // 固定 LIGHT_N 盞一直掛在場景上，沒用的時候亮度 0：Three.js 的光源數量一變全部材質都要重新編譯（會卡），所以數量不能變
 // 要新的光：挑「現在最暗」的那盞來用；全部都比新的亮就不搶（砲口火光搶不到爆炸的）
 import * as THREE from 'three';
-import { scene } from './core.js';
+import { HEADLESS, scene } from './core.js';
 
 const LIGHT_N = 6;
 const pool = [];
 let on = true;
-for (let i = 0; i < LIGHT_N; i++) {
+for (let i = 0; i < (HEADLESS ? 0 : LIGHT_N); i++) {   // 無頭：沒有光源（flashLight 也不會被叫到：fx.js 全部直接回來）
   const L = new THREE.PointLight(0xffffff, 0, 8, 2);
   L.castShadow = false;
   scene.add(L);

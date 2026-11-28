@@ -1,6 +1,7 @@
 import * as THREE from 'three';
 import { sampleVoxels } from './voxel.js';
-import { DEBRIS_GEO, FLASH_GEO, GFX, UNIT_BOX, WALL_H, addMat, camera, debrisMat, scene } from './core.js';
+import { DEBRIS_GEO, FLASH_GEO, GFX, HEADLESS, UNIT_BOX, VOID, WALL_H, addMat, camera, debrisMat, scene } from './core.js';
+// 這個檔案全部是畫面：無頭模式（core.js HEADLESS）下每個效果都直接回來、不建任何東西（色帶 RAMP / rampOf 是資料，照常）
 import { fogMaterial, fogU } from './fog.js';
 import { clearLights, flashLight, updateLights } from './lights.js';
 
@@ -19,6 +20,7 @@ let rubble = null;
 const rM = new THREE.Matrix4(), rQ = new THREE.Quaternion(), rS = new THREE.Vector3(), rC = new THREE.Color();
 // 換到第 k 層的碎片（parent = 那層的 group、U = 那層的迷霧 uniforms）
 export function setRubbleLayer(k, parent = scene, U = fogU) {
+  if (HEADLESS) return;
   if (!rubblePools.has(k)) {
     const mesh = new THREE.InstancedMesh(DEBRIS_GEO, fogMaterial(new THREE.MeshLambertMaterial({ color: 0xffffff }), U), RUBBLE_MAX);
     mesh.count = 0; mesh.frustumCulled = false; mesh.receiveShadow = true;
@@ -38,6 +40,7 @@ export function setRubbleLayer(k, parent = scene, U = fogU) {
   clearMenders();
 }
 export function clearRubble() {
+  if (HEADLESS) return;
   for (const P of rubblePools.values()) for (const o of [P.mesh, P.soot]) { o.parent?.remove(o); o.dispose(); o.material.dispose(); }
   rubblePools.clear(); rubble = null;
   clearLights();
@@ -76,6 +79,7 @@ const SCORCH_C = [0x000000, 0x0a0806];
 const sE = new THREE.Euler(), sP = new THREE.Vector3();
 // cols：換顏色（酸液 = 墨綠）；dirt = false 不噴土（火海、酸池留下的痕跡）
 export function scorch(x, z, r, cols = SCORCH_C, dirt = true) {
+  if (HEADLESS) return;
   if (pitTest(x, z) || wallTest(x, z)) return;
   const n = Math.round(10 + r * 16);
   for (let k = 0; k < n; k++) {
@@ -93,6 +97,7 @@ export function scorch(x, z, r, cols = SCORCH_C, dirt = true) {
 // 打不壞的牆（岩壁、外圍圍牆）被打中：牆面貼幾片半透明黑片（燻黑的彈痕，中間疊得多最黑），一直留著；再噴幾顆碎石
 // f = arena.js wallFace 的結果（牆面位置 + 朝外法線）；size 照威力
 export function wallMark(f, y, size, c = 0x5a5248) {
+  if (HEADLESS) return;
   const n = 3 + Math.round(size * 10), tx = -f.nz, tz = f.nx;   // 牆面上的水平方向
   for (let k = 0; k < n; k++) {
     const a = Math.random() * Math.PI * 2, t = Math.sqrt(Math.random()) * size * 0.4;
@@ -108,6 +113,7 @@ export function wallMark(f, y, size, c = 0x5a5248) {
 
 // ---------- 雷射（瞄準線） ----------
 export function makeLaser(color, coreColor = 0xffffff) {   // coreColor：中間那條芯（預設白；玩家的左右瞄準線用淡紅 / 淡綠，顏色才看得出來）
+  if (HEADLESS) return { g: VOID, core: VOID, glow: VOID, dot: VOID };
   const g = new THREE.Group();
   const core = new THREE.Mesh(UNIT_BOX, addMat(coreColor));
   const glow = new THREE.Mesh(UNIT_BOX, addMat(color));
@@ -119,6 +125,7 @@ export function makeLaser(color, coreColor = 0xffffff) {   // coreColor：中間
   return { g, core, glow, dot };
 }
 export function setLaser(L, ox, oz, dx, dz, len, y, alpha, w) {
+  if (HEADLESS) return;
   L.g.visible = true;
   L.g.position.set(ox + dx * len / 2, y, oz + dz * len / 2);
   L.g.rotation.set(0, Math.atan2(dx, dz), 0);
@@ -132,6 +139,7 @@ export function setLaser(L, ox, oz, dx, dz, len, y, alpha, w) {
 // ---------- 粒子 ----------
 export const debris = [], fx = [];
 export function burst(x, y, z, colors, n, power, bx = 0, bz = 0) {
+  if (HEADLESS) return;
   for (let i = 0; i < n; i++) {
     const m = new THREE.Mesh(DEBRIS_GEO, debrisMat(colors[i % colors.length]));
     const s = 0.7 + Math.random() * 1.3;
@@ -147,6 +155,7 @@ export function burst(x, y, z, colors, n, power, bx = 0, bz = 0) {
 }
 // 小東西碎掉（蟲群的一隻蟲）：幾塊小碎片往外彈 + 一點火花，不爆炸
 export function shatterSmall(x, y, z, colors, n = 5, power = 2.2) {
+  if (HEADLESS) return;
   for (let i = 0; i < n; i++) {
     const m = new THREE.Mesh(DEBRIS_GEO, debrisMat(colors[i % colors.length]));
     const s = 0.35 + Math.random() * 0.35;
@@ -162,6 +171,7 @@ export function shatterSmall(x, y, z, colors, n = 5, power = 2.2) {
 }
 // 部位被打掉的一顆方塊（mech.js syncChips）：從原位往被打的方向彈開，落地後跟其他碎片一樣留在地上
 export function chipDebris(x, y, z, c, dx, dz, power = 2.4) {
+  if (HEADLESS) return;
   const m = new THREE.Mesh(DEBRIS_GEO, debrisMat(c));
   const s = 0.38 + Math.random() * 0.22;   // 跟機體上的方塊差不多大（1/16 格 ≈ DEBRIS_GEO × 0.4）
   m.scale.setScalar(s);
@@ -182,6 +192,7 @@ function charred(c, k) {
   return charC.setRGB(q(charC.r), q(charC.g), q(charC.b)).getHex();
 }
 export function voxelBurst(root, n, power, cx, cz, bx = 0, bz = 0, opts = null) {
+  if (HEADLESS) return;
   for (const v of sampleVoxels(root, n)) {
     const burning = opts?.burn && Math.random() < opts.burn;
     const c = opts?.char ? charred(v.c, Math.min(1, opts.char * (0.75 + Math.random() * 0.5) + (burning ? 0.15 : 0))) : v.c;
@@ -205,15 +216,17 @@ export function voxelBurst(root, n, power, cx, cz, bx = 0, bz = 0, opts = null) 
 //   glow：加法混色的發光方塊（火花、火焰、閃光），顏色照「色帶」隨時間變，最後變黑 = 淡出
 //   puff：半透明的煙 / 塵方塊，顏色從 c0 漸變到 c1，先變大再縮小
 const MAX_GLOW = 5000, MAX_PUFF = 2000;
-const glowMesh = new THREE.InstancedMesh(UNIT_BOX, new THREE.MeshBasicMaterial({
+const glowMesh = HEADLESS ? null : new THREE.InstancedMesh(UNIT_BOX, new THREE.MeshBasicMaterial({
   color: 0xffffff, transparent: true, blending: THREE.AdditiveBlending, depthWrite: false, toneMapped: false }), MAX_GLOW);
-const puffMesh = new THREE.InstancedMesh(UNIT_BOX, new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.72, depthWrite: false }), MAX_PUFF);
-for (const m of [glowMesh, puffMesh]) {
-  m.frustumCulled = false; m.count = 0;
-  m.setColorAt(0, new THREE.Color());
-  scene.add(m);
+const puffMesh = HEADLESS ? null : new THREE.InstancedMesh(UNIT_BOX, new THREE.MeshLambertMaterial({ color: 0xffffff, transparent: true, opacity: 0.72, depthWrite: false }), MAX_PUFF);
+if (!HEADLESS) {
+  for (const m of [glowMesh, puffMesh]) {
+    m.frustumCulled = false; m.count = 0;
+    m.setColorAt(0, new THREE.Color());
+    scene.add(m);
+  }
+  puffMesh.renderOrder = 1; glowMesh.renderOrder = 2;
 }
-puffMesh.renderOrder = 1; glowMesh.renderOrder = 2;
 const glows = [], puffs = [];
 
 // 色帶：平均分布的顏色，取樣時線性內插
@@ -243,11 +256,13 @@ const R = (a, b) => a + Math.random() * (b - a);
 
 // o: x,y,z, vx,vy,vz, life, s0（開始大小）, s1（結束大小）, ramp, g（重力）, drag, bounce, puff（先變大再縮小）, delay
 export function spawnGlow(o) {
+  if (HEADLESS) return;
   if (glows.length >= MAX_GLOW) return;
   glows.push({ vx: 0, vy: 0, vz: 0, g: 0, drag: 0, s1: 0, delay: 0, ...o, max: o.life, rx: Math.random() * 3, ry: Math.random() * 3, vr: o.vr ?? R(-8, 8) });
 }
 // o: x,y,z, vx,vy,vz, life, s（最大）, c0, c1, drag, delay, g
 export function spawnPuff(o) {
+  if (HEADLESS) return;
   if (puffs.length >= MAX_PUFF) return;
   puffs.push({ vx: 0, vy: 0, vz: 0, g: 0, drag: 0.8, delay: 0, ...o, max: o.life,
     col0: new THREE.Color(o.c0 ?? 0x2a2b30), col1: new THREE.Color(o.c1 ?? 0x6a6c72), rx: Math.random() * 3, ry: Math.random() * 3, vr: R(-1.5, 1.5) });
@@ -256,6 +271,7 @@ export function spawnPuff(o) {
 // ---------- 效果 ----------
 // 一般火花：有重力、會在地上彈
 export function sparks(x, y, z, color, n, nx = 0, nz = 0, speed = 1) {
+  if (HEADLESS) return;
   const rp = rampOf(color);
   for (let i = 0; i < n; i++) {
     const a = Math.random() * Math.PI * 2, p = R(3, 8) * speed;
@@ -265,6 +281,7 @@ export function sparks(x, y, z, color, n, nx = 0, nz = 0, speed = 1) {
 }
 // 被擊中：一下閃光 + 一束往回彈的火花（nx, nz = 往子彈來的方向）；power 越大越多、越遠；armor = 被裝甲彈開（藍白色）
 export function hitSparks(x, y, z, nx, nz, power = 1, armor = false) {
+  if (HEADLESS) return;
   const rp = armor ? RAMP.armor : RAMP.spark;
   spawnGlow({ x, y, z, life: 0.07, s0: 0.3 + 0.15 * power, s1: 0.1, ramp: RAMP.flash, vr: 0 });
   const n = Math.round(7 + 6 * power);
@@ -277,6 +294,7 @@ export function hitSparks(x, y, z, nx, nz, power = 1, armor = false) {
 }
 // 火：一顆往上竄的火焰方塊（越往上越小，白黃→橘→紅→暗），偶爾飛出火星、冒一團黑煙；k = 大小
 export function fire(x, y, z, k = 1) {
+  if (HEADLESS) return;
   spawnGlow({ x: x + R(-0.15, 0.15) * k, y, z: z + R(-0.15, 0.15) * k, vx: R(-0.4, 0.4), vy: R(1.4, 2.6) * (0.6 + 0.4 * k), vz: R(-0.4, 0.4),
     life: R(0.35, 0.6), s0: R(0.16, 0.3) * k, s1: 0, ramp: RAMP.fire, drag: 1 });
   if (Math.random() < 0.15) spawnGlow({ x, y, z, vx: R(-1.5, 1.5), vy: R(2.5, 5), vz: R(-1.5, 1.5), life: R(0.6, 1.1), s0: 0.06, s1: 0.02, ramp: RAMP.ember, g: 4, drag: 0.6 });
@@ -284,11 +302,13 @@ export function fire(x, y, z, k = 1) {
 }
 // 煙
 export function smoke(x, y, z, n = 1, size = 1, color) {
+  if (HEADLESS) return;
   for (let i = 0; i < n; i++) spawnPuff({ x: x + R(-0.2, 0.2), y, z: z + R(-0.2, 0.2), vx: R(-0.4, 0.4), vy: R(1, 1.8), vz: R(-0.4, 0.4),
     life: R(0.9, 1.5), s: R(0.2, 0.32) * size, c0: color ?? 0x3a3c42, c1: color ?? 0x6a6c72 });
 }
 // 爆炸：閃光 → 往外炸開的火球方塊（很快被空氣擋下來、慢慢上浮）→ 地面一圈塵 → 火星 → 晚一點冒出的黑煙柱
 export function explosion(x, y, z, scale = 1) {
+  if (HEADLESS) return;
   flashLight(x, y + 0.4, z, 0xffa050, 70 * scale, 5 + 6 * scale, 0.35 + 0.35 * scale);   // 照亮周圍（src/lights.js）
   // 閃光：不是一顆大白方塊（加法疊上火球會糊成一團白光），而是一顆小一點的核心 + 幾顆往外彈的斜方塊，亮度壓在白以下 → 看得出一顆一顆
   spawnGlow({ x, y, z, life: 0.11, s0: 0.8 * scale, s1: 1.25 * scale, ramp: RAMP.flashCore, vr: 0 });
@@ -321,9 +341,10 @@ export function explosion(x, y, z, scale = 1) {
 }
 // 持續燃燒的點（殘骸）：火勢隨時間變小
 const burners = [];
-export function burnAt(x, y, z, dur = 4, k = 1) { burners.push({ x, y, z, t: 0, dur, k, acc: 0 }); flashLight(x, y + 0.6, z, 0xff7a28, 22 * k, 5, dur, true); }
+export function burnAt(x, y, z, dur = 4, k = 1) { if (HEADLESS) return; burners.push({ x, y, z, t: 0, dur, k, acc: 0 }); flashLight(x, y + 0.6, z, 0xff7a28, 22 * k, 5, dur, true); }
 
 export function muzzleFlash(x, y, z, color, size = 1) {
+  if (HEADLESS) return;
   spawnGlow({ x, y, z, life: 0.06, s0: 0.42 * size, s1: 0.2 * size, ramp: rampOf(color), vr: 0 });
   flashLight(x, y, z, color, 9 * size, 3.5, 0.07);
 }
@@ -351,6 +372,7 @@ export const MUZZLE = {
   lob:     { core: 0.32, up: [4, 0.9], smoke: [3, 0.7], life: 0.08, light: 0.9 },
 };
 export function muzzleFx(x, y, z, fx, fz, style, color, light = true) {
+  if (HEADLESS) return;
   const M = MUZZLE[style] ?? MUZZLE.mg, rp = rampOf(color), L = M.life, px = fz, pz = -fx;   // (px, pz) = 槍口右手邊
   spawnGlow({ x, y, z, life: L, s0: M.core * R(0.85, 1.2), s1: M.core * 0.4, ramp: RAMP.flash, vr: R(-10, 10) });
   if (M.fwd) chain(x, y, z, fx, 0, fz, M.fwd[0], M.fwd[1], M.fwd[2], rp, L, 3);
@@ -396,19 +418,19 @@ export const CASINGS = {
   cannon: { w: 0.15, l: 0.4, c: 0xb8902e },
   pile:   { w: 0.11, l: 0.28, c: 0x9a9ca2 },
 };
-const caseMesh = new THREE.InstancedMesh(UNIT_BOX, new THREE.MeshLambertMaterial({ color: 0xffffff }), CASE_MAX);
-caseMesh.frustumCulled = false; caseMesh.count = 0; caseMesh.setColorAt(0, new THREE.Color());
-scene.add(caseMesh);
+const caseMesh = HEADLESS ? null : new THREE.InstancedMesh(UNIT_BOX, new THREE.MeshLambertMaterial({ color: 0xffffff }), CASE_MAX);
+if (caseMesh) { caseMesh.frustumCulled = false; caseMesh.count = 0; caseMesh.setColorAt(0, new THREE.Color()); scene.add(caseMesh); }
 const cases = [], caseE = new THREE.Euler(), caseQ = new THREE.Quaternion(), caseS = new THREE.Vector3(), caseP = new THREE.Vector3(), caseM = new THREE.Matrix4();
 // side：+1 往槍口右手邊彈、-1 左手邊；(bvx, bvz)：機體的速度（彈殼跟著機體一起走）
 export function casing(x, y, z, fx, fz, type, side = 1, bvx = 0, bvz = 0) {
+  if (HEADLESS) return;
   if (cases.length >= CASE_MAX) return;
   const T = CASINGS[type] ?? CASINGS.mg, px = fz * side, pz = -fx * side, big = T.w > 0.1;
   const sp = big ? R(1.6, 2.6) : R(2.6, 4.2);
   cases.push({ x, y, z, vx: px * sp - fx * R(0.3, 1.2) + bvx * 0.8, vy: big ? R(2, 3.5) : R(3, 5), vz: pz * sp - fz * R(0.3, 1.2) + bvz * 0.8,
     rx: R(0, 6), ry: Math.atan2(fx, fz) + Math.PI / 2, vrx: R(14, 26) * (Math.random() < 0.5 ? -1 : 1), vry: R(-8, 8), life: R(1.2, 1.6), T, c: new THREE.Color(T.c).multiplyScalar(R(0.85, 1.1)) });
 }
-export function clearCasings() { cases.length = 0; caseMesh.count = 0; }
+export function clearCasings() { cases.length = 0; if (caseMesh) caseMesh.count = 0; }
 function updateCasings(dt) {
   let n = 0;
   for (let i = cases.length - 1; i >= 0; i--) {
@@ -438,6 +460,7 @@ function updateCasings(dt) {
 
 // 推進器火焰
 export function flame(x, y, z, dx, dz) {
+  if (HEADLESS) return;
   const p = R(5, 9);
   spawnGlow({ x, y, z, vx: dx * p + R(-1, 1), vy: R(-0.5, 1), vz: dz * p + R(-1, 1), life: R(0.15, 0.28), s0: R(0.14, 0.22), s1: 0,
     ramp: Math.random() < 0.5 ? RAMP.fire : rampOf(0x60c8ff), drag: 2 });
@@ -482,6 +505,7 @@ const menders = [], crosses = [];
 const CROSS_MAT = new THREE.MeshBasicMaterial({ color: 0x60ff90, transparent: true, depthWrite: false, depthTest: false, blending: THREE.AdditiveBlending, toneMapped: false });
 const CROSS_H = new THREE.BoxGeometry(0.45, 0.15, 0.15), CROSS_V = new THREE.BoxGeometry(0.15, 0.45, 0.15);
 export function repairFx(m, sx, sy, sz, n = 16, spread = 0.25, crossN = 4) {
+  if (HEADLESS) return;
   const pts = sampleVoxels(m.model.root, n);
   pts.forEach((v, i) => {
     const mesh = new THREE.Mesh(DEBRIS_GEO, debrisMat(MEND_C[i % MEND_C.length]));
@@ -536,6 +560,7 @@ function updateMenders(dt) {
 }
 
 export function updateParticles(dt) {
+  if (HEADLESS) return;
   updateLights(dt);
   updateCasings(dt);
   updateMenders(dt);

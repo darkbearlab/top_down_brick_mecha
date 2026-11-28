@@ -18,7 +18,7 @@
 //           d.status = 'corrode' 就是酸液彈（投擲蟲）：落地不爆炸、濺開一灘酸，站在裡面腳被腐蝕
 // 敵人的子彈和光束比較慢，看得到、閃得掉
 import * as THREE from 'three';
-import { G, GFX, UNIT_BOX, addMat, addTrauma, angleDiff, scene } from './core.js';
+import { G, GFX, HEADLESS, UNIT_BOX, VOID, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { isBlock, rayBlock, wallFace } from './arena.js';
 import { blastBuildings, buildingTop, damageBuilding, isBuilding } from './buildings.js';
 import { facing, hasModule, hitMech, impulseK, mechs, muzzleOf, slotBroken, slotLive, syncWear, updateReady, useEnergy } from './mech.js';
@@ -46,7 +46,8 @@ const powerDmgK = (m, d) => (d.kind === 'beam' || d.kind === 'saber') && hasModu
 export const shots = [];
 const mats = new Map();
 const glowMat = c => { if (!mats.has(c)) mats.set(c, addMat(c)); const m = mats.get(c); if (m.userData.hdr !== GFX.hdr) { m.color.setHex(c).multiplyScalar(GFX.hdr); m.userData.hdr = GFX.hdr; } return m; };   // 子彈、飛彈尾焰、燃料：HDR
-const CORE_MAT = addMat(0xffffff);
+const CORE_MAT = HEADLESS ? null : addMat(0xffffff);
+// 無頭（core.js HEADLESS）：子彈、飛彈、燃料、火海圈…的網格都換成 VOID（位置照算，沒有東西畫）
 const R = (a, b) => a + Math.random() * (b - a);
 
 // 每幀：triggers = { L, R } 左右鍵按著沒（打那一邊目前準備好的武器）；locks = 鎖定中的目標（陣列）；aim = 瞄準點
@@ -164,6 +165,7 @@ function fire(m, slot, d, locks, aim, salvoN = d.salvo ?? 1) {
 }
 
 function shotMesh(color, w, len) {
+  if (HEADLESS) return VOID;
   const g = new THREE.Group();
   const glow = new THREE.Mesh(UNIT_BOX, glowMat(color)), core = new THREE.Mesh(UNIT_BOX, CORE_MAT);
   glow.scale.set(w * 1.6, w * 1.6, len); core.scale.set(w * 0.7, w * 0.7, len * 0.8);
@@ -179,13 +181,18 @@ function spawnShot(m, d, x, y, z, dx, dz, speed) {
   g.position.set(x, y, z); g.rotation.y = Math.atan2(dx, dz);
   shots.push({ kind: 'bullet', g, wid: d.id, owner: m, team: m.team, x, y, z, dx, dz, speed, life: d.life * d.speed / speed, dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m) * powerDmgK(m, d), power: d.dmg, kb: d.kb, type: d.type, trail: d.trail, heavy: d.heavy, splash: d.splash, corrode: d.corrode });
 }
-function spawnMissile(m, d, x, y, z, v, target, point) {
+function missileMesh(m, d) {
+  if (HEADLESS) return VOID;
   const g = new THREE.Group();
   const body = new THREE.Mesh(UNIT_BOX, new THREE.MeshLambertMaterial({ color: 0xd8dce2 }));
   body.scale.set(d.size, d.size, d.size * 3);
   const tip = new THREE.Mesh(UNIT_BOX, glowMat(m.isPlayer ? 0xffa040 : 0xff3a30));
   tip.scale.set(d.size * 1.2, d.size * 1.2, d.size * 0.8); tip.position.z = d.size * 1.6;
   g.add(body, tip);
+  return g;
+}
+function spawnMissile(m, d, x, y, z, v, target, point) {
+  const g = missileMesh(m, d);
   g.position.set(x, y, z);
   scene.add(g);
   const vk = BAL.missileK;   // 飛彈 / 火箭速度倍率（敵我一樣，parts.js BAL）
@@ -230,7 +237,7 @@ const FUEL_RAMP = rampOf(0xff8a2a);
 function sprayFuel(m, d, mz, base, spreadK) {
   const a = base + R(-1, 1) * 0.04 * spreadK, T = d.range / d.speed * R(0.92, 1.05), y0 = Math.max(0.3, mz.y - 0.05);
   const vx = Math.sin(a) * d.speed + (m.vx ?? 0) * 0.4, vz = Math.cos(a) * d.speed + (m.vz ?? 0) * 0.4;
-  const g = new THREE.Mesh(UNIT_BOX, glowMat(m.isPlayer ? 0xffa040 : 0xff6a28));
+  const g = HEADLESS ? VOID : new THREE.Mesh(UNIT_BOX, glowMat(m.isPlayer ? 0xffa040 : 0xff6a28));
   g.position.set(mz.x, mz.y, mz.z); scene.add(g);
   shots.push({ kind: 'fuel', g, wid: d.id, owner: m, team: m.team, x: mz.x, y: mz.y, z: mz.z, vx, vy: (0.5 * FUEL_G * T * T - y0) / T, vz, age: 0, T, d, wob: R(0.8, 1.25),
     dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: d.kb, type: 'chemical' });
@@ -301,21 +308,24 @@ function addPuddle(x, z, D, team) {
 // ---------- 燒夷彈 ----------
 // 拋物線 0.75 秒落到瞄準點（最遠 d.range），落地：小爆炸 + 火海（d.zone 半徑、燒 d.zoneT 秒）
 export const NAPALM_T = 0.75, LOB_G = 22;
-const ZONE_GEO = new THREE.CircleGeometry(1, 28);
+const ZONE_GEO = HEADLESS ? null : new THREE.CircleGeometry(1, 28);
 export const fireZones = [];
 function lobNapalm(m, d, mz, aim, f) {
   let tx = aim?.x ?? m.x + f.x * 9, tz = aim?.z ?? m.z + f.z * 9;
   const dx = tx - m.x, dz = tz - m.z, dl = Math.hypot(dx, dz);
   if (dl > d.range) { tx = m.x + dx / dl * d.range; tz = m.z + dz / dl * d.range; }
-  const g = new THREE.Group();
   const acid = d.status === 'corrode';
-  const body = new THREE.Mesh(UNIT_BOX, new THREE.MeshLambertMaterial({ color: acid ? 0x3a5a18 : 0x5a3a24 })); body.scale.setScalar(d.size);
-  const glow = new THREE.Mesh(UNIT_BOX, glowMat(acid ? 0x8ae040 : 0xff7a30)); glow.scale.setScalar(d.size * 1.5);
-  g.add(body, glow); g.position.set(mz.x, mz.y, mz.z); scene.add(g);
+  const g = HEADLESS ? VOID : new THREE.Group();
+  if (!HEADLESS) {
+    const body = new THREE.Mesh(UNIT_BOX, new THREE.MeshLambertMaterial({ color: acid ? 0x3a5a18 : 0x5a3a24 })); body.scale.setScalar(d.size);
+    const glow = new THREE.Mesh(UNIT_BOX, glowMat(acid ? 0x8ae040 : 0xff7a30)); glow.scale.setScalar(d.size * 1.5);
+    g.add(body, glow);
+  }
+  g.position.set(mz.x, mz.y, mz.z); scene.add(g);
   const T = d.lobT ?? NAPALM_T;
   // 落點警示圈（榴彈砲）：地上一圈紅色，越接近落地越亮
   let mark = null;
-  if (d.mark) { mark = new THREE.Mesh(ZONE_GEO, addMat(0xff3020, 0.12)); mark.rotation.x = -Math.PI / 2; mark.position.set(tx, 0.07, tz); mark.scale.setScalar(d.splash); scene.add(mark); }
+  if (d.mark) { mark = HEADLESS ? VOID : new THREE.Mesh(ZONE_GEO, addMat(0xff3020, 0.12)); mark.rotation.x = -Math.PI / 2; mark.position.set(tx, 0.07, tz); mark.scale.setScalar(d.splash); scene.add(mark); }
   shots.push({ kind: 'napalm', g, wid: d.id, mark, t: 0, T, owner: m, team: m.team, x: mz.x, y: mz.y, z: mz.z, vx: (tx - mz.x) / T, vz: (tz - mz.z) / T,
     vy: (0.2 - mz.y + 0.5 * LOB_G * T * T) / T, d, dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: 0.6, type: 'chemical', splash: d.splash });
   muzzleFx(mz.x, mz.y, mz.z, f.x, f.z, 'lob', acid ? 0xb8ff58 : 0xffb050);   // 拋射：往上竄的火 + 煙
@@ -352,7 +362,7 @@ const ZONE_LOOK = { burn: { color: 0xff5a18, ramp: 'fire' }, corrode: { color: 0
 const ACID_STAIN = [0x0c2004, 0x102808];   // 酸蝕過的地：偏綠的壓暗
 export function spawnZone(x, z, r, t, status, stacks, team, opt = {}) {
   const L = ZONE_LOOK[status] ?? ZONE_LOOK.burn;
-  const ring = new THREE.Mesh(ZONE_GEO, addMat(L.color, 0.3));
+  const ring = HEADLESS ? VOID : new THREE.Mesh(ZONE_GEO, addMat(L.color, 0.3));
   ring.rotation.x = -Math.PI / 2; ring.position.set(x, 0.06, z); ring.scale.setScalar(r); scene.add(ring);
   // 火海的火：幾個點分散在圓裡（酸液沒有火，靠下面冒泡）
   if (status === 'burn') for (let k = 0; k < (opt.fires ?? 6); k++) { const a = Math.random() * 6.28, rr = Math.sqrt(Math.random()) * r * 0.85; burnAt(x + Math.cos(a) * rr, 0.15, z + Math.sin(a) * rr, t * R(0.8, 1), 0.8); }

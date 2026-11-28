@@ -33,7 +33,7 @@
 //   隊伍指揮照樣替玩家挑目標 = 給玩家的指令（cqOrder：文字 + 地上的光柱 + 腳邊照路線指的箭頭）；玩家不會被自動駕駛
 //   被擊破 / 開場：S.prespawn = 重組倒數，main.js 開選機體畫面（cqPickInfo：開放的配裝、AI 建議），選好 → cqJoin 接回 1 號機的位置
 import * as THREE from 'three';
-import { G, addMat, scene } from './core.js';
+import { G, HEADLESS, VOID, addMat, scene } from './core.js';
 import { H as MAP_H, W as MAP_W, grid, gridVer, isSolid, rayBlock } from './arena.js';
 import { isBuilding } from './buildings.js';
 import { deviceReady } from './devices.js';
@@ -121,9 +121,11 @@ const loStat = e => { const n = e.cq.lo.name; let r = S.lo.get(n); if (!r) S.lo.
 export const cqState = () => S;
 
 // 蟲巢的樣子：土丘 + 發光的卵囊（顏色 = 種類）；地上一圈（顏色 = 持有方）+ 讀條的內圈
-const MOUND = new THREE.BoxGeometry(1, 1, 1), RING = new THREE.RingGeometry(CQ.nodeR - 0.25, CQ.nodeR, 48), DISC = new THREE.CircleGeometry(CQ.nodeR - 0.3, 48);
-const CAMP_RING_BG = new THREE.RingGeometry(2.5, 2.95, 48);
+// 無頭（core.js HEADLESS）：蟲巢、營地的圈都是 VOID（只有畫面），沒有網格
+const MOUND = HEADLESS ? null : new THREE.BoxGeometry(1, 1, 1), RING = HEADLESS ? null : new THREE.RingGeometry(CQ.nodeR - 0.25, CQ.nodeR, 48), DISC = HEADLESS ? null : new THREE.CircleGeometry(CQ.nodeR - 0.3, 48);
+const CAMP_RING_BG = HEADLESS ? null : new THREE.RingGeometry(2.5, 2.95, 48);
 function buildNode(n) {
+  if (HEADLESS) { Object.assign(n, { g: VOID, ring: VOID, disc: VOID, big: n.type === 'core' ? 1.4 : 1, collapse: null, sacMat: VOID.material, mounds: [], sacs: [] }); return; }
   const g = new THREE.Group(), big = n.type === 'core' ? 1.4 : 1;
   const dirt = new THREE.MeshLambertMaterial({ color: 0x4a3a2a }), sac = addMat(HIVES[n.type].sac, 0.9);
   const mounds = [], sacs = [];
@@ -166,6 +168,7 @@ function animCollapse(n, dt) {
 //   regrow：蟲族的綠色從正上方順時針慢慢填滿，填滿時蟲子從地下爬出來
 const CAMP_R0 = 2.5, CAMP_R1 = 2.95, FILL_T = 0.6, TOP = Math.PI / 2;
 function buildCamp(c) {
+  if (HEADLESS) { Object.assign(c, { g: VOID, arc: VOID, arcKey: null, ph: { kind: 'live' } }); return; }
   const g = new THREE.Group();
   const bg = new THREE.Mesh(CAMP_RING_BG, addMat(0x5a6068, 0.4));
   const arc = new THREE.Mesh(new THREE.RingGeometry(CAMP_R0, CAMP_R1, 48), addMat(CAMPS[c.kind].hex, 0.7));
@@ -180,6 +183,7 @@ function buildCamp(c) {
 // frac：弧佔一圈多少；drain = false：弧從正上方往順時針長出去（填滿）；true：弧的尾端固定在正上方、灰色從正上方順時針吃掉它
 //   先把長度量化（1/96 圈）再算起點：以前起點用沒量化的長度算 → 量化後的端點每幀差一點點，正上方那一端來回抽
 function setArc(c, frac, hex, drain = false) {
+  if (HEADLESS) return;
   const q = Math.round(Math.max(0, Math.min(1, frac)) * 96), F = Math.PI * 2, L = q / 96 * F, key = `${q}:${drain}`;
   c.arc.material.color.setHex(hex);
   c.arc.visible = q > 0;
@@ -360,8 +364,9 @@ function spawnAce(team, lo, at, k, noDrop = false) {
 }
 
 // 派系光環（雜魚 makeMech 自己有；主力機、要塞另外加，大一點）；拿到營地效果時光環換成效果的顏色、一閃一閃
-const ACE_RING = new THREE.RingGeometry(1.2, 1.5, 32);
+const ACE_RING = HEADLESS ? null : new THREE.RingGeometry(1.2, 1.5, 32);
 function addRing(e, team) {
+  if (HEADLESS) { e.cq.ring = VOID; return; }
   const ring = new THREE.Mesh(ACE_RING, addMat(COLORS[team].glow, 0.6));
   ring.rotation.x = -Math.PI / 2; ring.position.y = 0.04;
   e.model.root.add(ring); e.model.teamRing = ring; e.cq.ring = ring;

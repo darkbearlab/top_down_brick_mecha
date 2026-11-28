@@ -12,7 +12,7 @@
 // 方塊依位置分到 16 × 16 格的區塊，每個區塊一個 InstancedMesh：鏡頭外的區塊整塊不畫（大地圖靠這個撐住）
 import { fogMaterial } from './fog.js';
 import * as THREE from 'three';
-import { UNIT_BOX, scene } from './core.js';
+import { HEADLESS, UNIT_BOX, scene } from './core.js';
 import { H, W, bumpGrid, grid, tileC, tileR, toWorldX, toWorldZ } from './arena.js';
 import { burnAt, burst, chipDebris, explosion, fire, smoke, spawnPuff } from './fx.js';
 import { sfx } from './audio.js';
@@ -48,7 +48,7 @@ function useSet(st) { st.dirtyB ??= new Set(); ({ chunks, vox, tiles, burning, p
 // 多層：第 k 層的建築（arena.js 已經切到第 k 層）
 export function buildLayerBuildings(k, layout, group, U) {
   if (k === 0) disposeSets();
-  const st = { chunks: new Map(), vox: [], tiles: new Map(), burning: new Set(), parent: group, mat: fogMaterial(new THREE.MeshLambertMaterial({ color: 0xffffff }), U) };
+  const st = { chunks: new Map(), vox: [], tiles: new Map(), burning: new Set(), parent: group, mat: HEADLESS ? null : fogMaterial(new THREE.MeshLambertMaterial({ color: 0xffffff }), U) };
   sets[k] = st; useSet(st);
   LAYOUT = layout; build();
 }
@@ -56,21 +56,22 @@ export function setBuildingLayer(k) { useSet(sets[k]); }
 const mtx = new THREE.Matrix4(), col = new THREE.Color(), HIDE = new THREE.Matrix4().makeScale(0, 0, 0);
 const key = (c, r) => r * W + c;
 
-function build() {
-  for (const ch of chunks.values()) { ch.mesh.parent?.remove(ch.mesh); ch.mesh.dispose(); }
-  vox.length = 0; tiles.clear(); chunks.clear();
-  for (const [c0, r0, w, h, floors, si] of LAYOUT) {
-    const S = STYLES[si], L = floors * FLOOR + 1, gw = w * N, gh = h * N;
-    const B = { vox: [] };   // 這一棟（支撐檢查用）
-    const lit = new Set();
-    for (let gx = 0; gx < gw; gx++) for (let gz = 0; gz < gh; gz++) for (let y = 0; y < L; y++) {
-      const edgeX = gx === 0 || gx === gw - 1, edgeZ = gz === 0 || gz === gh - 1, outer = edgeX || edgeZ;
-      const top = y === L - 1;
-      if (top && !outer) continue;                       // 屋頂：只有一圈女兒牆，中間是屋頂面（y = L-2）
-      let c = S.wall;
+// 一棟的每一顆方塊（固定順序）：emit(tc, tr, gx, y, gz, x, yy, z, c, roof)；roof = 屋頂板（支撐距離上限比較大）
+// color = false（無頭）：不算顏色、不吃亂數（亮燈的窗戶是亂數挑的）
+function eachVox([c0, r0, w, h, floors, si], emit, color = true) {
+  const S = STYLES[si], L = floors * FLOOR + 1, gw = w * N, gh = h * N;
+  const lit = new Set();
+  for (let gx = 0; gx < gw; gx++) for (let gz = 0; gz < gh; gz++) for (let y = 0; y < L; y++) {
+    const edgeX = gx === 0 || gx === gw - 1, edgeZ = gz === 0 || gz === gh - 1, outer = edgeX || edgeZ;
+    const top = y === L - 1;
+    if (top && !outer) continue;                       // 屋頂：只有一圈女兒牆，中間是屋頂面（y = L-2）
+    if (!top && !outer && y !== L - 2) continue;       // 裡面是空心的（省方塊），只有屋頂面
+    let c = 0;
+    if (color) {
+      c = S.wall;
       if (top) c = S.band;
       else if (y === L - 2 && !outer) c = S.roof;
-      else if (outer) {
+      else {
         const along = edgeX ? gz : gx, fy = y % FLOOR;
         const corner = edgeX && edgeZ;
         if (fy === 0) c = S.band;
@@ -80,11 +81,24 @@ function build() {
           c = lit.has(wk) ? S.lit : S.glass;
         } else if (y < FLOOR && fy !== 0 && along % 8 >= 3 && along % 8 <= 4 && fy <= 2) c = S.glass;   // 一樓的門
         else c = (gx * 3 + gz * 5 + y) % 7 === 0 ? S.wall2 : S.wall;
-      } else if (y !== L - 2) continue;                   // 裡面是空心的（省方塊），只有屋頂面
-      const tc = c0 + Math.floor(gx / N), tr = r0 + Math.floor(gz / N);
-      const x = toWorldX(c0) - 0.5 + (gx + 0.5) * V, z = toWorldZ(r0) - 0.5 + (gz + 0.5) * V, yy = (y + 0.5) * V;
+      }
+    }
+    const tc = c0 + Math.floor(gx / N), tr = r0 + Math.floor(gz / N);
+    const x = toWorldX(c0) - 0.5 + (gx + 0.5) * V, z = toWorldZ(r0) - 0.5 + (gz + 0.5) * V, yy = (y + 0.5) * V;
+    emit(tc, tr, gx, y, gz, x, yy, z, c, y === L - 2 && !outer, S, L);
+  }
+}
+const newTile = (tc, tr, S, L, smokeT) => ({ c: tc, r: tr, vox: [], hp: 0, max: 0, alive: 0, total: 0, burn: 0, smokeT, down: false, S, top: L * V });   // top：這棟的高度（樓層 × 1 + 女兒牆）
+function build() {
+  for (const ch of chunks.values()) { ch.mesh.parent?.remove(ch.mesh); ch.mesh.dispose(); }
+  vox.length = 0; tiles.clear(); chunks.clear();
+  if (HEADLESS) { buildHeadless(); return; }
+  for (const E of LAYOUT) {
+    const [c0, r0] = E;
+    const B = { vox: [] };   // 這一棟（支撐檢查用）
+    eachVox(E, (tc, tr, gx, y, gz, x, yy, z, c, roof, S, L) => {
       const k = key(tc, tr);
-      if (!tiles.has(k)) tiles.set(k, { c: tc, r: tr, vox: [], hp: 0, max: 0, alive: 0, total: 0, burn: 0, smokeT: Math.random(), down: false, S, top: L * V });   // top：這棟的高度（樓層 × 1 + 女兒牆）
+      if (!tiles.has(k)) tiles.set(k, newTile(tc, tr, S, L, Math.random()));
       const t = tiles.get(k);
       const ck = Math.floor(tc / CHUNK) + ',' + Math.floor(tr / CHUNK);
       if (!chunks.has(ck)) chunks.set(ck, { list: [], mesh: null, dirty: false, cdirty: false });
@@ -92,12 +106,12 @@ function build() {
       // 明暗：貼地的幾排壓暗（地面的環境光遮蔽），每顆亮度差一點點（照座標雜湊，每次蓋都一樣）
       const hh = Math.sin(gx * 12.9898 + gz * 78.233 + y * 37.719 + c0 * 3.1 + r0 * 7.7) * 43758.5453;
       c = shade(c, (y === 0 ? 0.68 : y === 1 ? 0.82 : y === 2 ? 0.93 : 1) * (0.95 + (hh - Math.floor(hh)) * 0.1));
-      const v = { x, y: yy, z, c, alive: true, t, ch, i: ch.list.length, B, gx, gy: y, gz, k: y === L - 2 && !outer ? 10 : 4 };
+      const v = { x, y: yy, z, c, alive: true, t, ch, i: ch.list.length, B, gx, gy: y, gz, k: roof ? 10 : 4 };
       B.vox.push(v);
       t.vox.push(v);
       ch.list.push(v);
       vox.push(v);
-    }
+    });
   }
   for (const t of tiles.values()) {
     t.total = t.alive = t.vox.length;
@@ -112,7 +126,45 @@ function build() {
     parent.add(ch.mesh);
   }
 }
-const MAT = fogMaterial(new THREE.MeshLambertMaterial({ color: 0xffffff }));
+// 無頭（core.js HEADLESS）：方塊很多（大地圖幾十萬顆），先只算每格的數量、耐久、高度；
+//   一棟第一次被打到（ensureVox）才把它的方塊建出來（同一套 eachVox，位置、順序跟有畫面時一樣；沒有顏色、沒有網格）
+function buildHeadless() {
+  for (const E of LAYOUT) {
+    const B = { E, vox: null, tiles: [] };
+    eachVox(E, (tc, tr, gx, y, gz, x, yy, z, c, roof, S, L) => {
+      const k = key(tc, tr);
+      let t = tiles.get(k);
+      if (!t) { t = newTile(tc, tr, S, L, 0); t.vox = null; t.Bs = []; tiles.set(k, t); }
+      if (!t.Bs.includes(B)) { t.Bs.push(B); B.tiles.push(t); }
+      t.total++;
+    }, false);
+  }
+  for (const t of tiles.values()) {
+    t.alive = t.total;
+    t.max = t.hp = 160 + t.total * 2.2;
+    grid[t.r][t.c] = '#';
+  }
+}
+// 無頭的方塊：座標從那一棟的角落 + 格子位置算（跟 eachVox 同一個算式），少存三個浮點數（大地圖打壞很多棟時記憶體差一倍）
+class HVox {
+  constructor(t, B, gx, gy, gz, k) { this.alive = true; this.t = t; this.B = B; this.gx = gx; this.gy = gy; this.gz = gz; this.k = k; this.c = 0; }
+  get x() { return this.B.x0 + (this.gx + 0.5) * V; }
+  get y() { return (this.gy + 0.5) * V; }
+  get z() { return this.B.z0 + (this.gz + 0.5) * V; }
+}
+function ensureVox(t) {
+  if (t.vox && t.Bs.every(B => B.vox)) return;
+  for (const B of t.Bs) {
+    if (B.vox) continue;
+    B.vox = []; B.x0 = toWorldX(B.E[0]) - 0.5; B.z0 = toWorldZ(B.E[1]) - 0.5;
+    for (const tt of B.tiles) tt.vox ??= [];
+    eachVox(B.E, (tc, tr, gx, y, gz, x, yy, z, c, roof) => {
+      const tt = tiles.get(key(tc, tr)), v = new HVox(tt, B, gx, y, gz, roof ? 10 : 4);
+      B.vox.push(v); tt.vox.push(v);
+    }, false);
+  }
+}
+const MAT = HEADLESS ? null : fogMaterial(new THREE.MeshLambertMaterial({ color: 0xffffff }));
 function writeVox(v, s = V) {
   mtx.makeScale(s, s, s).setPosition(v.x, v.y, v.z);
   v.ch.mesh.setMatrixAt(v.i, mtx);
@@ -120,6 +172,9 @@ function writeVox(v, s = V) {
 }
 // 改過的區塊這一幀結束前一起標記要更新
 function touch(v, color = false) { v.ch.dirty = true; if (color) v.ch.cdirty = true; }
+// 方塊被打掉 / 改顏色（無頭：沒有網格，只改資料）
+function hideVox(v) { if (!HEADLESS) { v.ch.mesh.setMatrixAt(v.i, HIDE); touch(v); } }
+function paintVox(v) { if (!HEADLESS) { v.ch.mesh.setColorAt(v.i, col.setHex(v.c)); touch(v, true); } }
 function flush() {
   for (const ch of chunks.values()) {
     if (ch.dirty) { ch.mesh.instanceMatrix.needsUpdate = true; ch.dirty = false; }
@@ -144,6 +199,7 @@ export function resetBuildings() {
 export function damageBuilding(x, y, z, dmg, dx = 0, dz = 0, splash = 0) {
   const t = tiles.get(key(tileC(x + dx * 0.05), tileR(z + dz * 0.05))) ?? tiles.get(key(tileC(x), tileR(z)));
   if (!t || t.down) return false;
+  if (HEADLESS) ensureVox(t);
   const rad = splash > 0 ? Math.min(1.1, 0.35 + splash * 0.4) : Math.min(0.75, 0.1 + Math.sqrt(dmg) * 0.05);
   // 往子彈方向找：表面打光了就往裡面挖
   let gone = [];
@@ -154,7 +210,7 @@ export function damageBuilding(x, y, z, dmg, dx = 0, dz = 0, splash = 0) {
   if (!gone.length) for (const v of t.vox) if (v.alive && Math.abs(v.y - y) < 0.4) { gone.push(v); break; }
   if (splash <= 0 && dmg < 12) gone = gone.filter(() => Math.random() < dmg / 12);   // 小口徑：不是每發都打得掉一塊
   const colors = [];
-  for (const v of gone) { v.alive = false; t.alive--; v.ch.mesh.setMatrixAt(v.i, HIDE); touch(v); if (colors.length < 4) colors.push(v.c); dirtyB.add(v.B); }
+  for (const v of gone) { v.alive = false; t.alive--; hideVox(v); if (colors.length < 4) colors.push(v.c); dirtyB.add(v.B); }
   // 洞的周圍燻黑：命中點附近還在的方塊壓暗（越近越可能；同一塊最多壓 3 次）
   const sr = rad * 1.9 + 0.15;
   for (const v of t.vox) {
@@ -162,7 +218,7 @@ export function damageBuilding(x, y, z, dmg, dx = 0, dz = 0, splash = 0) {
     const d2 = (v.x - x) ** 2 + (v.y - y) ** 2 + (v.z - z) ** 2;
     if (d2 > sr * sr || Math.random() > (gone.length ? 0.75 : 0.35) * (1 - Math.sqrt(d2) / sr) + 0.1) continue;
     v.dk = (v.dk ?? 0) + 1; v.c = shade(v.c, 0.68);
-    v.ch.mesh.setColorAt(v.i, col.setHex(v.c)); touch(v, true);
+    paintVox(v);
   }
   flush();
   t.hp -= dmg * (splash > 0 ? 1.4 : 1);
@@ -207,17 +263,17 @@ function collapse(t, dx, dz) {
   let n = 0;
   for (const v of live) {
     v.rubble = true;   // 不再參與支撐檢查
-    if (Math.random() < 0.55 || n >= 60) { v.alive = false; v.ch.mesh.setMatrixAt(v.i, HIDE); touch(v); continue; }
+    if (Math.random() < 0.55 || n >= 60) { v.alive = false; hideVox(v); continue; }
+    if (HEADLESS) { n++; continue; }   // 瓦礫堆的樣子只是外觀
     // 瓦礫堆：中間高、旁邊低
     const ox = R(-0.48, 0.48), oz = R(-0.48, 0.48), hgt = Math.max(0, 0.5 - Math.hypot(ox, oz)) * 1.3;
     v.x = cx + ox; v.z = cz + oz; v.y = R(0.06, 0.12 + hgt);
     v.c = shade(v.c, 0.7);
+    n++;
     mtx.makeRotationFromEuler(new THREE.Euler(R(-0.6, 0.6), R(0, 3), R(-0.6, 0.6)));
     mtx.scale(new THREE.Vector3(V * R(0.8, 1.2), V * R(0.6, 1), V * R(0.8, 1.2))).setPosition(v.x, v.y, v.z);
     v.ch.mesh.setMatrixAt(v.i, mtx);
-    v.ch.mesh.setColorAt(v.i, col.setHex(v.c));
-    touch(v, true);
-    n++;
+    paintVox(v);
   }
   flush();
   // 一大團灰塵往外推 + 火光
@@ -261,7 +317,7 @@ function settle(B) {
 function drop(list) {
   const byT = new Map();
   for (const v of list) {
-    v.alive = false; v.t.alive--; v.ch.mesh.setMatrixAt(v.i, HIDE); touch(v);
+    v.alive = false; v.t.alive--; hideVox(v);
     (byT.get(v.t) ?? byT.set(v.t, []).get(v.t)).push(v);
   }
   flush();

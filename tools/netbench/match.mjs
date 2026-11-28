@@ -1,5 +1,6 @@
 // 一場據點戰（全 AI，跟 tools/sim/conquest.mjs 同一套迴圈），給伺服器測試用：newMatch(seed) → { step(), S }
-import './shim.mjs';
+// 無頭模式（src/headless.js）：只跑遊戲規則、不建任何畫面物件，也不需要假的瀏覽器環境（2026-11-28：一整場 6 分鐘強制 GC 後 ≤ 33 MB）
+import '../../src/headless.js';   // 要在其他遊戲模組之前
 import { G } from '../../src/core.js';
 import { loadMap } from '../../src/arena.js';
 import { resetBuildings, setLayout, updateBuildings } from '../../src/buildings.js';

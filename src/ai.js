@@ -9,7 +9,7 @@
 //   會飛的喜歡停在空洞上），每 2～4 秒或被打到就換一個 → 散開成扇形游擊，不會排成一列
 // 特殊雜魚（parts.js GRUNTS_LOW 的 bomber / charger / fly / swarm）：自爆、衝鋒、旋停、蟲群，見下面各自的函式
 import * as THREE from 'three';
-import { G, addMat, addTrauma, angleDiff, scene } from './core.js';
+import { G, HEADLESS, VOID, addMat, addTrauma, angleDiff, scene } from './core.js';
 import { isBlock, isSolid, randomOpenSpot, rayBlock, rayWalk, tileAt, tileC, tileR } from './arena.js';
 import { headStats } from './sensors.js';
 import { BOOST_DV, BOOST_PUSH, BOOST_TIME, ENEMY_COLORS, activeSlot, boostDirOf, boostKOf, legK, damagePart, facing, hitMech, makeMech, muzzleOf, mechs, removeMech, slotBroken, stagger, wantsLock } from './mech.js';
@@ -46,7 +46,9 @@ export const AI_TUNE = { gruntErrK: 1, gruntRestK: 1, gruntChassis: false, wantK
 //   gruntSpeedK：雜魚走路極速倍率（自爆機除外：牠本來就是要衝過來的）；gruntHpMul：雜魚血量整體倍率
 const gruntHpK = P => (!AI_TUNE.gruntChassis ? 1 : P.fly || P.legs === 'hover' ? 0.8 : P.legs === 'tread' ? 1.3 : 1) * AI_TUNE.gruntHpMul;
 const DROP_TIME = 1.1, DROP_H = 16;
-const RING_GEO = new THREE.RingGeometry(0.8, 0.95, 36);
+const RING_GEO = HEADLESS ? null : new THREE.RingGeometry(0.8, 0.95, 36);
+// 空投落點的紅圈（無頭：VOID，見 core.js）
+const dropRing = () => HEADLESS ? VOID : new THREE.Mesh(RING_GEO, addMat(0xff4030, 0.8));
 
 // player = 要打的對象（觀戰模式是另一台電腦機體）；opts.team / opts.colors 換隊伍
 export function spawnEnemy(player, preset, at = null, opts = {}) {
@@ -88,7 +90,7 @@ export function spawnEnemy(player, preset, at = null, opts = {}) {
   // noDrop：直接站在地上（遠征模式的遭遇小隊），不然從天上降落
   if (opts.noDrop) { e.drive = { mx: 0, mz: 0 }; e.aimYaw = e.torsoYaw; }
   else {
-    const ring = new THREE.Mesh(RING_GEO, addMat(0xff4030, 0.8));
+    const ring = dropRing();
     ring.rotation.x = -Math.PI / 2;
     ring.position.set(p.x, 0.04, p.z);
     scene.add(ring);
@@ -132,7 +134,7 @@ export function unparkEnemy(e, x, z) {
   e.x = x; e.z = z; e.vx = e.vz = 0;
   scene.add(e.model.root);
   mechs.push(e); enemies.push(e);
-  const ring = new THREE.Mesh(RING_GEO, addMat(0xff4030, 0.8));
+  const ring = dropRing();
   ring.rotation.x = -Math.PI / 2;
   ring.position.set(x, 0.04, z);
   scene.add(ring);
@@ -1096,6 +1098,7 @@ function updateCharger(e, dt, player, dist, nx, nz, los) {
 }
 function showTele(e, C) {
   clearTele(e);
+  if (HEADLESS) { e.tele = VOID; return; }
   const m = new THREE.Mesh(UNIT_BOX, addMat(0xff3020, 0.5));
   m.scale.set(1.3, 0.04, C.len);
   m.position.set(e.x + C.dx * C.len / 2, 0.05, e.z + C.dz * C.len / 2);
@@ -1125,18 +1128,21 @@ function updateFall(e, dt) {
 
 // ---------- 蟲群 ----------
 // 機體模型藏起來，改畫 n 隻在地上爬的小機械蟲（扁平深色方塊 + 紅眼），在中心附近亂竄；剩幾隻照剩多少血
-const DRONE_GEO = new THREE.BoxGeometry(0.24, 0.09, 0.32), EYE_GEO = new THREE.BoxGeometry(0.12, 0.05, 0.05);
-const DRONE_MAT = new THREE.MeshLambertMaterial({ color: 0x2c2d34 }), EYE_MAT = addMat(0xff3020, 0.95);
+const DRONE_GEO = HEADLESS ? null : new THREE.BoxGeometry(0.24, 0.09, 0.32), EYE_GEO = HEADLESS ? null : new THREE.BoxGeometry(0.12, 0.05, 0.05);
+const DRONE_MAT = HEADLESS ? null : new THREE.MeshLambertMaterial({ color: 0x2c2d34 }), EYE_MAT = HEADLESS ? null : addMat(0xff3020, 0.95);
 const tmpM = new THREE.Matrix4(), tmpQ = new THREE.Quaternion(), tmpE = new THREE.Euler(), tmpP = new THREE.Vector3(), ONE = new THREE.Vector3(1, 1, 1), ZERO = new THREE.Vector3(0, 0, 0);
 const EYE_OFF = new THREE.Matrix4().makeTranslation(0, 0.03, 0.16);   // 紅眼：蟲的頭
 function setupSwarm(e, n) {
   for (const k in e.parts) e.parts[k].g.visible = false;
   e.spec.legs = { ...e.spec.legs, stagger: Infinity };
   e.r = 1.15;
-  const body = new THREE.InstancedMesh(DRONE_GEO, DRONE_MAT, n), eye = new THREE.InstancedMesh(EYE_GEO, EYE_MAT, n);
-  body.frustumCulled = eye.frustumCulled = false;
-  body.castShadow = true;
-  e.model.root.add(body, eye);
+  // 無頭：沒有蟲的網格（body / eye = VOID），每隻的位置照算（最後碎掉的地方）
+  const body = HEADLESS ? VOID : new THREE.InstancedMesh(DRONE_GEO, DRONE_MAT, n), eye = HEADLESS ? VOID : new THREE.InstancedMesh(EYE_GEO, EYE_MAT, n);
+  if (!HEADLESS) {
+    body.frustumCulled = eye.frustumCulled = false;
+    body.castShadow = true;
+    e.model.root.add(body, eye);
+  }
   e.swarm = { n, per: e.parts.torso.max / n, body, eye, ph: Array.from({ length: n }, () => [Math.random() * 6.28, 0.35 + Math.random() * 1.1, 0, 1 + Math.random() * 1.5]),
     live: n, wx: new Float32Array(n).fill(e.x), wz: new Float32Array(n).fill(e.z), yaw: new Float32Array(n), init: false };
 }
@@ -1144,6 +1150,7 @@ const BUG_BITS = [0x2c2d34, 0x1c1d22, 0xff3020];
 // 頭朝實際跑的方向：整群在移動時，整群的速度佔比較重 → 大家頭朝同一邊；停下來時才各自亂竄
 const SWARM_VW = 1.6, BUG_TURN = 10;
 function updateSwarmFx(e, dt) {
+  if (HEADLESS) return;
   const S = e.swarm, t = G.now, live = Math.max(1, Math.ceil(e.parts.torso.hp / e.parts.torso.max * S.n));
   // 被打掉的那幾隻：在牠最後的位置各自碎掉
   for (let i = live; i < S.live; i++) shatterSmall(S.wx[i], 0.1, S.wz[i], BUG_BITS);
@@ -1175,11 +1182,14 @@ function approachYaw(a, b, step) {
 
 // ---------- 旋停機：四旋翼無人機 ----------
 // 機體模型藏起來，在上半身那裡換成：扁平機身 + 四支斜臂 + 四個旋翼（半透明圓盤，一直轉）；武器掛在機身下面（槍口也移到那裡）
-const QUAD_BODY = new THREE.BoxGeometry(0.72, 0.2, 0.8), QUAD_ARM = new THREE.BoxGeometry(0.1, 0.08, 0.95), QUAD_HUB = new THREE.BoxGeometry(0.16, 0.14, 0.16);
-const QUAD_ROTOR = new THREE.CylinderGeometry(0.36, 0.36, 0.02, 18), QUAD_GUN = new THREE.BoxGeometry(0.1, 0.1, 0.55), QUAD_POD = new THREE.BoxGeometry(0.22, 0.16, 0.36);
+const QUAD_BODY = HEADLESS ? null : new THREE.BoxGeometry(0.72, 0.2, 0.8), QUAD_ARM = HEADLESS ? null : new THREE.BoxGeometry(0.1, 0.08, 0.95), QUAD_HUB = HEADLESS ? null : new THREE.BoxGeometry(0.16, 0.14, 0.16);
+const QUAD_ROTOR = HEADLESS ? null : new THREE.CylinderGeometry(0.36, 0.36, 0.02, 18), QUAD_GUN = HEADLESS ? null : new THREE.BoxGeometry(0.1, 0.1, 0.55), QUAD_POD = HEADLESS ? null : new THREE.BoxGeometry(0.22, 0.16, 0.36);
+// 槍口換到機身下面（遊戲規則：無頭也要）
+const quadMuzzles = () => ({ armR: [-0.17, -0.03, 0.5], backL: [0.17, -0.02, 0.27] });
 function setupQuad(e) {
   const M = e.model;
   for (const k in e.parts) e.parts[k].g.visible = false;
+  if (HEADLESS) { Object.assign(M.muzzles, quadMuzzles()); e.quad = { g: VOID, rotors: [] }; return; }
   const dark = new THREE.MeshLambertMaterial({ color: 0x3a3d45 }), acc = new THREE.MeshLambertMaterial({ color: e.colors.accent }), metal = new THREE.MeshLambertMaterial({ color: 0x8a8e98 });
   const q = new THREE.Group();
   const body = new THREE.Mesh(QUAD_BODY, dark); q.add(body);
@@ -1199,7 +1209,6 @@ function setupQuad(e) {
   q.traverse(o => { if (o.isMesh && o.material.type === 'MeshLambertMaterial') o.castShadow = true; });
   q.position.y = 0.15;
   M.torsoG.add(q);
-  M.muzzles.armR = [-0.17, -0.03, 0.5];
-  M.muzzles.backL = [0.17, -0.02, 0.27];
+  Object.assign(M.muzzles, quadMuzzles());
   e.quad = { g: q, rotors };
 }
