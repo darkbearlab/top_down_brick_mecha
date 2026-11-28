@@ -149,10 +149,10 @@ function playEvent(ev) {
   else if (type === 'note') N.toast?.(a[0]);
 }
 // 每幀：送操作（每秒 30 份）、自己的機體本地預測 + 拉回伺服器位置、其他機體平滑追、飛彈方塊
-export function onlineStep(dt, frame) {
+// 每幀：送操作（坐著才送，每秒 30 份；觀戰只送每秒 1 次測延遲）、自己的機體本地預測 + 拉回伺服器位置、其他機體平滑追、飛彈方塊
   const now = performance.now();
   if (N.ws?.readyState === 1) {
-    if (now - N.sendT >= 33 || frame.boost || frame.ready.L || frame.ready.R || frame.device) { N.sendT = now; send({ t: 'in', f: { mx: frame.mx, mz: frame.mz, aimYaw: frame.aimYaw, aim: frame.aim ? { x: frame.aim.x, z: frame.aim.z } : null, fire: frame.fire, ready: frame.ready, boost: frame.boost, device: frame.device } }); }
+    if (N.me?.team && (now - N.sendT >= 33 || frame.boost || frame.ready.L || frame.ready.R || frame.device)) { N.sendT = now; send({ t: 'in', f: { mx: frame.mx, mz: frame.mz, aimYaw: frame.aimYaw, aim: frame.aim ? { x: frame.aim.x, z: frame.aim.z } : null, fire: frame.fire, ready: frame.ready, boost: frame.boost, device: frame.device } }); }
     if (now - N.pingT > 1000) { N.pingT = now; const id = Math.random(); N.pings.set(id, now); send({ t: 'ping', id }); }
   }
   const me = onlineMe(), k = 1 - Math.exp(-14 * dt);
