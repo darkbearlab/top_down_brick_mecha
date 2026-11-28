@@ -300,6 +300,7 @@ export function startConquest(map, toast) {
     for (const q of Object.values(F.parts)) { q.max *= CQ.fortHpK; q.hp = q.max; }
     F.hold = { x: B.x, z: B.z, r: CQ.fortHold };
     F.ghost = true;   // 大本營不擋路、也不會被其他機體推走（mech.js collideMechs 跳過）
+    F.noRepair = true;   // 大本營不能被任何方式修理（修理無人機 weapons.js fieldRepair 跳過；大本營旁的整備本來就不修要塞）
     faceCenter(F, team);
     tagUnit(F, team, { fort: true });
     addRing(F, team);
@@ -749,7 +750,7 @@ export function updateConquest(dt) {
   }
   // 大本營旁：修理、長回壞掉的部位、補彈藥
   for (const e of enemies) {
-    if (!e.alive || !e.cq || e.cq.fort || e.team === 'native' || e.drop) continue;
+    if (!e.alive || !e.cq || e.cq.fort || e.noRepair || e.team === 'native' || e.drop) continue;
     const B = baseOf(e.team);
     if (Math.hypot(e.x - B.x, e.z - B.z) > CQ.healR) continue;
     let fixed = false, mending = false;

@@ -53,7 +53,7 @@ const R = (a, b) => a + Math.random() * (b - a);
 // 修理無人機（背部模組）：每 0.5 秒替 radius 格內的隊友修耐久、補彈藥（壞掉的部位不會長回來）；有修到就冒一點修理的光
 function fieldRepair(m, d) {
   for (const o of mechs) {
-    if (o === m || !o.alive || o.drop || o.team !== m.team || o.dormant || Math.hypot(o.x - m.x, o.z - m.z) > d.radius) continue;
+    if (o === m || !o.alive || o.drop || o.noRepair || o.team !== m.team || o.dormant || Math.hypot(o.x - m.x, o.z - m.z) > d.radius) continue;   // noRepair：任何方式都修不了（據點戰的大本營）
     let did = false;
     for (const [k, q] of Object.entries(o.parts)) if (!q.broken && q.hp < q.max) { q.hp = Math.min(q.max, q.hp + q.max * d.rate * 0.5); did = true; if (Math.random() < 0.3) syncWear(o, k, 0, 0, true); }
     for (const g of Object.values(o.guns ?? {})) if (g.max !== Infinity && g.ammo < g.max) { g.ammo = Math.min(g.max, g.ammo + Math.max(1, g.max * d.ammoRate * 0.5)); did = true; }
