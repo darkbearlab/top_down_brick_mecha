@@ -625,7 +625,10 @@ function stepMissile(s, i, dt) {
     const tp = tgt ?? s.point;
     // 三段：爬升（往上衝、很快慢下來，頂點約 5～6 格高）→ 平飛（水平方向每秒最多轉 d.turn，轉彎半徑大）→ 接近目標俯衝
     const v = Math.hypot(s.vx, s.vy, s.vz) || 1, sp = Math.min(d.maxSpeed * (s.vk ?? 1), v + d.accel * (s.vk ?? 1) * dt);
-    if (s.age < 0.35) s.vy -= 30 * dt;
+    // 燃料燒完（life 到了、還沒開始俯衝）：引擎熄火、不再追蹤，翻著往下掉，落地才爆（實際射程約 35 格，parts.js vmissile.range）
+    if (s.life <= 0 && !s.dive && !s.spent) { s.spent = true; s.target = null; }
+    if (s.spent) { s.vy -= 22 * dt; const k = Math.exp(-2.5 * dt); s.vx *= k; s.vz *= k; }
+    else if (s.age < 0.35) s.vy -= 30 * dt;
     else {
       const hx = tp.x - s.x, hz = tp.z - s.z, hd = Math.hypot(hx, hz) || 1;
       if (!s.dive && hd < s.y * 2 + 3) { s.dive = true; s.divePt = { x: tp.x, z: tp.z }; }
@@ -660,7 +663,7 @@ function stepMissile(s, i, dt) {
     // 飛得比建築低（俯衝進建築）→ 撞上那棟，在牆外 / 屋頂上爆開（BAL.lobHitsBuildings）
     let wall = false;
     if (BAL.lobHitsBuildings && !direct && s.y < buildingTop(s.x, s.z)) { s.x -= s.vx * dt; s.z -= s.vz * dt; wall = true; }
-    if (direct || wall || s.y <= 0.15 || s.life <= 0) {
+    if (direct || wall || s.y <= 0.15 || s.life < -4) {
       if (direct) {
         // 從上面砸下來：容易打到頭和背部武器
         const roll = Math.random(), P = direct.parts;

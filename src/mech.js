@@ -16,7 +16,7 @@ import { sfx } from './audio.js';
 import { BAL, EFFECT, WEAPONS, computeSpec } from './parts.js';
 import { buildMechModel } from './model.js';
 import { CHIPS, DEVICES, hasChip } from './tech.js';
-import { collideWrecks, isWreck, startDying, startWreck } from './wreck.js';
+import { isWreck, startDying, startWreck } from './wreck.js';
 import { damageBuilding } from './buildings.js';
 import { burnLegK, clearStatus, corrodeK, hasStatus, reduceStatus, setStatusHooks } from './status.js';
 import { CL, att, log, srcOf } from './combatlog.js';
@@ -316,8 +316,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
     stick(m, hit.hit, hit.nx, hit.nz);
   }
   if (hit.hit > CRASH_SPEED) crash(m, hit.hit - CRASH_SPEED, hit.nx, hit.nz);
-  const wh = collideWrecks(m);
-  if (wh.hit > STICK_SPEED) stick(m, wh.hit, wh.nx, wh.nz);
+  // 殘骸不擋路（2026-11-28，所有模式）：以前 collideWrecks 會把機體推出來、還會卡住
 
   if (!dashing) m.torsoYaw = approachAngle(m.torsoYaw, aimYaw, S.turn * (m.parts.head.broken ? 0.7 : 1) * (m.staggerT > 0 ? 0.2 : 1) * (m.beamTurnK ?? 1) * dt);   // 衝刺中上半身鎖住；光束照射中轉得慢
   const prev = m.walk;
@@ -757,7 +756,7 @@ export function removeMech(m) {
 export function collideMechs() {
   for (let i = 0; i < mechs.length; i++) for (let j = i + 1; j < mechs.length; j++) {
     const a = mechs[i], b = mechs[j];
-    if (!a.alive || !b.alive || a.drop || b.drop) continue;
+    if (!a.alive || !b.alive || a.drop || b.drop || a.ghost || b.ghost) continue;   // ghost：不跟其他機體碰撞（據點戰的大本營：不擋路、也推不動）
     const dx = b.x - a.x, dz = b.z - a.z, d = Math.hypot(dx, dz), min = a.r + b.r;
     if (d >= min || d < 1e-4) continue;
     const nx = dx / d, nz = dz / d, ov = min - d;

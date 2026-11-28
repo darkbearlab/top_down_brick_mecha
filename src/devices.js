@@ -48,13 +48,14 @@ function areaBlast(owner, x, z, rad, dmg) {
   }
 }
 
-// 拋物線丟出去：0.7 秒落地（最遠 14 格），落地呼叫 land(x, z)
+// 拋物線丟出去：0.22 + 每格 0.022 秒落地（最遠 14 格 ≈ 0.53 秒），弧線比較平，落地呼叫 land(x, z)
 const LOB_G = 22, NADE = new THREE.BoxGeometry(0.22, 0.22, 0.22);
 function lob(m, aim, color, land) {
   let tx = aim?.x ?? m.x + facing(m).x * 8, tz = aim?.z ?? m.z + facing(m).z * 8;
   const dx = tx - m.x, dz = tz - m.z, d = Math.hypot(dx, dz);
   if (d > 14) { tx = m.x + dx / d * 14; tz = m.z + dz / d * 14; }
-  const T = 0.7, mesh = new THREE.Mesh(NADE, new THREE.MeshLambertMaterial({ color })), glow = new THREE.Mesh(NADE, addMat(color, 0.6));
+  const d2 = Math.min(d, 14);   // 飛行時間照距離：14 格 0.53 秒、6 格 0.35 秒（原本一律 0.7 秒）
+  const T = 0.22 + d2 * 0.022, mesh = new THREE.Mesh(NADE, new THREE.MeshLambertMaterial({ color })), glow = new THREE.Mesh(NADE, addMat(color, 0.6));
   glow.scale.setScalar(1.8); mesh.add(glow);
   const p = { x: m.x, y: 1.6, z: m.z, vx: (tx - m.x) / T, vz: (tz - m.z) / T, vy: (0.15 - 1.6 + 0.5 * LOB_G * T * T) / T };
   mesh.position.set(p.x, p.y, p.z); scene.add(mesh);

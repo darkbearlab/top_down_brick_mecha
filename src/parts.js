@@ -90,7 +90,7 @@ export const WEAPONS = {
   // 火箭莢艙：不追蹤、不用鎖定的直射火箭，一次 3 發；每發 48（2026-11 從 52 調降：單發不再讓雙足失衡，逆關節 / 懸浮照樣會）
   rocket: { name: '火箭莢艙', type: 'chemical', mount: 'back', weight: 6, kind: 'rocket', interval: 1.0, ammo: 24, dmg: 48, salvo: 3, speed: 24, accel: 30, maxSpeed: 38, life: 1.1, size: 0.11, splash: 1.0, spread: 0.05,
     model: [[-3, -3, -4, 6, 6, 9, 'f'], [-2, -2, 5, 1, 1, 1, 'w'], [0, -2, 5, 1, 1, 1, 'w'], [2, -2, 5, 1, 1, 1, 'w'], [-2, 0, 5, 1, 1, 1, 'w'], [0, 0, 5, 1, 1, 1, 'w'], [2, 0, 5, 1, 1, 1, 'w']], muzzle: [0, -1, 6] },
-  vmissile: { name: '垂直飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'vmissile', interval: 1.6, ammo: 64, dmg: 22, salvo: 4, speed: 9, accel: 30, maxSpeed: 26, turn: 1.55, life: 3.2, size: 0.12, splash: 1.5, needLock: true,
+  vmissile: { name: '垂直飛彈', type: 'chemical', mount: 'back', weight: 7, kind: 'vmissile', interval: 1.6, ammo: 64, dmg: 22, salvo: 4, speed: 9, accel: 30, maxSpeed: 26, turn: 1.55, life: 1.6, range: 35, size: 0.12, splash: 1.5, needLock: true,
     model: [[-3, -3, -4, 6, 5, 8, 'f'], [-2, 2, -3, 2, 1, 2, 'w'], [0, 2, -3, 2, 1, 2, 'w'], [-2, 2, 0, 2, 1, 2, 'w'], [0, 2, 0, 2, 1, 2, 'w']], muzzle: [0, 3, 0] },
   // 火焰噴射器（手臂）：2026-11 加強（射程 6→7、弧 0.4→0.5、每下 3→4、燃燒 0.3→0.4；原本被汽油投射器全面取代）
   //   按著一直噴，range 格內、左右 arc 弧度的扇形全部燒到（穿透、被牆擋）；每下 dmg + 打中的部位疊 burn 層燃燒（status.js）

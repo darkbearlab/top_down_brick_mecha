@@ -433,7 +433,7 @@ export function updateEnemy(e, dt, player) {
     else if (d.kind === 'stream') t = canShoot && inRange && Math.abs(angleDiff(e.torsoYaw, e.aimYaw)) < 0.35;
     else if (d.kind === 'pulse') t = onTarget && inRange && Math.random() < dt * 1.4 / DF.rest;
     else if (d.kind === 'missile' || d.kind === 'split') t = canShoot && clear && locks.length > 0 && Math.random() < dt * 1.6 / DF.rest;
-    else if (d.kind === 'vmissile') t = clear && locks.length > 0 && dist > 6 && Math.random() < dt * 1.2 / DF.rest;
+    else if (d.kind === 'vmissile') t = clear && locks.length > 0 && dist > 6 && dist < (d.range ?? 99) && Math.random() < dt * 1.2 / DF.rest;
     // 迫擊砲（indirect）：射程內就打，看不到也打（拋過建築；落點照目標現在的位置）
     else if (d.indirect) {
       if (player.alive && !AI.passive && dist > 5 && dist < reachOf(d) && Math.random() < dt * 1.2 / DF.rest) {
@@ -510,10 +510,10 @@ function lineClear(e, slot, d, tgt) {
 }
 function backUseful(e, slot, d, dist, canShoot, head, tgt) {
   // 垂直飛彈 + 長距鎖定頭：隔著牆也能鎖、越過掩體打
-  if (d.kind === 'vmissile' && head.radarLock && tgt.alive && !AI.passive) return dist > 6 && dist < head.lockRange;
+  if (d.kind === 'vmissile' && head.radarLock && tgt.alive && !AI.passive) return dist > 6 && dist < Math.min(head.lockRange, d.range ?? 99);
   if (!canShoot || !lineClear(e, slot, d, tgt)) return false;
   if (d.kind === 'missile' || d.kind === 'split') return dist < head.lockRange;
-  if (d.kind === 'vmissile') return dist > 5 && dist < head.lockRange;
+  if (d.kind === 'vmissile') return dist > 5 && dist < Math.min(head.lockRange, d.range ?? 99);
   return dist < reachOf(d);
 }
 function updateReadyChoice(e, dt, dist, canShoot, tgt, disc = false) {
@@ -609,11 +609,58 @@ function steer(e, mx, mz) {
 // 每幀在 updateEnemy 之後、driveMech 之前呼叫：想走（drive ≥ 0.3）但 1.2 秒內幾乎沒移動（< 0.5 格）→ 卡住了
 //   → 往側面（左右輪流、越卡越偏，第 3 次起往後）脫困 0.7～1.3 秒；連續卡兩次以上、能推進的就推進一下
 //   脫困期間照脫困方向走；真的動起來了就把次數歸零
+//   機體之間的卡點（2026-11-28）：脫困方向也避開其他機體（mechAhead）；只有拿近戰武器、正在推自己目標的才不算卡住
 export const stuckStats = { n: 0 };   // 脫困次數（模擬統計用）
+const MELEE_KINDS = new Set(['saber', 'pile', 'lance', 'flame', 'stream']);
+const meleeOf = e => e.bug || Object.entries(e.guns ?? {}).some(([sl, g]) => MELEE_KINDS.has(g.def.kind) && !slotBroken(e, sl));
+// 沿 (ux, uz) 走 len 格會不會撞上別台機體：回傳撞上前能走的距離
+function mechAhead(e, ux, uz, len) {
+  let best = len;
+  for (const m of mechs) {
+    if (m === e || !m.alive || m.drop || m.ghost || m.swarm) continue;
+    const dx = m.x - e.x, dz = m.z - e.z, along = dx * ux + dz * uz;
+    if (along <= 0 || along > len + m.r) continue;
+    if (Math.abs(dx * uz - dz * ux) < e.r + m.r) best = Math.min(best, Math.max(0, along - e.r - m.r));
+  }
+  return best;
+}
+// ---------- 閃避垂直飛彈（2026-11-28）----------
+// 有敵方垂直飛彈追著自己（或落點在自己身上）、水平 20 格內 → 往跟飛彈來向垂直的方向一直橫移（同一枚飛彈固定同一邊，挑比較空的那邊）
+//   俯衝只會慢慢修正落點，一直橫移就閃得掉；王牌在俯衝開始、8 格內還會推進一下；雜魚 45% 會閃；外掛大腦（e.brain）自己管
+const VM = { t: -1, list: [] };
+function vmDodge(e, dt) {
+  if (e.brain || e.fixed || e.cq?.fort || e.swarm || e.bug) return false;
+  let th = null, td = 20;
+  if (VM.t !== G.now) { VM.t = G.now; VM.list.length = 0; for (const s of shots) if (s.kind === 'vmissile' && !s.spent) VM.list.push(s); }   // 每幀只掃一次子彈
+  for (const s of VM.list) {
+    if (s.kind !== 'vmissile' || s.spent || s.team === e.team || s.age < 0.3) continue;
+    const mine = s.target ? s.target === e : s.point && Math.hypot(s.point.x - e.x, s.point.z - e.z) < 3;
+    if (!mine) continue;
+    const h = Math.hypot(s.x - e.x, s.z - e.z);
+    if (h < td) { td = h; th = s; }
+  }
+  const D = e.vmd;
+  if (!th) { if (D) e.vmd = null; return false; }
+  if (!D || D.s !== th) {
+    const go = !e.grunt || Math.random() < 0.45;
+    const hx = e.x - th.x, hz = e.z - th.z, hl = Math.hypot(hx, hz) || 1, px = -hz / hl, pz = hx / hl;
+    const l1 = Math.min(clearAhead(e, px, pz, 5), mechAhead(e, px, pz, 5)), l2 = Math.min(clearAhead(e, -px, -pz, 5), mechAhead(e, -px, -pz, 5));
+    e.vmd = { s: th, go, side: l1 >= l2 ? 1 : -1, boosted: false };
+  }
+  const V = e.vmd;
+  if (!V.go) return false;
+  const hx = e.x - th.x, hz = e.z - th.z, hl = Math.hypot(hx, hz) || 1;
+  let ux = -hz / hl * V.side, uz = hx / hl * V.side;
+  if (Math.min(clearAhead(e, ux, uz, 2), mechAhead(e, ux, uz, 2)) < 0.8) { V.side = -V.side; ux = -ux; uz = -uz; }   // 那邊被擋住：換邊
+  e.drive = { mx: ux, mz: uz };
+  if (!e.grunt && !V.boosted && th.dive && td < 8) { V.boosted = true; tryBoost(e, ux, uz); }
+  return true;
+}
 export function antiStuck(e, dt) {
   if (!e.alive || e.drop || e.fixed || !e.drive) return;
   const F = e.foe;
   const S = e.stk ??= { x: e.x, z: e.z, t: 0, n: 0, esc: 0, dx: 0, dz: 0 };
+  if (vmDodge(e, dt)) { S.esc = 0; S.x = e.x; S.z = e.z; S.t = 0; return; }
   if (S.esc > 0) {
     S.esc -= dt;
     e.drive = { mx: S.dx, mz: S.dz };
@@ -621,7 +668,7 @@ export function antiStuck(e, dt) {
     return;
   }
   const want = Math.hypot(e.drive.mx, e.drive.mz);
-  if (want < 0.3 || F?.alive && Math.hypot(F.x - e.x, F.z - e.z) < 3.5) { S.x = e.x; S.z = e.z; S.t = 0; return; }   // 貼身肉搏推不動目標不算卡住
+  if (want < 0.3 || F?.alive && Math.hypot(F.x - e.x, F.z - e.z) < 3.5 && meleeOf(e)) { S.x = e.x; S.z = e.z; S.t = 0; return; }   // 拿近戰武器貼身推不動目標不算卡住
   if ((S.t += dt) < 1.2) return;
   const moved = Math.hypot(e.x - S.x, e.z - S.z);
   S.x = e.x; S.z = e.z; S.t = 0;
@@ -630,7 +677,7 @@ export function antiStuck(e, dt) {
   const a0 = Math.atan2(e.drive.mx, e.drive.mz), side = S.n % 2 ? 1 : -1;
   let best = null, bl = -1;
   for (const off of S.n >= 3 ? [Math.PI, Math.PI * 0.75 * side, -Math.PI * 0.75 * side] : [Math.PI / 2 * side, Math.PI * 0.7 * side, -Math.PI / 2 * side]) {
-    const ux = Math.sin(a0 + off), uz = Math.cos(a0 + off), l = clearAhead(e, ux, uz, 4);
+    const ux = Math.sin(a0 + off), uz = Math.cos(a0 + off), l = Math.min(clearAhead(e, ux, uz, 4), mechAhead(e, ux, uz, 4));   // 牆和其他機體都算擋住
     if (l > bl) { bl = l; best = [ux, uz]; }
   }
   S.dx = best[0]; S.dz = best[1]; S.esc = 0.7 + 0.2 * Math.min(S.n, 3);
@@ -695,7 +742,7 @@ function weaponScore(e, slot, dist, canShoot, tgt) {
   if (!g || slotBroken(e, slot) || g.ammo <= 0) return 0;
   const d = g.def, H = headStats(e);
   if (d.kind === 'shield' || d.kind === 'module') return 0;
-  const reach = GUIDED.has(d.kind) ? H.lockRange : reachOf(d);
+  const reach = GUIDED.has(d.kind) ? Math.min(H.lockRange, d.range ?? 99) : reachOf(d);   // 垂直飛彈：燃料只飛得到 d.range 格
   if (dist > reach || d.kind === 'vmissile' && dist < 6) return 0;
   if (!(d.kind === 'vmissile' && H.radarLock) && !d.indirect && (!canShoot || !lineClear(e, slot, d, tgt))) return 0;
   const dmg = d.kind === 'lance' ? d.dmgMax : d.dmg * (d.pellets || 1) * (d.salvo || 1) * (d.bomblets || 1);

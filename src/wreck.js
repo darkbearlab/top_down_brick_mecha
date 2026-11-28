@@ -138,6 +138,7 @@ function explode(w) {
 }
 
 // 機體撞到殘骸：推出來、不反彈（回傳撞擊速度給呼叫的人決定要不要卡住）
+// 2026-11-28 起沒有人呼叫：殘骸在所有模式都不擋路（mech.js driveMech）
 export function collideWrecks(o) {
   let hit = 0, nx = 0, nz = 0;
   for (const w of wrecks) {

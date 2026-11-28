@@ -219,6 +219,7 @@ export function startConquest(map, toast) {
     const F = spawnEnemy(ANCHOR, { ...ELITES.find(E => E.name === '要塞砲車'), id: 'fortress' }, { x: B.x, z: B.z }, { team, colors: COLORS[team], diff: DIFFS.hard, noDrop: true });
     for (const q of Object.values(F.parts)) { q.max *= CQ.fortHpK; q.hp = q.max; }
     F.hold = { x: B.x, z: B.z, r: CQ.fortHold };
+    F.ghost = true;   // 大本營不擋路、也不會被其他機體推走（mech.js collideMechs 跳過）
     faceCenter(F, team);
     tagUnit(F, team, { fort: true });
     addRing(F, team);
