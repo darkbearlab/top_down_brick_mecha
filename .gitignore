@@ -12,3 +12,4 @@ tools/netbench/node_modules/
 tools/netbench/dist/
 server/dist/
 server/.wrangler/
+server/node_modules/
