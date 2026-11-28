@@ -202,7 +202,7 @@ for (const k in WEAPONS) WEAPONS[k].id = k;
 // hullFacing：軀幹的裝甲方向看車身（下半身）而不是上半身（REALISM_REPORT 第二輪 F3）
 // lobHitsBuildings：拋射彈（燒夷 / 酸液 / 榴彈 / 迫擊砲）和垂直飛彈飛得比建築低就撞上那棟，不再穿過去
 // bldByWeapon：武器打建築的倍率照類型（小口徑 ×0.25、機砲 ×0.6、能量 ×0.5、高爆爆風 ×1.5、打樁 ×2；REALISM_REPORT H2）
-export const fcsOn = m => !!m && (m.team === 'player' || BAL.fcsAI === true || (BAL.fcsAI === 'ace' && !m.grunt));
+export const fcsOn = m => !!m && (m.isPlayer || BAL.fcsAI === true || (BAL.fcsAI === 'ace' && !m.grunt));
 export const BAL = { headLockDmg: false, fcsAI: false, fcsPassive: false, lockHold: 0, lockHeat: 0.4, missilePerLock: false, missileTurnK: 1, bldByWeapon: true, lobHitsBuildings: true, massMove: true, massImpulse: true, hullFacing: true, wallLockK: 2, relock: 'during', staggerAccum: false, staggerDecay: 0.6, missileK: 0.8, lanceMode: 'dash', lanceIgnite: null, thrustT: 0.4, clearAheadK: 1, lanceWallK: 1 };   // 武器 id（戰鬥紀錄用；低階版是自己的 id）
 export const HP_MUL = 1.35;
 

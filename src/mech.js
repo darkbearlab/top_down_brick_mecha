@@ -125,7 +125,7 @@ export function toggleReady(m, side) {
   m.ready[side] = on;
   m.deployT[side] = deployT(m);
   log('ready', { m: m.id, side, back: on });
-  if (m.team === 'player') on ? sfx.deploy() : sfx.stow();
+  if (m.isPlayer) on ? sfx.deploy() : sfx.stow();
   return true;
 }
 // 這個掛載點現在能不能開火（是那一邊目前準備的武器、而且不在切換中）
@@ -172,7 +172,7 @@ export function tryBoost(m, mx, mz) {
   log('boost', { m: m.id, dx: Math.round(d.x * 100) / 100, dz: Math.round(d.z * 100) / 100 });
   reduceStatus(m, 'burn', 1.5);   // 推進甩掉一些火
   sfx.boost();
-  if (m.team === 'player') addTrauma(0.12);
+  if (m.isPlayer) addTrauma(0.12);
   return true;
 }
 export function useEnergy(m, n) {
@@ -207,7 +207,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
         sfx.boost(); sfx.cannon();
         for (let i = 0; i < 10; i++) flame(m.x - f.x * 0.5, m.model.hipY + 0.5, m.z - f.z * 0.5, -f.x * 2 + (Math.random() - 0.5), -f.z * 2 + (Math.random() - 0.5));
         smoke(m.x - f.x * 0.6, 0.4, m.z - f.z * 0.6, 4, 1.2, 0x9a9ca2);
-        if (m.team === 'player') addTrauma(0.3);
+        if (m.isPlayer) addTrauma(0.3);
       } else m.charge = null;
     }
   }
@@ -305,7 +305,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
     hitSparks(m.x - hit.nx * m.r, 1, m.z - hit.nz * m.r, hit.nx, hit.nz, 2.4);
     burst(m.x - hit.nx * m.r, 0.8, m.z - hit.nz * m.r, [0x7a8090, 0x4a505c], 6, 3.5);
     sfx.crash();
-    if (m.team === 'player') addTrauma(0.6);
+    if (m.isPlayer) addTrauma(0.6);
     stick(m, hit.hit, hit.nx, hit.nz);
     hit.hit = 0;   // 不再另外算一般的撞牆傷害
   }
@@ -322,7 +322,7 @@ export function driveMech(m, dt, mx, mz, aimYaw) {
   const prev = m.walk;
   m.walk += dt * (L.type === 'tread' || L.type === 'hover' ? 0 : ml * 9 * lk * (L.type === 'reverse' ? 1.15 : 1));
   m.bob += dt;
-  if (m.team === 'player' && Math.floor(prev / Math.PI) !== Math.floor(m.walk / Math.PI)) sfx.step();
+  if (m.isPlayer && Math.floor(prev / Math.PI) !== Math.floor(m.walk / Math.PI)) sfx.step();
 
   const ax = (m.vx - m.lastV.x) / Math.max(dt, 1e-3), az = (m.vz - m.lastV.z) / Math.max(dt, 1e-3);
   m.lastV.x = m.vx; m.lastV.z = m.vz;
@@ -349,7 +349,7 @@ function lanceHit(m) {
     explosion(hx, 1.1, hz, 0.35);
     burst(hx, 1, hz, [0x8a909a, 0x5a606c], 6, 4);
     sfx.crash(); sfx.hit();
-    if (m.team === 'player' || o.team === 'player') addTrauma(0.55);
+    if (m.isPlayer || o.isPlayer) addTrauma(0.55);
     m.vx = C.dx * 1.5; m.vz = C.dz * 1.5;
     m.charge = null;
     return;
@@ -362,7 +362,7 @@ export function stick(m, speed, nx, nz) {
   m.boostT = 0;   // 撞到東西噴射就斷了
   if (t > m.stuckT) { m.stuckT = m.stuckMax = t; m.stuckN = { x: nx, z: nz }; m.stuckHit = Math.min(1, speed / 14); }
   if (speed > 4) burst(m.x - nx * m.r, 0.5, m.z - nz * m.r, [0x8a8478, 0x5a5650], 3, 1.5);
-  if (m.team === 'player') addTrauma(Math.min(0.35, speed * 0.025));
+  if (m.isPlayer) addTrauma(Math.min(0.35, speed * 0.025));
 }
 function skidDust(m) {
   const a = Math.random() * Math.PI * 2;
@@ -377,7 +377,7 @@ function crash(m, over, nx, nz) {
   damageBuilding(m.x - nx * (m.r + 0.05), 1, m.z - nz * (m.r + 0.05), over * 30, -nx, -nz);   // 衝撞建築：撞得夠快會撞垮
   burst(m.x - nx * m.r, 0.8, m.z - nz * m.r, [0x7a8090, 0x4a505c], 4, 3);
   sfx.crash();
-  if (m.team === 'player') addTrauma(Math.min(0.6, 0.2 + over * 0.06));
+  if (m.isPlayer) addTrauma(Math.min(0.6, 0.2 + over * 0.06));
 }
 
 // ---------- 被打中 ----------
@@ -496,7 +496,7 @@ export function stagger(m, dmg, dx, dz) {
   m.lockBreak = true;   // 鎖定進度歸零（玩家：sensors；電腦：ai.lockT）
   sparks(m.x, 0.3, m.z, 0xffd060, 14, 0, 0, 0.8);
   burst(m.x, 0.2, m.z, [0x8a8478, 0x5a5650], 5, 2);
-  if (m.team === 'player') addTrauma(0.35);
+  if (m.isPlayer) addTrauma(0.35);
 }
 
 // 持續效果（status.js）要扣血 / 殉爆時用的：燃燒照化學對那個部位裝甲的倍率扣
@@ -512,8 +512,8 @@ setStatusHooks({
     g.ammo = 0;
     damagePart(m, slot, 1e6);
     if (m.alive) damagePart(m, 'torso', 18 + (g.def.dmg ?? 20) * 0.4);
-    addTrauma(m.team === 'player' ? 0.5 : 0.15);
-    if (m.team === 'player') sfx.explode();
+    addTrauma(m.isPlayer ? 0.5 : 0.15);
+    if (m.isPlayer) sfx.explode();
   },
 });
 // ---------- 外觀磨損：耐久掉多少，表面的方塊就被打掉多少 ----------
@@ -670,7 +670,7 @@ function breakPart(m, name, dx, dz) {
   explosion(tmpV.x, partY(m, name, tmpV.y), tmpV.z, name.startsWith('back') ? 0.6 : 0.45);
   sfx.partBreak();
   G.hitStop = Math.max(G.hitStop, 0.05);
-  addTrauma(m.team === 'player' ? 0.45 : 0.25);
+  addTrauma(m.isPlayer ? 0.45 : 0.25);
   if (name === 'legs') {
     p.mat.color.setHex(0x5a5048);   // 腳壞了不拆掉，燒黑、拖著走
   } else p.g.visible = false;

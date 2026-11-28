@@ -47,12 +47,13 @@
   <div id="endless" class="hidden"><div id="enTime">0:00</div><div id="enInfo"></div><div id="enMods" class="wguns"></div></div>
 </div>
 <div id="watch" class="hidden">
-  <div class="wtop"><div id="wTier"></div><div id="wRound"></div><div id="wScore"></div><div id="wNext"></div></div>
+  <div class="wtop"><div id="wTier"></div><div id="wRound"></div><div id="wScore"></div><div id="wNext"></div><div id="cqOrder" class="hidden"></div></div>
   <div class="wside blue"><div class="doll" id="dollB"><div class="row"><div data-p="backL"></div><div data-p="head" class="head"></div><div data-p="backR"></div></div><div class="row"><div data-p="armL" class="arm"></div><div data-p="torso" class="torso"></div><div data-p="armR" class="arm"></div></div><div data-p="legs" class="legs"></div></div><div><b id="wBName"></b><div id="wBGuns" class="wguns"></div></div></div>
   <div class="wside red"><div><b id="wRName"></b><div id="wRGuns" class="wguns"></div></div><div class="doll" id="dollR"><div class="row"><div data-p="backL"></div><div data-p="head" class="head"></div><div data-p="backR"></div></div><div class="row"><div data-p="armL" class="arm"></div><div data-p="torso" class="torso"></div><div data-p="armR" class="arm"></div></div><div data-p="legs" class="legs"></div></div></div>
   <div id="cqCamBar" class="hidden"><button id="cqPrev">◀</button><span id="cqFocus"></span><button id="cqNext">▶</button><button id="cqViewBtn">視角：俯視</button><button id="cqFreeBtn">自由鏡頭</button></div>
   <div class="whint">Esc 暫停 / 下一場 / 回主選單</div>
 </div>
+<div id="cqPick" class="hidden"><div class="mpanel wide"><h2 id="cqPickTitle">選擇出擊機體</h2><p id="cqPickInfo" class="sub"></p><div id="cqPickCards" class="cards"></div><div class="row"><button class="btn primary" id="cqGo">出擊</button></div><small class="cqhint">Tab 地圖與戰績・Esc 暫停</small></div></div>
 <div id="cqOver" class="hidden"><canvas id="cqMap"></canvas><div id="cqStats"></div><div class="cqhint">Tab 關閉・點地圖移動鏡頭</div></div>
 <div id="toast"></div>
 <div id="menu" class="hidden">
@@ -62,6 +63,7 @@
     <div id="mMain">
       <button class="btn primary" id="mDuel">對戰<small>一對一・選對手和難度</small></button>
       <button class="btn" id="mExplore">遠征<small>從機槍和飛彈出發：撿武器、花零件開補給箱、清掉小隊後啟動傳送門打頭目，一關比一關難・可以直接選關</small></button>
+      <button class="btn" id="mConquest">據點戰<small>3 對 3・你是藍隊 1 號機，跟兩台 AI 隊友搶蟲巢；照隊伍指揮的指令行動・被擊墜後重選機體・Tab 地圖</small></button>
       <button class="btn" id="mWatchMenu">觀戰<small>王牌 vs 三波雜魚小隊</small></button>
       <button class="btn" id="mGarage">整備<small>組裝機體：頭、軀幹、腳、四個武器、裝甲</small></button>
       <button class="btn" id="mWorkshop">零件工坊<small>編輯機體零件的外型（開發用）・匯出 JSON</small></button>

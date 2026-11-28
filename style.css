@@ -340,3 +340,23 @@ body.killcam::before, body.killcam::after { height: 9vh; transition: height .12s
 #cqCamBar button { background: #1c2230; color: #dde; border: 1px solid #3a4458; border-radius: 5px; padding: 3px 9px; font-size: 13px; cursor: pointer; }
 #cqCamBar button:hover { background: #2a3448; }
 #cqFocus { min-width: 150px; text-align: center; font-size: 13px; font-weight: 700; }
+
+/* ---------- 據點戰・參戰（2026-11-28） ---------- */
+/* 選機體畫面：跟對戰選對手同一種卡片；右邊一整片 */
+#cqPick { position: fixed; inset: 0; z-index: 9; display: flex; justify-content: flex-end; pointer-events: none; }
+#cqPick.hidden { display: none; }
+#cqPick .mpanel { width: min(760px, 64vw); }
+#cqPickCards { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+#cqPickCards .card.lock { opacity: .38; cursor: not-allowed; }
+#cqGo:disabled { opacity: .45; cursor: default; }
+@media (max-width: 900px) { #cqPickCards { grid-template-columns: 1fr 1fr; } #cqPick .mpanel { width: 100vw; padding-left: 20px; } }
+/* 給玩家的指令：分數下面一條 */
+#cqOrder { display: inline-flex; gap: 10px; align-items: center; margin-top: 6px; padding: 5px 14px; border-radius: 8px; background: rgba(8,10,14,.6); border: 1px solid rgba(255,208,64,.6); color: #ffe080; font-size: 14px; font-weight: 800; }
+#cqOrder.hidden { display: none; }
+#cqOrder b { font-size: 11px; letter-spacing: 3px; color: #10141a; background: #ffd040; padding: 1px 6px; border-radius: 4px; }
+#cqOrder span { font-size: 12px; opacity: .7; font-variant-numeric: tabular-nums; }
+/* 參戰時：觀戰的鏡頭列、提示、兩邊的機體圖收起來；兩隊名單搬到上面兩側（下面是玩家自己的狀態和目標） */
+.cqplay #cqCamBar, .cqplay #watch .whint, .cqplay #watch .wside .doll { display: none !important; }
+.cqplay #watch .wside { top: 12px; bottom: auto; max-width: 25vw; padding: 6px 10px; }
+.cqplay #watch .wside b { font-size: 12px; }
+.cqplay #cqOver .cqhint { display: none; }

@@ -296,7 +296,7 @@ export function updateEnemy(e, dt, player) {
       const kx = K.x - e.x, kz = K.z - e.z, kd = Math.hypot(kx, kz) || 1;
       f = (!e.fly && kd > 1.5 && routeDir(`k${Math.round(K.x / 3)},${Math.round(K.z / 3)}`, G.now, e.x, e.z, K.x, K.z)) || { x: kx / kd, z: kz / kd };
       if (K.slow) f = { x: f.x * 0.55, z: f.z * 0.55 };   // 搜索 / 跟丟：慢慢走
-    } else f = !los && player.team === 'player' ? (e.fly ? flyDir(e.x, e.z) : flowDir(e.x, e.z)) : !los && tac && !e.fly ? routeDir(player.id, G.now, e.x, e.z, player.x, player.z) : null;
+    } else f = !los && player.isPlayer ? (e.fly ? flyDir(e.x, e.z) : flowDir(e.x, e.z)) : !los && tac && !e.fly ? routeDir(player.id, G.now, e.x, e.z, player.x, player.z) : null;
     if (f) { mx = f.x; mz = f.z; } else { mx = nx; mz = nz; }
     A.spot = null;
   }
@@ -817,8 +817,8 @@ function recall(e, tgt, dist, dt) {
     }
   }
   const Q = e.squad;
-  if (Q?.hunt && tgt.team === 'player') return { x: tgt.x, z: tgt.z };   // 遠征的增援：被叫來的，知道大概在哪 → 直接找過去
-  if (Q && Q.x != null && tgt.team === 'player') return { x: Q.x, z: Q.z, slow: true, free: true };
+  if (Q?.hunt && tgt.isPlayer) return { x: tgt.x, z: tgt.z };   // 遠征的增援：被叫來的，知道大概在哪 → 直接找過去
+  if (Q && Q.x != null && tgt.isPlayer) return { x: Q.x, z: Q.z, slow: true, free: true };
   return { x: tgt.x, z: tgt.z, slow: true, free: true };
 }
 // 迫擊砲這一發打哪：
@@ -952,7 +952,7 @@ function kiteFrom(e) {
 function shotSpeedOf(e) {
   for (const side of ['R', 'L']) {
     const g = e.guns[activeSlot(e, side)];
-    if (g && (g.def.kind === 'bullet' || g.def.kind === 'beam')) return g.def.speed * (e.team === 'player' ? 1 : g.def === WEAPONS.sniper ? SHOT_TUNE.sniper : SHOT_TUNE.enemy);
+    if (g && (g.def.kind === 'bullet' || g.def.kind === 'beam')) return g.def.speed * (e.isPlayer ? 1 : g.def === WEAPONS.sniper ? SHOT_TUNE.sniper : SHOT_TUNE.enemy);
   }
   return 36;
 }

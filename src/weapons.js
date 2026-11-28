@@ -74,8 +74,8 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
     if (d.kind === 'shield' || d.kind === 'module') continue;   // 盾牌、背部模組：純被動
     gun.cd -= dt;
     if (!triggers[slot.slice(-1)] || !slotLive(m, slot) || gun.cd > 0 || !m.alive || slotBroken(m, slot) || m.swing || m.punch || m.charge || m.staggerT > 0 || empOff(m)) continue;
-    if (gun.ammo <= 0) { gun.cd = 0.3; if (m.team === 'player') sfx.click(); continue; }   // 彈盡
-    if (d.needLock && !locks.length && m.team === 'player') { gun.cd = 0.3; sfx.click(); continue; }
+    if (gun.ammo <= 0) { gun.cd = 0.3; if (m.isPlayer) sfx.click(); continue; }   // 彈盡
+    if (d.needLock && !locks.length && m.isPlayer) { gun.cd = 0.3; sfx.click(); continue; }
     if (d.energy && !useEnergy(m, d.energy * (hasModule(m, 'power') ? WEAPONS.power.costK : 1))) continue;   // 供能模組：耗能 ×0.7
     const iv = d.interval * (m.rateMul ?? 1) * chipRateK(m);   // rateMul：無盡模式的射速強化
     // 飛彈 / 火箭一次好幾發，剩不夠就只射剩下的
@@ -97,7 +97,7 @@ export function updateGuns(m, triggers, dt, locks = [], aim = null) {
     if (BAL.relock === 'heat' && fcsOn(m) && (d.kind === 'missile' || d.kind === 'vmissile' || d.kind === 'split')) m.lockFire = true;   // 鎖定熱度：扣一段，不清掉
     else if (BAL.relock !== 'off' && (d.kind === 'missile' || d.kind === 'vmissile' || d.kind === 'split')) { m.lockBreak = true; if (BAL.relock === 'after') m.relockUntil = G.now + gun.cd; }
     gun.ammo -= n;
-    if (gun.ammo <= 0 && m.team === 'player') sfx.reload();
+    if (gun.ammo <= 0 && m.isPlayer) sfx.reload();
   }
 }
 
@@ -106,7 +106,7 @@ const MZ_STYLE = { mg: 'mg', autocannon: 'ac', shotgun: 'shot', sniper: 'sniper'
 const mzStyle = d => MZ_STYLE[(d.id ?? '').replace(/_l$/, '')] ?? (d.kind === 'beam' ? 'beam' : d.heavy ? 'cannon' : d.pellets ? 'shot' : (d.size ?? 0.1) >= 0.1 ? 'ac' : 'mg');
 const CASE_GAP = 0.04;   // 同一把槍最快每 0.04 秒彈一顆殼（機槍一秒 40 發，殼最多 25 顆）
 function fire(m, slot, d, locks, aim, salvoN = d.salvo ?? 1) {
-  const enemy = m.team !== 'player';
+  const enemy = !m.isPlayer;
   const mz = muzzleOf(m, slot), f = facing(m), base = Math.atan2(f.x, f.z);
   const spreadK = m.spec.spreadMul * (m.parts.head.broken ? 2.5 : 1) * chipSpreadK(m) * burnSpreadK(m, slot);   // 那個掛點燒起來散布變大
   if (d.kind === 'saber') { startSwing(m, slot, d); return; }
@@ -172,7 +172,7 @@ function shotMesh(color, w, len) {
   return g;
 }
 function spawnShot(m, d, x, y, z, dx, dz, speed) {
-  const enemy = m.team !== 'player', beam = d.kind === 'beam';
+  const enemy = !m.isPlayer, beam = d.kind === 'beam';
   const color = d.shotHex ?? (beam ? DMG_TYPES.energy.hex : enemy ? 0xff3a30 : d === WEAPONS.sniper ? 0xfff0c0 : 0xffd070);
   const len = beam ? 1.1 : d === WEAPONS.sniper ? 1.6 : (d.size ?? 0.1) * (enemy ? 2.5 : 6);
   const g = shotMesh(color, d.size ?? 0.1, len);
@@ -183,7 +183,7 @@ function spawnMissile(m, d, x, y, z, v, target, point) {
   const g = new THREE.Group();
   const body = new THREE.Mesh(UNIT_BOX, new THREE.MeshLambertMaterial({ color: 0xd8dce2 }));
   body.scale.set(d.size, d.size, d.size * 3);
-  const tip = new THREE.Mesh(UNIT_BOX, glowMat(m.team === 'player' ? 0xffa040 : 0xff3a30));
+  const tip = new THREE.Mesh(UNIT_BOX, glowMat(m.isPlayer ? 0xffa040 : 0xff3a30));
   tip.scale.set(d.size * 1.2, d.size * 1.2, d.size * 0.8); tip.position.z = d.size * 1.6;
   g.add(body, tip);
   g.position.set(x, y, z);
@@ -230,7 +230,7 @@ const FUEL_RAMP = rampOf(0xff8a2a);
 function sprayFuel(m, d, mz, base, spreadK) {
   const a = base + R(-1, 1) * 0.04 * spreadK, T = d.range / d.speed * R(0.92, 1.05), y0 = Math.max(0.3, mz.y - 0.05);
   const vx = Math.sin(a) * d.speed + (m.vx ?? 0) * 0.4, vz = Math.cos(a) * d.speed + (m.vz ?? 0) * 0.4;
-  const g = new THREE.Mesh(UNIT_BOX, glowMat(m.team === 'player' ? 0xffa040 : 0xff6a28));
+  const g = new THREE.Mesh(UNIT_BOX, glowMat(m.isPlayer ? 0xffa040 : 0xff6a28));
   g.position.set(mz.x, mz.y, mz.z); scene.add(g);
   shots.push({ kind: 'fuel', g, wid: d.id, owner: m, team: m.team, x: mz.x, y: mz.y, z: mz.z, vx, vy: (0.5 * FUEL_G * T * T - y0) / T, vz, age: 0, T, d, wob: R(0.8, 1.25),
     dmg: d.dmg * (m.dmgMul ?? 1) * chipDmgK(m), power: d.dmg, kb: d.kb, type: 'chemical' });
@@ -509,7 +509,7 @@ function updatePunch(m, dt) {
   if (P.t > 0) { spawnGlow({ x: mz.x, y: mz.y, z: mz.z, vx: R(-1, 1), vy: R(0, 1), vz: R(-1, 1), life: 0.14, s0: 0.1, s1: 0, ramp: RAMP.spark }); return; }
   m.punch = null;
   if (!m.alive || slotBroken(m, P.slot)) return;
-  const enemy = m.team !== 'player';
+  const enemy = !m.isPlayer;
   const wall = rayBlock(mz.x, mz.z, f.x, f.z, d.reach + 0.3), hit = rayMech(m, mz.x, mz.z, f.x, f.z, Math.min(wall, d.reach));
   muzzleFlash(mz.x + f.x * 0.3, mz.y, mz.z + f.z * 0.3, 0xffc060, 1.3);
   smoke(mz.x, mz.y, mz.z, 3, 0.8, 0x8a8c92);
@@ -528,7 +528,7 @@ function updatePunch(m, dt) {
     explosion(hx, mz.y, hz, 0.3);
     r && r.eff < 1 ? sfx.armorHit() : sfx.hit();
     sfx.crash();
-    addTrauma(enemy ? (o.team === 'player' ? 0.45 : 0) : 0.35);
+    addTrauma(enemy ? (o.isPlayer ? 0.45 : 0) : 0.35);
   } else if (wall < d.reach + 0.3) {
     const hx = mz.x + f.x * wall, hz = mz.z + f.z * wall;
     damageBuilding(hx, mz.y, hz, d.dmg * (BAL.bldByWeapon ? 2 : 1.5), f.x, f.z);   // 打樁：專門破牆
@@ -547,7 +547,7 @@ function impact(s, o, nx, nz, dmg, forced) {
   hitSparks(s.x, s.y, s.z, -nx, -nz, p, r && r.eff < 1);
   if (s.type === 'energy') sparks(s.x, s.y, s.z, 0x60e0ff, 6, -nx, -nz);
   r && r.eff < 1 ? sfx.armorHit() : sfx.hit();
-  if (o.team === 'player') addTrauma(0.12 + s.kb * 0.04);
+  if (o.isPlayer) addTrauma(0.12 + s.kb * 0.04);
   return r;
 }
 // 爆風：直接命中的那台另外算，範圍內其他機體吃 40%（打軀幹）；加農砲的砲彈爆得更大、推得更遠、外圈較弱

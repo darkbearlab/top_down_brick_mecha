@@ -6,7 +6,7 @@ import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayer
 import { THEMES, rng } from './mapgen.js';
 import { TERRAINS, genStage, terrainOf } from './stagegen.js';
 import { bigArena, conquestArena } from './blockgen.js';
-import { clearConquest, conquestDeath, cqState, drawOverview, overviewStats, conquestHud, tierBars, focusMech, postUpdate as cqPost, preUpdate as cqPre, setFocus, startConquest, teamList, updateConquest } from './conquest.js';
+import { clearConquest, conquestDeath, cqState, drawOverview, overviewStats, conquestHud, tierBars, focusMech, cqPickInfo, cqSpawnAt, cqJoin, updateOrderMark, ROLE_NAME, postUpdate as cqPost, preUpdate as cqPre, setFocus, startConquest, teamList, updateConquest } from './conquest.js';
 import { expDiff, planSquads } from './explan.js';
 import { updateTacView } from './tacview.js';
 import { HEAVY, applyHeavy, clearHeavy, packUnits } from './heavy.js';
@@ -57,12 +57,15 @@ const PLAYER_START = { x: 0, z: 6 }, SIDE_A = { x: -26, z: 0 }, SIDE_B = { x: 26
 // ---------- 玩家 ----------
 let loadout = loadLoadout();
 let player = null, respawnT = 0;
+const NOBODY = { x: 0, z: 0, vx: 0, vz: 0, alive: false, team: 'none', r: 1 };   // 據點戰：沒有對手時給 AI 的空目標
 function spawnPlayer(x = PLAYER_START.x, z = PLAYER_START.z, yaw = Math.PI, lo = loadout) {
   if (player) removeMech(player);
   player = makeMech({ team: 'player', colors: PLAYER_COLORS, loadout: lo, x, z, yaw });
+  player.isPlayer = true;   // 玩家機體（據點戰時 team 會改成 'blue'，所以判斷「是不是玩家」一律看這個）
   player.guns = makeGuns(lo);
   player.dmgMul = 1; player.rateMul = 1; player.lockMul = 1;
   player.onDeath = () => {
+    if (MODE.name === 'conquest') { conquestDeath(player); toast('機體損毀・選擇下一台機體'); return; }   // 據點戰：戰績、階段，開選機體畫面
     if (MODE.name === 'duel' || MODE.name === 'endless' || MODE.name === 'explore') { MODE.endT = 3.4; MODE.result = 'lose'; }
     else { respawnT = 2.5; toast('機體損毀'); }
   };
@@ -84,6 +87,7 @@ const ARENA = arenaMap();
 function resetWorld(map = null) {
   clearEnemies();
   clearConquest(); G.noKillCam = false; $('cqOver').classList.add('hidden');
+  $('cqPick').classList.add('hidden'); document.body.classList.remove('cqplay'); cqPickKey = ''; cqOrderKey = '';
   clearHeavy();   // 重火力測試的數值覆蓋：任何模式重設場地都先還原（startStage 再視需要套上）
   const want = map ?? ARENA;
   SIDE_B.x = want.side ?? 26; SIDE_A.x = -SIDE_B.x;
@@ -216,6 +220,51 @@ function startConquestMode(fresh = false) {
   $('cqCamBar').classList.remove('hidden');
   startConquest(CQ_ARENA, toast);
 }
+// 據點戰・參戰：玩家 = 藍隊 1 號機（另外 5 台 AI）；開場先選機體（選好之前時間停住）
+function startConquestPlay() {
+  resetWorld(CQ_ARENA);
+  applyHeavy();
+  MODE.name = 'conquest'; MODE.kind = 'conquest'; MODE.round = (MODE.round ?? 0) + 1;
+  AI.sandbox = false; AI.passive = false; AI.diff = DIFFS.hard;
+  if (player) { removeMech(player); player.alive = false; }
+  G.noKillCam = true;
+  showHud();
+  document.body.classList.add('cqplay');
+  $('watch').classList.remove('hidden'); $('cqCamBar').classList.add('hidden');
+  $('wBName').textContent = '藍隊（你在這隊）'; $('wRName').textContent = '紅隊';
+  startConquest(CQ_ARENA, toast, { player });
+}
+// 選機體畫面：開放的配裝卡片（階段不夠 / 隊友在用 → 鎖住）、AI 建議、重組倒數；倒數完按出擊（或選好後再等 8 秒自動出擊）
+let cqPickSel = null, cqPickKey = '', cqPickWait = 0;
+function renderCqPick(I) {
+  const key = `${I.tier}|${I.options.map(o => o.lock).join(',')}|${cqPickSel?.name}`;
+  if (key !== cqPickKey) {
+    cqPickKey = key;
+    $('cqPickCards').innerHTML = I.options.map((o, i) => {
+      const lo = o.lo, armors = [...new Set(Object.values(lo.armor))].map(a => `<span class="wt" style="--c:${ARMORS[a].css}">${ARMORS[a].name}</span>`).join('');
+      return `<button class="card ${cqPickSel?.name === lo.name ? 'on' : ''} ${o.lock ? 'lock' : ''}" data-i="${i}" ${o.lock ? 'disabled' : ''}>
+        <b>${lo.name}</b><small><span class="wt" style="--c:#e0c070">第 ${o.tier} 階</span> <span class="wt" style="--c:#9ad0ff">${ROLE_NAME[lo.role] ?? lo.role}</span>${o.hint ? ' <span class="wt" style="--c:#7fe08a">AI 建議</span>' : ''}${o.last ? ' <span class="wt" style="--c:#aaa">上一台</span>' : ''}${o.lock ? ` <span class="wt" style="--c:#ff7a60">${o.lock}</span>` : ''}</small>
+        <small>${LEGS[lo.legs].name}${lo.device ? `・${techName(lo.device)}` : ''}</small><div>${SLOTS.map(sl => wTag(lo[sl])).join('')}</div><div>裝甲 ${armors}</div>${lo.note ? `<small>${lo.note}</small>` : ''}</button>`;
+    }).join('');
+    $('cqPickCards').querySelectorAll('.card').forEach(b => b.onclick = () => { const o = I.options[+b.dataset.i]; if (o.lock) return; cqPickSel = o.lo; sfx.click(); cqPickKey = ''; });
+  }
+  const ready = I.t <= 0;
+  $('cqPickTitle').textContent = I.first ? '選擇出擊機體' : '機體損毀・選擇下一台';
+  $('cqPickInfo').textContent = `藍隊第 ${I.tier} 階（進度 ${I.prog.toFixed(1)} / ${I.need}）・${ready ? (cqPickSel ? `選好了：${cqPickSel.name}${I.first ? '・按出擊開始' : `・${Math.ceil(cqPickWait)} 秒後自動出擊`}` : '選一台機體出擊') : `重組中 ${Math.ceil(I.t)} 秒`}`;
+  $('cqGo').disabled = !ready || !cqPickSel;
+  $('cqGo').textContent = ready ? '出擊' : `重組中 ${Math.ceil(I.t)}s`;
+}
+function cqDeploy() {
+  const I = cqPickInfo();
+  if (!I || I.t > 0 || !cqPickSel) return;
+  const lo = cqPickSel, at = cqSpawnAt();
+  spawnPlayer(at.x, at.z, at.yaw, lo);
+  cqJoin(player, lo);
+  $('cqPick').classList.add('hidden'); cqPickKey = '';
+  sfx.deploy?.();
+}
+$('cqGo').onclick = () => { unlockAudio(); sfx.click(); cqDeploy(); };
+let cqOrderKey = '';
 // 雜魚的派系色：裝甲混 78% 隊伍色、腳下一圈光環
 const GRUNT_COLORS = { accent: 0xa8321a, glow: 0xff5a30, tint: 0.78 };
 // ---------- 無盡模式 ----------
@@ -1058,10 +1107,10 @@ function randomTech() {
   return pool.length ? pool[Math.floor(Math.random() * pool.length)] : null;
 }
 AI.onEnemyDeath = (e) => {
-  if (e.team !== 'player') salvage();
+  if (!e.isPlayer) salvage();
   if (MODE.name === 'endless') { if (!MODE.result) { EN.kills++; enLoot(e); } return; }
   if (MODE.name === 'explore') { if (!MODE.result) exploreKill(e); return; }
-  if (MODE.name === 'watch' && MODE.kind === 'conquest') { conquestDeath(e); return; }
+  if (MODE.kind === 'conquest' && (MODE.name === 'watch' || MODE.name === 'conquest')) { conquestDeath(e); return; }
   if (MODE.name === 'watch' && MODE.kind === 'brainpack') {
     if (MODE.result) return;
     if (e === MODE.bp.ace) endWatch('red');
@@ -1103,16 +1152,24 @@ function showPanel(title, html, buttons) {
 }
 function hidePanel() { $('panel').classList.add('hidden'); }
 const panelOpen = () => !$('panel').classList.contains('hidden');
-function restart() { MODE.name === 'explore' ? startRun() : MODE.name === 'endless' ? startEndless() : MODE.name === 'duel' ? startDuel(MODE.duel.preset, MODE.duel.diffKey) : MODE.name === 'watch' ? nextWatch() : startSandbox(); }
+function restart() { MODE.name === 'conquest' ? startConquestPlay() : MODE.name === 'explore' ? startRun() : MODE.name === 'endless' ? startEndless() : MODE.name === 'duel' ? startDuel(MODE.duel.preset, MODE.duel.diffKey) : MODE.name === 'watch' ? nextWatch() : startSandbox(); }
 const WATCH_LIMIT = 180;   // 觀戰一場最多幾秒（遊戲時間）
 const nextWatch = () => MODE.kind === 'conquest' ? startConquestMode() : startBrainPack();
 function pause() {
   G.paused = true;
-  showPanel('暫停', MODE.name === 'explore' ? `遠征・地圖 #${EX.map.seed}<br>${runSummary()}` : MODE.name === 'endless' ? `無盡模式・${mmss(EN.t)}・擊破 ${EN.kills}` : MODE.name === 'duel' ? `對戰・${DIFFS[MODE.duel.diffKey].name}` : MODE.name === 'watch' ? `觀戰（王牌 vs 雜魚包）・第 ${MODE.round} 場` : '試玩場', [
+  showPanel('暫停', MODE.name === 'explore' ? `遠征・地圖 #${EX.map.seed}<br>${runSummary()}` : MODE.name === 'endless' ? `無盡模式・${mmss(EN.t)}・擊破 ${EN.kills}` : MODE.name === 'duel' ? `對戰・${DIFFS[MODE.duel.diffKey].name}` : MODE.name === 'watch' ? `觀戰（王牌 vs 雜魚包）・第 ${MODE.round} 場` : MODE.name === 'conquest' ? '據點戰・你是藍隊 1 號機・Tab 地圖與戰績' : '試玩場', [
     { label: '繼續', primary: true, run: () => { hidePanel(); G.paused = false; } },
     { label: MODE.name === 'watch' ? '下一場' : '重新開始', run: restart },
     ...(MODE.name === 'duel' ? [{ label: '換對手', run: openDuelSetup }] : []),
     { label: '設定', run: () => openSettings() },
+    { label: '回主選單', run: showMenu },
+  ]);
+}
+function showCqResult(r) {
+  G.paused = true;
+  sfx.click();
+  showPanel(r === 'blue' ? '藍隊勝利' : r === 'red' ? '紅隊勝利' : '平手', overviewStats(), [
+    { label: '再一場', primary: true, run: startConquestPlay },
     { label: '回主選單', run: showMenu },
   ]);
 }
@@ -1160,6 +1217,7 @@ $('mExplore').onclick = () => {
     ...[2, 3, 4, 5, 6].map(n => ({ label: `第 ${n} 關`, desc: `${TERRAINS[terrainOf(n)]}・直接從這關開始：補 ${Math.min(2, n - 1)} 把隨機武器、${(n - 1) * 2} 個強化模組、${(n - 1) * 30} 零件`, run: () => startRun(undefined, n) })),
   ]);
 };
+$('mConquest').onclick = () => { unlockAudio(); sfx.click(); startConquestPlay(); };
 $('mWatchMenu').onclick = () => {
   unlockAudio(); sfx.click();
   // 觀戰只剩一個模式：王牌 vs 雜魚包（新數值）；舊的電腦對電腦、王牌 vs 18 台、雜魚 vs 雜魚、代理作品、舊數值切換都撤掉了（2026-11-25，程式還在、選單不放）
@@ -1338,7 +1396,7 @@ function updateHud() {
   // 準星附近、看得到的敵機；對戰中一直顯示對手
   let best = null, bd = MODE.name === 'duel' ? Infinity : 6;
   for (const e of enemies) {
-    if (!e.alive || e.drop || e.fogVis === false) continue;
+    if (!e.alive || e.drop || e.fogVis === false || e.team === p.team) continue;   // 隊友不算目標（據點戰）
     const d = Math.hypot(e.x - aimPoint.x, e.z - aimPoint.z);
     if (d < bd) { bd = d; best = e; }
   }
@@ -1410,7 +1468,7 @@ function step(t) {
   // 重組畫面：世界停住，只畫傳送隧道
   if (reasmActive()) { updateReasm(raw); renderReasm(renderer); updateReticle(false); clearPressed(); return; }
   const playing = MODE.name !== 'menu', watching = MODE.name === 'watch';
-  if (input.garagePressed && !watching && MODE.name !== 'endless' && MODE.name !== 'explore') { if (garage.open) leaveGarage(); else if (playing && !panelOpen()) openGarageFrom('play'); }
+  if (input.garagePressed && !watching && MODE.name !== 'endless' && MODE.name !== 'explore' && MODE.name !== 'conquest') { if (garage.open) leaveGarage(); else if (playing && !panelOpen()) openGarageFrom('play'); }
   if (input.pausePressed && settingsOpen()) { closeSettings(); input.pausePressed = false; }
   if (input.pausePressed) {
     if (garage.open) leaveGarage();
@@ -1420,6 +1478,15 @@ function step(t) {
   if (playing && MODE.name === 'sandbox' && input.resetPressed && !garage.open) { spawnPlayer(player.x, player.z, player.torsoYaw); toast('機體修復'); }
 
   let dt = !playing || G.paused || garage.open || window.__dbg.paused ? 0 : raw;
+  // 據點戰・參戰：沒有機體 → 選機體畫面（開場選好之前時間停住）
+  const CPI = MODE.name === 'conquest' ? cqPickInfo() : null;
+  if (CPI) {
+    if ($('cqPick').classList.contains('hidden')) { $('cqPick').classList.remove('hidden'); cqPickSel = CPI.options.find(o => o.last && !o.lock)?.lo ?? CPI.options.find(o => o.hint && !o.lock)?.lo ?? null; cqPickKey = ''; cqPickWait = 8; }
+    if (CPI.t <= 0 && cqPickSel && !G.paused && !CPI.first && (cqPickWait -= raw) <= 0) cqDeploy();
+    else renderCqPick(CPI);
+    if (CPI.first) dt = 0;
+  }
+  $('status').style.visibility = CPI ? 'hidden' : '';   // 選機體時：左下的機體狀態（是上一台的）先藏起來
   // 頭目著陸定格：時間停住（鏡頭照樣動）
   if (bossIntro.t > 0 && !G.paused) { if ((bossIntro.t -= raw) <= 0) { document.body.classList.remove('killcam'); fxHide('bossIntro'); } dt = 0; }
   // 傳送中：世界停住，只播分解演出（粒子照樣飛）
@@ -1458,17 +1525,17 @@ function step(t) {
       for (const g of MODE.bp.reds) if (g.alive && !g.drop) { const d = Math.hypot(g.x - A.x, g.z - A.z); if (d < bd) { bd = d; near = g; } }
       if (near) A.foe = near;
     }
-    const cq = watching && MODE.kind === 'conquest';
+    const cq = (watching || MODE.name === 'conquest') && MODE.kind === 'conquest';
     if (cq) cqPre(dt);
     for (const e of enemies.slice()) {
-      updateEnemy(e, dt, e.foe ?? player);
+      updateEnemy(e, dt, e.foe ?? (cq ? NOBODY : player));   // 據點戰：沒有對手就不打（不要拿玩家 = 隊友當目標）
       if (cq) cqPost(e);
       antiStuck(e, dt);   // 卡點偵測與迴避（ai.js）
       if (e.alive && !e.drop) driveMech(e, dt, e.drive.mx, e.drive.mz, e.aimYaw);
     }
     if (cq && !MODE.result) {
       const r = updateConquest(dt);
-      if (r) { MODE.result = r; if (r !== 'draw') MODE.score[r]++; MODE.endT = 8; toast(r === 'draw' ? '據點戰・平手' : `據點戰・${r === 'blue' ? '藍隊' : '紅隊'}勝利`); }
+      if (r) { MODE.result = r; if (r !== 'draw') MODE.score[r]++; MODE.endT = MODE.name === 'conquest' ? 4 : 8; toast(r === 'draw' ? '據點戰・平手' : `據點戰・${r === 'blue' ? '藍隊' : '紅隊'}勝利`); }
     }
     keepEnemies(player);
     collideMechs();
@@ -1493,7 +1560,7 @@ function step(t) {
       toast('時間到');
     }
     // 對戰結束：倒下的動畫播一下再出結果；觀戰：自動下一場
-    if (MODE.endT > 0 && (MODE.endT -= raw) <= 0) watching ? nextWatch() : MODE.name === 'endless' ? showEndlessResult() : MODE.name === 'explore' ? showExploreResult() : showResult(MODE.result === 'win');
+    if (MODE.endT > 0 && (MODE.endT -= raw) <= 0) watching ? nextWatch() : MODE.name === 'conquest' ? showCqResult(MODE.result) : MODE.name === 'endless' ? showEndlessResult() : MODE.name === 'explore' ? showExploreResult() : showResult(MODE.result === 'win');
   }
   if (!playing || dt > 0 || garage.open) updateParticles(playing ? dt : raw);
   else if ((warping || hopping) && !G.paused) updateParticles(raw);
@@ -1617,6 +1684,22 @@ function step(t) {
   updateReticle(playing && !watching && player.alive && !garage.open && !G.paused && !panelOpen() && input.source === 'mouse' && MODE.name !== 'menu');
   if (MODE.name === 'endless') updateEndlessHud();
   if (MODE.name === 'explore' && EX) { updateFog(raw, player.x, player.z); fogVisibility(dt); updateExploreHud(); updateMinimap(raw, player, enemies, EX.squads.filter(S => S.layer === EX.layer), EX); }
+  // 據點戰・參戰：上方的分數 / 階段 / 巢穴、兩隊名單（觀戰那一套）+ 給玩家的指令
+  if (MODE.name === 'conquest' && cqState()) {
+    const CS = cqState();
+    $('wBGuns').innerHTML = teamList('blue'); $('wRGuns').innerHTML = teamList('red');
+    $('wScore').innerHTML = `<b class="blue">${Math.floor(CS.score.blue)}</b> : <b class="red">${Math.floor(CS.score.red)}</b>`;
+    $('wRound').textContent = `據點戰・${mmss(CS.t)} / 12:00`;
+    $('wNext').innerHTML = conquestHud();
+    $('wTier').innerHTML = tierBars();
+    const O = updateOrderMark(dt);
+    const key = O?.text.replace(/（\d+%）$/, '') ?? '';
+    if (key && key !== cqOrderKey) { if (cqOrderKey) toast(`新指令：${key}`); sfx.lock?.(); }
+    cqOrderKey = key;
+    $('cqOrder').classList.toggle('hidden', !O);
+    if (O) $('cqOrder').innerHTML = `<b>指令</b>${O.text}<span>${Math.round(O.d)} 格</span>`;
+    if (!$('cqOver').classList.contains('hidden') && (cqOverT -= raw) <= 0) { cqOverT = 0.2; drawOverview($('cqMap'), { free: false, x: player.x, z: player.z }); $('cqStats').innerHTML = overviewStats(); }
+  }
   if (watching) {
     const blue = enemies.find(e => e.team === 'blue' && e.alive) ?? enemies.find(e => e.team === 'blue');
     paintDoll($('dollB'), blue?.alive ? blue : null); paintDoll($('dollR'), null);
@@ -1665,6 +1748,8 @@ const cqCam = { free: false, x: 0, z: 0, zoom: 1, drag: null, chase: false, yaw:
 const cqFollow = d => { const S = cqState(); if (!S) return; if (d) setFocus(((S.focus + d) % 6 + 6) % 6); cqCam.free = false; const f = focusMech(); if (f) cqCam.yaw = f.torsoYaw + Math.PI; };
 const cqView = () => { cqCam.chase = !cqCam.chase; if (cqCam.free) cqFollow(0); };
 const cqOn = () => MODE.name === 'watch' && MODE.kind === 'conquest' && !panelOpen() && !G.paused;
+// 參戰：只有 Tab（地圖與戰績）；Q / E 之類是操作機體的鍵
+addEventListener('keydown', e => { if (MODE.name === 'conquest' && e.code === 'Tab' && !panelOpen()) { e.preventDefault(); $('cqOver').classList.toggle('hidden'); cqOverT = 0; } });
 addEventListener('keydown', e => {
   if (!cqOn()) return;
   if (/^Digit[1-6]$/.test(e.code)) { setFocus(+e.code.slice(5) - 1); cqFollow(0); }
@@ -1700,7 +1785,7 @@ addEventListener('pointermove', e => {
 });
 addEventListener('pointerup', () => { cqCam.drag = null; });
 addEventListener('wheel', e => { if (cqOn() && !cqUi(e)) { cqCam.zoom = Math.max(0.5, Math.min(2.6, cqCam.zoom * Math.exp(e.deltaY * 0.0012))); e.preventDefault(); } }, { passive: false });
-window.__dbg = { get player() { return player; }, cqCam, startConquestMode, get cq() { return cqState(); }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startBrainPack, startEndless, startRun, startStage, callReinforcements, warpOut, startBoss, useLink, switchLayer, props, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
+window.__dbg = { get player() { return player; }, cqCam, startConquestMode, startConquestPlay, cqPickInfo, get cq() { return cqState(); }, enemies, mechs, AI, G, input, sensors, MODE, startDuel, startSandbox, startBrainPack, startEndless, startRun, startStage, callReinforcements, warpOut, startBoss, useLink, switchLayer, props, get EN() { return EN; }, get EX() { return EX; }, showMenu, paused: false };
 showMenu();
 camTarget.set(player.x, 0, player.z);
 nextFrame(frame);

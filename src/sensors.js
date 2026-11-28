@@ -103,7 +103,7 @@ export function updateSensors(p, enemies, aim, dt) {
   // 鎖定熱度（BAL.relock 'heat'）：剛射了一輪 → 鎖上的目標進度扣 lockHeat
   if (p.lockFire) { p.lockFire = false; for (const [e, v] of sensors.progress) if (v >= 1) sensors.progress.set(e, 1 - BAL.lockHeat); }
   for (const e of enemies) {
-    if (!e.alive || e.drop || e.swarm) continue;   // 蟲群鎖不到（一大群小東西，鎖了會一直干擾）
+    if (!e.alive || e.drop || e.swarm || e.team === p.team) continue;   // 隊友不鎖（據點戰：玩家在藍隊）；蟲群鎖不到（一大群小東西，鎖了會一直干擾）
     const dx = e.x - p.x, dz = e.z - p.z, dist = Math.hypot(dx, dz);
     if (dist > H.lockRange + 4 && !sensors.progress.has(e)) continue;   // 遠的不用算
     const aimA = Math.abs(angleDiff(p.torsoYaw, Math.atan2(dx, dz)));

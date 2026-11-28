@@ -103,7 +103,7 @@ function tools(e, foe) {
       const sp = e.guns?.[slot]?.def.speed;
       const mz = muzzleOf(e, slot);
       if (!sp) return Math.atan2(foe.x - mz.x, foe.z - mz.z);
-      const spd = sp * (e.team === 'player' ? 1 : 0.55);   // 電腦的子彈比較慢（weapons.js ENEMY_SPEED）
+      const spd = sp * (e.isPlayer ? 1 : 0.55);   // 電腦的子彈比較慢（weapons.js ENEMY_SPEED）
       let tx = foe.x, tz = foe.z;
       for (let i = 0; i < 3; i++) { const t = Math.hypot(tx - mz.x, tz - mz.z) / spd; tx = foe.x + foe.vx * t; tz = foe.z + foe.vz * t; }
       return Math.atan2(tx - mz.x, tz - mz.z);
