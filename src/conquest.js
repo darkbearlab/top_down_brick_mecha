@@ -2,7 +2,7 @@
 // 地圖：blockgen.js conquestArena（152 × 112，點對稱，整張圖是一張通道網、沒有死路），大本營在左上（藍）/ 右下（紅），上 / 中 / 下三路 + 叢林小徑
 // 據點 = 蟲巢：開場被原生的蟲族守著（隊伍 native，敵視雙方、不會重生）；守衛全滅 → 蟲巢被壓制，可以佔領、收割
 // 巢穴種類：
-//   母巢（正中央）、增援巢：增援條累積速度；條滿了 → 從自己的大本營空投一隊隨機雜魚
+//   母巢（正中央）、增援巢：增援條累積速度；條滿了 → 一波增援：三條線（LANES）各一隊，沿著自己那條線一座一座打過去，整條線拿下就去打對面大本營
 //   甲殼巢：全隊承受傷害 ×0.88、酸腺巢：全隊傷害 +12%、神經巢：全隊極速 +8%、發光巢：全隊能量回復 +30%（每多一座再疊一次）
 // 野怪營地（CQ_CAMPS，6 個）：叢林小徑中間兩隻蟲，雜魚和營地的蟲互不理會（只有主力機會去清）；整個營地清掉 → 最後一擊那一隊的所有主力機拿 45 秒的效果（狂暴：傷害 +20%；迅捷：極速 +15%、能量回復 +50%），
 //   那一隊的增援條 +12%；75 秒後蟲子重新長出來；效果期間營地的圈 = 那一隊的顏色
@@ -42,8 +42,10 @@ import { routeDir, routeDist } from './pathing.js';
 import { CQ_CAMPS, CQ_NODES } from './blockgen.js';
 
 export const CQ = {
-  winScore: 600, timeLimit: 720, capT: 6, nodeR: 4.5, scoreRate: 0.35, gruntCap: 12,
-  reinforceT: 90,   // 增援條：什麼巢都沒有 90 秒滿一次；每座增援巢 +1 倍速、母巢 +2
+  winScore: 600, timeLimit: 720, capT: 6, nodeR: 4.5, scoreRate: 0.35, gruntCap: 18,
+  reinforceT: 100,   // 增援條：什麼巢都沒有 100 秒滿一次；每座增援巢 +0.6 倍速、母巢 +1.3（2026-11-28 從 +1 / +2 放緩）；滿了 = 一波（每條線一隊）
+  reinforceHive: 0.6, reinforceCore: 1.3,
+  outpostHpK: 1.25, outpostDmgK: 1.1,   // 增援據點冒出來的小兵：再強一點（疊在世代上面）
   respawn: 4, respawnAdd: 1, respawnMax: 8, behindGap: 60, behindK: 0.8,
   engageAce: 24, engageGrunt: 18, bugWake: 20, bugHold: 8,
   fortHpK: 2.5, fortHold: 9, healR: 12, healK: 0.08, ammoK: 0.06,
@@ -51,7 +53,7 @@ export const CQ = {
   dropSquads: ['patrol', 'missile', 'breakers', 'gunline', 'hunters'],
   tierNeed: { 1: 3, 2: 5, 3: 6 },   // 每一階的進度條長度（權重）；3 階滿 = 一波超級小兵
   supHpK: 0.75, supW: 0.5,         // 超級小兵：耐久倍率；被擊破時給對面的權重 = 配裝 pw × 0.5
-  outpostT: 60, outpostDrop: 14, outpostRegrow: 45, outpostHpK: 3,
+  outpostT: 60, outpostDrop: 14, outpostRegrow: 45, beaconHpK: 3,
 };
 // 每一階空投的小隊（3 階多了裝甲小隊：戰車 + 機砲兵）
 const DROPS = { 1: ['patrol', 'hunters', 'missile'], 2: CQ.dropSquads, 3: ['patrol', 'missile', 'breakers', 'gunline', 'armor'] };
@@ -76,10 +78,14 @@ const GENS = {
   } },
 };
 const OUTPOSTS = [{ x: -60, z: 40 }, { x: 60, z: -40 }];   // 左下、右上（點對稱）
+// 三條線上的巢穴（blockgen.js CQ_NODES 的編號，照從自己大本營出發的順序），走完 → 對面大本營
+//   0 母巢 (0,0)；1 / 4 增援巢 (∓30,∓22)；2 / 5 酸腺巢 (∓10,∓46)；3 / 6 甲殼巢 (∓62,0)；7 神經巢 (30,-44)；8 發光巢 (-30,44)
+//   藍（左上）：上路 酸腺 → 神經 → 對面甲殼（經過右上增援據點）、中路 增援 → 母巢 → 對面增援、下路 甲殼 → 發光 → 對面酸腺（經過左下增援據點）；紅 = 點對稱
+const LANES = { blue: [[2, 7, 6], [1, 0, 4], [3, 8, 5]], red: [[5, 8, 3], [4, 0, 1], [6, 7, 2]] };
 // 巢穴種類：value = 隊伍指揮眼中的價值；guards = 守衛小隊
 export const HIVES = {
-  core: { name: '母巢', short: '母', desc: '增援條 +2 倍速・得分 ×2', value: 1.5, guards: ['hive', 'stampede'], sac: 0xff60ff },
-  reinforce: { name: '增援巢', short: '援', desc: '增援條 +1 倍速', value: 1.15, guards: ['hive'], sac: 0xffd040 },
+  core: { name: '母巢', short: '母', desc: '增援條 +1.3 倍速・得分 ×2', value: 1.5, guards: ['hive', 'stampede'], sac: 0xff60ff },
+  reinforce: { name: '增援巢', short: '援', desc: '增援條 +0.6 倍速', value: 1.15, guards: ['hive'], sac: 0xffd040 },
   armor: { name: '甲殼巢', short: '甲', desc: '全隊承受傷害 ×0.88', value: 1, guards: ['stampede'], sac: 0x60a0ff },
   attack: { name: '酸腺巢', short: '攻', desc: '全隊傷害 +12%', value: 1, guards: ['hive'], sac: 0xb8ff40 },
   speed: { name: '神經巢', short: '速', desc: '全隊極速 +8%', value: 0.9, guards: ['swarm'], sac: 0x40fff0 },
@@ -454,7 +460,16 @@ function command(team) {
 }
 const followGoal = o => ({ follow: o, key: `f${o.id}`, get x() { return o.x; }, get z() { return o.z; } });
 // 雜魚：去最近的「不是自己的」巢穴（或自己的、正在被搶的）
+// 雜魚的目標：有分線的（定期增援、增援據點）→ 沿著自己那條線，第一座還不是自己的巢（自己的被搶也算）；整條線都是自己的 → 對面大本營
+//   laneAt 只往前推（拿下的就不回頭），沒分線的（舊的 / 超級小兵沒分到）→ 最近的不是自己的巢
 function gruntGoal(e) {
+  const C = e.cq, L = C.lane != null ? LANES[e.team][C.lane] : null;
+  if (L) {
+    C.laneAt ??= 0;
+    while (C.laneAt < L.length && S.nodes[L[C.laneAt]].owner === e.team && S.nodes[L[C.laneAt]].capturing !== foeTeam(e.team)) C.laneAt++;
+    if (C.laneAt < L.length) return S.nodes[L[C.laneAt]];
+    return S.forts[foeTeam(e.team)]?.alive ? S.sieges[e.team] : S.nodes[L[L.length - 1]];
+  }
   let best = null, bd = Infinity;
   for (const n of S.nodes) if (n.owner !== e.team || n.capturing === foeTeam(e.team)) { const d = Math.hypot(n.x - e.x, n.z - e.z); if (d < bd) { bd = d; best = n; } }
   return best ?? S.nodes[0];
@@ -686,7 +701,8 @@ export function updateConquest(dt) {
     if (owned(n)) {
       S.score[n.owner] += dt * CQ.scoreRate * (n.type === 'core' ? 2 : 1);
       const B = S.buffs[n.owner];
-      if (n.type === 'core') B.reinforce = (B.reinforce ?? 0) + 2;
+      if (n.type === 'core') B.reinforce = (B.reinforce ?? 0) + CQ.reinforceCore;
+      else if (n.type === 'reinforce') B.reinforce = (B.reinforce ?? 0) + CQ.reinforceHive;
       else B[n.type] = (B[n.type] ?? 0) + 1;
     }
     // 樣子
@@ -701,8 +717,10 @@ export function updateConquest(dt) {
   for (const c of S.camps) {
     if (c.respawn > 0 && (c.respawn -= dt) <= 0) { c.respawn = 0; spawnCamp(c); }
     if (c.outpost && c.owner) {
+      // 固定時刻表：拿下後 1.5 秒第一隊，之後每 14 秒一隊，60 秒內一共 waves 隊；不受場上雜魚上限影響
+      //   （以前跟定期增援共用上限：滿了這一隊就一直延後，最後一兩隊常常在時間到之前沒出來）
+      while (c.owner && c.waves < c.wavesMax && S.t >= c.t0 + 1.5 + c.waves * CQ.outpostDrop && c.body?.alive) { c.waves++; dropSquad(c.owner, c, { force: true, lane: c.lane, laneAt: c.laneAt, hpK: CQ.outpostHpK, dmgK: CQ.outpostDmgK }); }
       if (S.t > c.until || !c.body?.alive) stopOutpost(c);
-      else if ((c.dropT -= dt) <= 0 && dropSquad(c.owner, c)) c.dropT = CQ.outpostDrop;
     }
     // 營地的效果時間到了（全灰）→ 接著綠色長回來，填滿時重生
     if (c.ph.kind === 'held' && !c.outpost && S.t >= c.ph.t0 + c.ph.T) c.ph = { kind: 'regrow', t0: S.t, T: Math.max(1, c.respawn) };
@@ -711,7 +729,7 @@ export function updateConquest(dt) {
   // 增援條：滿了 → 從大本營空投一隊（場上雜魚滿了就等）
   for (const t of TEAMS) {
     S.bar[t] = Math.min(1, S.bar[t] + dt * (1 + (S.buffs[t].reinforce ?? 0)) / (CQ.reinforceT * (behind(t) ? CQ.behindK : 1)));
-    if (S.bar[t] >= 1 && dropSquad(t)) S.bar[t] = 0;
+    if (S.bar[t] >= 1 && dropWave(t)) S.bar[t] = 0;
   }
   // 大本營旁：修理、長回壞掉的部位、補彈藥
   for (const e of enemies) {
@@ -745,29 +763,48 @@ export function updateConquest(dt) {
   return S.result;
 }
 // 空投一隊雜魚（at：從增援據點冒出來；不然從大本營前面）；機種照隊伍的階段換世代（GENS）
-function dropSquad(team, at = null) {
+// opt：force = 不管場上雜魚上限；lane / laneAt = 走哪條線、從線上第幾座開始；hpK / dmgK = 額外的耐久 / 傷害倍率
+function dropSquad(team, at = null, opt = {}) {
   const live = enemies.filter(e => e.alive && e.grunt && e.team === team).length;
   const pool = DROPS[S.tier[team]].filter(k => SQUADS[k]), key = pool[Math.floor(Math.random() * pool.length)], units = packUnits(SQUADS, key);
-  if (live + units.length > CQ.gruntCap) return false;
+  if (!opt.force && live + units.length > CQ.gruntCap) return false;
   S.drops[team]++;
   const F = at ?? front(team, 4), taken = [], gen = GENS[S.tier[team]];
+  const hpK = (gen?.hpK ?? 1) * (opt.hpK ?? 1), dmgK = (gen?.dmgK ?? 1) * (opt.dmgK ?? 1);
   for (const u of units) {
     const p = spreadAt(F.x, F.z, taken, 1, 5); taken.push(p);
     const d = gruntOf(u), o = gen?.units[d.id];
     const e = spawnEnemy(ANCHOR, o ? { ...d, ...o } : d, p, { team, colors: COLORS[team + 'grunt'], diff: DIFFS.hard, grunt: true });
-    if (gen) { for (const q of Object.values(e.parts)) { q.max *= gen.hpK; q.hp = q.max; } e.dmgMul = (e.dmgMul ?? 1) * gen.dmgK; }
+    if (hpK !== 1) for (const q of Object.values(e.parts)) { q.max *= hpK; q.hp = q.max; }
+    e.dmgMul = (e.dmgMul ?? 1) * dmgK;
     e.gen = S.tier[team];
-    tagUnit(e, team);
+    tagUnit(e, team, opt.lane != null ? { lane: opt.lane, laneAt: opt.laneAt ?? 0 } : {});
+    e.cq.goal = gruntGoal(e);
   }
+  return true;
+}
+// 定期增援一波：三條線各一隊，從大本營往那條線第一座巢的方向出發（場上雜魚放不下一整波就等）
+function dropWave(team) {
+  const live = enemies.filter(e => e.alive && e.grunt && e.team === team).length;
+  if (live + 9 > CQ.gruntCap) return false;
+  const B = baseOf(team);
+  LANES[team].forEach((L, i) => {
+    const n = S.nodes[L[0]], dx = n.x - B.x, dz = n.z - B.z, d = Math.hypot(dx, dz) || 1;
+    dropSquad(team, spreadAt(B.x + dx / d * 8, B.z + dz / d * 8, [], 0, 2), { force: true, lane: i });
+  });
   return true;
 }
 // 增援據點：清掉守衛 → 那一隊立信標、開始增援
 function startOutpost(c, team) {
-  c.owner = team; c.until = S.t + CQ.outpostT; c.dropT = 1.5;
+  c.owner = team; c.until = S.t + CQ.outpostT; c.t0 = S.t; c.waves = 0;
+  c.wavesMax = Math.floor((CQ.outpostT - 1.5) / CQ.outpostDrop) + 1;   // 60 秒：1.5、15.5、29.5、43.5、57.5 → 5 隊
+  // 走哪條線：這一隊的線裡離據點最近的那座巢開始往前推（右上據點 = 藍的上路 / 紅的下路）
+  let best = Infinity;
+  LANES[team].forEach((L, i) => L.forEach((ni, j) => { const n = S.nodes[ni], d = Math.hypot(n.x - c.x, n.z - c.z); if (d < best) { best = d; c.lane = i; c.laneAt = j; } }));
   c.ph = { kind: 'held', team, t0: S.t, T: CQ.outpostT, until: () => c.until };
   const B = spawnEnemy(ANCHOR, { ...gruntOf('turret'), label: '增援信標', fixed: true }, { x: c.x, z: c.z }, { team, colors: COLORS[team], diff: DIFFS.hard, noDrop: true });
   B.fixed = true;
-  for (const q of Object.values(B.parts)) { q.max *= CQ.outpostHpK; q.hp = q.max; }
+  for (const q of Object.values(B.parts)) { q.max *= CQ.beaconHpK; q.hp = q.max; }
   tagUnit(B, team, { obody: c });
   c.body = B;
   S.outposts++;
@@ -778,7 +815,7 @@ function stopOutpost(c, by = null) {
   c.owner = null; c.respawn = CQ.outpostRegrow; c.ph = { kind: 'regrow', t0: S.t, T: CQ.outpostRegrow };
   if (c.body?.alive) { burst(c.x, 1, c.z, [0x8a96a6, 0x5a6470], 14, 4); removeEnemy(c.body); }
   c.body = null;
-  note(by ? `${TEAM_NAME[by]}打掉${TEAM_NAME[T]}的增援信標・增援停止` : `${TEAM_NAME[T]}的增援據點時間到・增援停止`);
+  note((by ? `${TEAM_NAME[by]}打掉${TEAM_NAME[T]}的增援信標・增援停止` : `${TEAM_NAME[T]}的增援據點時間到・增援停止`) + `（出了 ${c.waves}/${c.wavesMax} 隊）`);
 }
 // 階段進度（權重）：滿了升階；3 階再滿 → 超級小兵、歸零
 function addProg(team, w) {
@@ -798,7 +835,7 @@ function superWave(team) {
     const lo = T1[Math.floor(Math.random() * T1.length)], at = spreadAt(F.x, F.z, taken, 1, 5); taken.push(at);
     const e = spawnEnemy(ANCHOR, lo, at, { team, colors: COLORS[team + 'grunt'], diff: DIFFS.normal });
     for (const q of Object.values(e.parts)) { q.max *= CQ.supHpK; q.hp = q.max; }
-    tagUnit(e, team, { sup: true, lo });
+    tagUnit(e, team, { sup: true, lo, lane: i });   // 三台各走一條線
     addRing(e, team);
     faceCenter(e, team);
     e.cq.goal = gruntGoal(e);
