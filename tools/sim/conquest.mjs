@@ -55,11 +55,11 @@ for (let i = 0; i < N; i++) {
     if (S.score.blue > S.score.red + 1) lead.blue += DT; else if (S.score.red > S.score.blue + 1) lead.red += DT;
   }
   const down = ARENA.grid.reduce((a, row) => a + row.filter(c => c === 'r').length, 0);   // 倒掉的建築格
-  const r = { tier: [S.tier.blue, S.tier.red], outposts: S.outposts, down, breaches: S.breaches, dug: S.dug, devices: S.devices, campBuffs: S.team.blue.camps + S.team.red.camps, result: S.result, t: Math.round(S.t), score: [Math.floor(S.score.blue), Math.floor(S.score.red)], kills: [S.kills.blue, S.kills.red], drops: [S.drops.blue, S.drops.red], flips, firstCap, lead: [Math.round(lead.blue), Math.round(lead.red)] };
+  const r = { tier: [S.tier.blue, S.tier.red], supers: S.supers ?? 0, outposts: S.outposts, down, breaches: S.breaches, dug: S.dug, devices: S.devices, campBuffs: S.team.blue.camps + S.team.red.camps, result: S.result, t: Math.round(S.t), score: [Math.floor(S.score.blue), Math.floor(S.score.red)], kills: [S.kills.blue, S.kills.red], drops: [S.drops.blue, S.drops.red], flips, firstCap, lead: [Math.round(lead.blue), Math.round(lead.red)] };
   res.push(r);
   for (const [n, v] of S.lo) { const a = LO.get(n) ?? { t: 0, k: 0, d: 0, cap: 0, camp: 0, gk: 0, bk: 0 }; for (const key in a) a[key] += v[key]; LO.set(n, a); }
   console.log(`脫困 ${stuckStats.n} 次`); stuckStats.n = 0;
-  console.log(`第 ${i + 1} 場 ${r.result === 'draw' ? '平手' : r.result === 'blue' ? '藍勝' : '紅勝'}  ${Math.floor(r.t / 60)}:${String(r.t % 60).padStart(2, '0')}  分數 ${r.score.join(':')}  擊墜 ${r.kills.join(':')}  空投 ${r.drops.join(':')}  營地 ${r.campBuffs}  倒塌 ${r.down}・開路 ${r.breaches}/${r.dug}・裝置 ${r.devices}・階 ${r.tier.join(':')}・增援據點 ${r.outposts}  據點換手 ${r.flips}  首次佔領 ${r.firstCap}s  領先秒數 ${r.lead.join(':')}`);
+  console.log(`第 ${i + 1} 場 ${r.result === 'draw' ? '平手' : r.result === 'blue' ? '藍勝' : '紅勝'}  ${Math.floor(r.t / 60)}:${String(r.t % 60).padStart(2, '0')}  分數 ${r.score.join(':')}  擊墜 ${r.kills.join(':')}  空投 ${r.drops.join(':')}  營地 ${r.campBuffs}  倒塌 ${r.down}・開路 ${r.breaches}/${r.dug}・裝置 ${r.devices}・階 ${r.tier.join(":")}・超級 ${r.supers}・增援據點 ${r.outposts}  據點換手 ${r.flips}  首次佔領 ${r.firstCap}s  領先秒數 ${r.lead.join(':')}`);
   if (!args.quiet) console.log("   ", log.slice(0, 14).join(" / "));
   if (args.log) console.log(log.filter(l => l.includes(args.log)).join('\n'));   // --log 文字：印出含這段文字的事件（例如 --log 改裝）
 }

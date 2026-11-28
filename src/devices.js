@@ -78,16 +78,16 @@ function lob(m, aim, color, land) {
 
 const RING = new THREE.RingGeometry(0.85, 1, 40);
 const USE = {
-  grenade: (m, aim) => lob(m, aim, 0x6a7a3a, (x, z) => areaBlast(m, x, z, 2.8, 75)),
+  grenade: (m, aim) => lob(m, aim, 0x6a7a3a, (x, z) => areaBlast(m, x, z, 3.8, 75)),   // 爆炸半徑 2.8 → 3.8（2026-11-28）
   smoke: (m, aim) => lob(m, aim, 0x9aa0a8, (x, z) => {
-    const S = { x, z, r: 4.2, until: G.now + 8 };
+    const S = { x, z, r: 5.6, until: G.now + 8 };   // 煙的半徑 4.2 → 5.6（2026-11-28）
     smokes.push(S);
     sfx.boost();
     let acc = 0;
     things.push({
       update(dt) {
         if (G.now > S.until) return false;
-        if ((acc += dt) > 0.05) {
+        if ((acc += dt) > 0.035) {   // 範圍變大：煙冒得密一點
           acc = 0;
           const a = Math.random() * Math.PI * 2, r = Math.sqrt(Math.random()) * S.r;
           spawnPuff({ x: x + Math.cos(a) * r, y: R(0.3, 1.8), z: z + Math.sin(a) * r, vx: R(-0.3, 0.3), vy: R(0.05, 0.3), vz: R(-0.3, 0.3), life: R(1.6, 2.6), s: R(1.1, 1.8), c0: 0x9a9ea6, c1: 0x6c7078, drag: 1.2 });

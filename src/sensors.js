@@ -3,7 +3,7 @@
 // 頭只決定鎖定：準星附近（上半身正前方 ±lockArc/2 或離準星 2.5 格內）、在鎖定距離內、射線沒被牆擋的敵機會慢慢鎖上
 //   鎖定時間、同時鎖幾台、鎖定距離、鎖定角度看頭；鎖上的目標給飛彈追蹤用（垂直飛彈一定要鎖定）
 //   只有準備中的武器有飛彈時才會開始鎖定（Q / E 架起飛彈）
-//   長距鎖定頭（radarLock）：隔著牆也能鎖，配垂直飛彈越過掩體打
+//   長距鎖定頭（radarLock）：鎖定距離最長；2026-11-28 起跟其他頭一樣要看得到才鎖得到（radarLock 只剩敵情：鎖定範圍內看不到的敵人也標出來）
 //   頭被打掉：還是能鎖，只是鎖定距離剩 45%、時間 ×2.2、只能鎖 1 台、不能隔牆鎖
 import * as THREE from 'three';
 import { G, addMat, angleDiff, scene } from './core.js';
@@ -109,12 +109,12 @@ export function updateSensors(p, enemies, aim, dt) {
     const aimA = Math.abs(angleDiff(p.torsoYaw, Math.atan2(dx, dz)));
     const nearAim = aim && Math.hypot(e.x - aim.x, e.z - aim.z) < 2.5;
     const seen = rayBlock(p.x, p.z, dx / (dist || 1), dz / (dist || 1), dist) >= dist - e.r;
-    const can = p.alive && armed && dist <= H.lockRange && (aimA < half || nearAim) && (H.radarLock || seen);
+    const can = p.alive && armed && dist <= H.lockRange && (aimA < half || nearAim) && seen;   // 只鎖得到看得見的目標（2026-11-28：長距鎖定頭也不能隔牆鎖）
     let prog = sensors.progress.get(e) ?? 0;
     if (can) sensors.seenT.set(e, G.now);
     const hold = !can && prog >= 1 && p.alive && BAL.lockHold > 0 && G.now - (sensors.seenT.get(e) ?? -99) < BAL.lockHold && dist <= H.lockRange + 4;   // 鎖定保持：躲到牆後 / 離開扇形一下下，鎖定還在
     if (hold) { live.add(e); held.add(e); continue; }
-    prog = can && !(G.now < (p.relockUntil ?? 0)) ? Math.min(1, prog + dt / (lockTime * (seen ? 1 : BAL.wallLockK))) : Math.max(0, prog - dt * 1.5);   // 逐發鎖定 'after'：冷卻中不鎖；隔牆鎖得慢（BAL.wallLockK）
+    prog = can && !(G.now < (p.relockUntil ?? 0)) ? Math.min(1, prog + dt / lockTime) : Math.max(0, prog - dt * 4);   // 離開範圍 / 視線：很快退掉（1.5 → 4）   // 逐發鎖定 'after'：冷卻中不鎖；隔牆鎖得慢（BAL.wallLockK）
     if (prog > 0) { sensors.progress.set(e, prog); live.add(e); } else sensors.progress.delete(e);
   }
   // 鎖上的：進度滿的，依進度排序取前 lockCount 台

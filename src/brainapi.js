@@ -135,7 +135,7 @@ function apply(e, act, dt, foe) {
   // 鎖定：跟內建 AI 一樣（範圍內、看得到、有需要鎖定的武器在準備 → 慢慢鎖上）
   const H = headStats(e), dist = Math.hypot(foe.x - e.x, foe.z - e.z);
   const los = rayBlock(e.x, e.z, (foe.x - e.x) / (dist || 1), (foe.z - e.z) / (dist || 1), dist) >= dist - 0.9;
-  const lockable = foe.alive && !AI.passive && (los || H.radarLock);
+  const lockable = foe.alive && !AI.passive && los;   // 只鎖得到看得見的目標
   if (e.lockBreak) { e.block = 0; e.lockBreak = false; }   // 失衡 / 逐發鎖定：鎖定歸零
   e.block = lockable && wantsLock(e) && dist < H.lockRange && !(G.now < (e.relockUntil ?? 0)) ? e.block + dt / (H.lockTime * (e.diff?.lock ?? 1) * burnLockK(e) * (los ? 1 : BAL.wallLockK)) : Math.max(0, e.block - dt * 2);
   const locks = e.block >= 1 ? [foe] : [];

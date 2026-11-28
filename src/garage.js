@@ -43,7 +43,7 @@ function options(key) {
     return { id, name: A.name, html: `${armorTag(id)} 擋 ${typeTag(good)}・怕 ${typeTag(bad)}` };
   });
   if (key === 'head') return Object.entries(HEADS).map(([id, H]) => ({ id, name: H.name,
-    html: `鎖定 ${H.lockCount} 台・${H.lockTime}s・${H.lockRange} 格・角度 ${H.lockArc}°${H.radarLock ? '・隔牆鎖定' : ''}${H.intel ? '・敵情' : ''}<br>耐久 ${Math.round(H.hp * HP_MUL)}・重 ${H.weight}` }));
+    html: `鎖定 ${H.lockCount} 台・${H.lockTime}s・${H.lockRange} 格・角度 ${H.lockArc}°${H.radarLock ? '・遠距敵情' : ''}${H.intel ? '・敵情' : ''}<br>耐久 ${Math.round(H.hp * HP_MUL)}・重 ${H.weight}` }));
   if (key === 'core') return Object.entries(CORES).map(([id, C]) => ({ id, name: C.name,
     html: `耐久 ${Math.round(C.hp * HP_MUL)}・轉速 ${C.turn}<br>手臂負重 ${C.armLoad}・背部負重 ${C.backLoad}・重 ${C.weight}` }));
   if (key === 'legs') return Object.entries(LEGS).map(([id, L]) => ({ id, name: L.name,

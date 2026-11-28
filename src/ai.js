@@ -201,7 +201,7 @@ export function updateEnemy(e, dt, player) {
   const los = rayBlock(e.x, e.z, nx, nz, dist) >= dist - 0.9 && !smokeBlocks(e.x, e.z, player.x, player.z);   // 煙霧彈：看不穿
   // 感知（AI_TUNE.memory）：K = 看不到時要去 / 要瞄的地方（null = 照舊用真實位置）；長距鎖定頭看得穿牆，不受限制
   let K = null;
-  if (AI_TUNE.memory && player.alive) { if (los) remember(e, player); else if (!e.fixed && !headStats(e).radarLock) K = recall(e, player, dist, dt); }   // 砲塔也會回報看到的位置
+  if (AI_TUNE.memory && player.alive) { if (los) remember(e, player); else if (!e.fixed) K = recall(e, player, dist, dt); }   // 砲塔也會回報看到的位置
 
   // 衝鋒機：預告、衝刺、暈眩的時候不走一般的移動
   if (e.charger && updateCharger(e, dt, player, dist, nx, nz, los)) { updateGuns(e, { L: false, R: false }, dt, [], null); e.laser.g.visible = false; return; }
@@ -394,15 +394,15 @@ export function updateEnemy(e, dt, player) {
   const H = headStats(e);   // 頭受損鎖定也會變差（sensors.js）
   if (e.lockBreak) { A.lockT = 0; e.lockBreak = false; }   // 失衡：鎖定被打斷
   updateReadyChoice(e, dt, dist, canShoot, player, disc);
-  // 長距鎖定頭：隔著牆也能鎖；頭被打掉還是能鎖（距離短、慢）
-  const lockable = player.alive && !AI.passive && (los || (H.radarLock && !smokeBlocks(e.x, e.z, player.x, player.z)));
+  // 要看得到才鎖得到（2026-11-28 起長距鎖定頭也一樣）；頭被打掉還是能鎖（距離短、慢）
+  const lockable = player.alive && !AI.passive && los && !smokeBlocks(e.x, e.z, player.x, player.z);   // 2026-11-28：只鎖得到看得見的目標（長距鎖定頭也不能隔牆鎖）
   const lockNeed = H.lockTime * DF.lock * burnLockK(e);
   // 新火控（被動追蹤、鎖定保持、鎖定熱度）：王牌級（不是雜魚）照 BAL.fcsAI 決定用不用（fcsOn）；雜魚照舊
   if (e.lockFire) { e.lockFire = false; if (A.lockT >= lockNeed) A.lockT = lockNeed * (1 - BAL.lockHeat); }   // 鎖定熱度（BAL.relock 'heat'）
   const canLock = lockable && ((fcsOn(e) && BAL.fcsPassive) || wantsLock(e)) && dist < H.lockRange && !(G.now < (e.relockUntil ?? 0));
   if (canLock) A.lockSeenT = G.now;
   const held = fcsOn(e) && !canLock && A.lockT >= lockNeed && BAL.lockHold > 0 && G.now - (A.lockSeenT ?? -99) < BAL.lockHold;   // 鎖定保持（BAL.lockHold）
-  A.lockT = canLock ? A.lockT + dt / (los ? 1 : BAL.wallLockK) : held ? A.lockT : Math.max(0, A.lockT - dt * 2);   // 隔牆鎖得慢（BAL.wallLockK）
+  A.lockT = canLock ? A.lockT + dt : held ? A.lockT : Math.max(0, A.lockT - dt * 5);   // 目標離開鎖定範圍 / 視線：很快退掉（2026-11-28：×2 → ×5，不然撤退中還一直連發飛彈）
   const locks = A.lockT >= lockNeed ? [player] : [];
   e.lockOn = A.lockT > 0 && player.alive ? { tgt: player, k: Math.min(1, A.lockT / lockNeed) } : null;   // 給玩家的被鎖定警示（lockwarn.js）
 
@@ -509,7 +509,7 @@ function lineClear(e, slot, d, tgt) {
   return need <= 0 || rayBlock(mz.x, mz.z, f.x, f.z, need) >= need;
 }
 function backUseful(e, slot, d, dist, canShoot, head, tgt) {
-  // 垂直飛彈 + 長距鎖定頭：隔著牆也能鎖、越過掩體打
+  // 垂直飛彈 + 長距鎖定頭：射程內就架起來（鎖定還是要看得到）
   if (d.kind === 'vmissile' && head.radarLock && tgt.alive && !AI.passive) return dist > 6 && dist < Math.min(head.lockRange, d.range ?? 99);
   if (!canShoot || !lineClear(e, slot, d, tgt)) return false;
   if (d.kind === 'missile' || d.kind === 'split') return dist < head.lockRange;

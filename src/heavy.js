@@ -91,7 +91,7 @@ export function applyHeavy() {
   //   2026-11-26 也給王牌級（觀戰王牌、遠征頭目：BAL.fcsAI 'ace'），雜魚照舊；基準測試（一直瞄最近的敵人、有鎖就射）每分鐘傷害 1191 → 約 1880，火箭莢艙 2213
   set(BAL, 'fcsAI', 'ace');
   set(BAL, 'fcsPassive', true);
-  set(BAL, 'lockHold', 1.5);
+  set(BAL, 'lockHold', 0.5);   // 2026-11-28：1.5 → 0.5 秒（目標躲起來很快就斷鎖）
   set(BAL, 'relock', 'heat');
   set(BAL, 'missileTurnK', 2.5);
   set(HEADS.std, 'lockArc', 60);

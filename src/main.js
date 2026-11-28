@@ -6,7 +6,7 @@ import { arenaMap, isSolid, layerCount, layerGrid, layerGroup, layerU, loadLayer
 import { THEMES, rng } from './mapgen.js';
 import { TERRAINS, genStage, terrainOf } from './stagegen.js';
 import { bigArena, conquestArena } from './blockgen.js';
-import { clearConquest, conquestDeath, cqState, drawOverview, overviewStats, conquestHud, focusMech, postUpdate as cqPost, preUpdate as cqPre, setFocus, startConquest, teamList, updateConquest } from './conquest.js';
+import { clearConquest, conquestDeath, cqState, drawOverview, overviewStats, conquestHud, tierBars, focusMech, postUpdate as cqPost, preUpdate as cqPre, setFocus, startConquest, teamList, updateConquest } from './conquest.js';
 import { expDiff, planSquads } from './explan.js';
 import { updateTacView } from './tacview.js';
 import { HEAVY, applyHeavy, clearHeavy, packUnits } from './heavy.js';
@@ -1633,6 +1633,7 @@ function step(t) {
     $('wScore').innerHTML = CS ? `<b class="blue">${Math.floor(CS.score.blue)}</b> : <b class="red">${Math.floor(CS.score.red)}</b>` : `<b class="blue">${MODE.score.blue}</b> : <b class="red">${MODE.score.red}</b>`;
     $('wRound').textContent = CS ? `第 ${MODE.round} 場（藍 ${MODE.score.blue} : 紅 ${MODE.score.red}）・${mmss(CS.t)} / 12:00` : `第 ${MODE.round} 場`;
     if (CS && !(MODE.result && MODE.endT > 0)) $('wNext').innerHTML = conquestHud();
+    $('wTier').innerHTML = CS ? tierBars() : '';
     if (CS) {
       const f = cqCam.free ? null : focusMech();
       $('cqFocus').textContent = f ? `${f.team === 'blue' ? '藍' : '紅'} ${(f.team === 'red' ? 4 : 1) + f.cq.k}・${f.cq.lo.name}` : '自由鏡頭';

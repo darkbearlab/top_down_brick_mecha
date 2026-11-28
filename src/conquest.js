@@ -8,8 +8,10 @@
 //   那一隊的增援條 +12%；75 秒後蟲子重新長出來；效果期間營地的圈 = 那一隊的顏色
 // 增援據點（OUTPOSTS，左下 / 右上角，2026-11-28）：四隻蟲守著；清掉 → 最後一擊那一隊接下來 60 秒每 14 秒從據點冒出一隊雜魚，據點上立一座增援信標（固定砲塔）；
 //   對面打掉信標 = 增援提早停止；停止後（時間到或被打掉）45 秒蟲子重新長回來，要再清一次
-// 階段（S.tier，2026-11-28）：開場第 1 階；擊墜對方主力機累積進度（3 / 7 擊墜升 2 / 3 階）→ 開放下一階的主力機配裝（parts.js CQ_ACES tier）、
-//   增援的雜魚直接換成那一階的世代（GENS：1 階初期型、2 階現行、3 階次世代）
+// 階段（S.tier，2026-11-28）：開場第 1 階；擊破對方主力機拿「強度權重」（parts.js CQ_ACES pw）當進度，進度條滿（CQ.tierNeed）升一階
+//   → 開放下一階的主力機配裝（CQ_ACES tier）、增援的雜魚直接換成那一階的世代（GENS：1 階初期型、2 階現行、3 階次世代）
+//   3 階再滿一次 → 叫一波超級小兵（3 台 1 階的主力機配裝、耐久 ×0.75，像雜魚一樣去搶巢），進度歸零重來
+//   被擊破的主力機重組時間 ×(0.6 + 0.4 × pw)：強的機體死了要等比較久（平衡）
 // 佔領：站在圈裡讀條（主力 1、雜魚 0.5，最快 ×1.5）；兩邊都有人 = 暫停；對方的據點要先讀回中立再讀成自己的
 // 勝負：持有的巢穴每秒得分（母巢 ×2），先到 600 分，或 12 分鐘到時分數高的贏；大本營被打爆 = 直接敗北
 // 主力機損毀 → 重組（4 秒 + 每多死一次 1 秒，最多 8），從大本營空降；不放擊墜特寫（G.noKillCam）
@@ -47,7 +49,8 @@ export const CQ = {
   fortHpK: 2.5, fortHold: 9, healR: 12, healK: 0.08, ammoK: 0.06,
   campHold: 5, campWake: 13, campRespawn: 75, campBuffT: 45, campBar: 0.12,
   dropSquads: ['patrol', 'missile', 'breakers', 'gunline', 'hunters'],
-  tierAt: [0, 3, 7],   // 隊伍累積擊墜幾台對方主力機升到第 1 / 2 / 3 階
+  tierNeed: { 1: 3, 2: 5, 3: 6 },   // 每一階的進度條長度（權重）；3 階滿 = 一波超級小兵
+  supHpK: 0.75, supW: 0.5,         // 超級小兵：耐久倍率；被擊破時給對面的權重 = 配裝 pw × 0.5
   outpostT: 60, outpostDrop: 14, outpostRegrow: 45, outpostHpK: 3,
 };
 // 每一階空投的小隊（3 階多了裝甲小隊：戰車 + 機砲兵）
@@ -162,26 +165,33 @@ function buildCamp(c) {
   Object.assign(c, { g, arc, arcKey: null, ph: { kind: 'live' } });
 }
 // 弧：從角度 a0 開始逆時針 len（three.js 的角度；俯視時逆時針 = 畫面上逆時針）；量化過、變了才重做幾何
-function setArc(c, a0, len, hex) {
-  const q = Math.round(len / (Math.PI * 2) * 96), key = `${q}:${Math.round(a0 * 100)}`;
+// frac：弧佔一圈多少；drain = false：弧從正上方往順時針長出去（填滿）；true：弧的尾端固定在正上方、灰色從正上方順時針吃掉它
+//   先把長度量化（1/96 圈）再算起點：以前起點用沒量化的長度算 → 量化後的端點每幀差一點點，正上方那一端來回抽
+function setArc(c, frac, hex, drain = false) {
+  const q = Math.round(Math.max(0, Math.min(1, frac)) * 96), F = Math.PI * 2, L = q / 96 * F, key = `${q}:${drain}`;
   c.arc.material.color.setHex(hex);
   c.arc.visible = q > 0;
   if (key === c.arcKey || q <= 0) return;
   c.arcKey = key;
   c.arc.geometry.dispose();
-  c.arc.geometry = new THREE.RingGeometry(CAMP_R0, CAMP_R1, Math.max(3, q / 2 | 0), 1, a0, q / 96 * Math.PI * 2);
+  c.arc.geometry = new THREE.RingGeometry(CAMP_R0, CAMP_R1, Math.max(3, q / 2 | 0), 1, drain ? TOP - F : TOP - L, L);
 }
 function drawCamp(c) {
-  const P = c.ph, F = Math.PI * 2;
-  if (P.kind === 'live') return setArc(c, 0, F, CAMPS[c.kind].hex);
+  const P = c.ph;
+  if (P.kind === 'live') return setArc(c, 1, HEX.native);   // 蟲在（還沒被拿下）：綠色
   const el = S.t - P.t0;
   if (P.kind === 'held') {
-    if (el < FILL_T) { const L = F * el / FILL_T; return setArc(c, TOP - L, L, HEX[P.team]); }   // 順時針轉一圈填滿
-    const frac = Math.max(0, Math.min(1, (P.until() - S.t) / P.T));
-    return setArc(c, TOP - F, F * frac, HEX[P.team]);   // 灰色從正上方順時針吃掉
+    if (el < FILL_T) return setArc(c, el / FILL_T, HEX[P.team]);   // 順時針轉一圈填滿
+    return setArc(c, (P.until() - S.t) / P.T, HEX[P.team], true);   // 灰色從正上方順時針吃掉
   }
-  const L = F * Math.max(0, Math.min(1, el / P.T));
-  setArc(c, TOP - L, L, HEX.native);   // 綠色順時針填滿
+  setArc(c, el / P.T, HEX.native);   // 綠色順時針填滿
+}
+// 營地 / 據點現在的倒數（Tab 小地圖用）：held = 效果 / 增援還剩幾秒（隊伍色）；regrow = 蟲還要幾秒長回來（綠）
+function campCountdown(c) {
+  const P = c.ph;
+  if (P.kind === 'held') return { t: Math.max(0, P.until() - S.t), css: CSS[P.team] };
+  if (P.kind === 'regrow') return { t: Math.max(0, P.t0 + P.T - S.t), css: CSS.native };
+  return null;
 }
 export function clearConquest() {
   G.noCrashDmg = false;
@@ -641,7 +651,7 @@ export function updateConquest(dt) {
   if ((S.cmdT -= dt) <= 0) {
     S.cmdT = 2;
     for (const t of TEAMS) command(t);
-    for (const e of enemies) if (e.alive && e.grunt && e.cq && e.team !== 'native') e.cq.goal = gruntGoal(e);
+    for (const e of enemies) if (e.alive && (e.grunt || e.cq?.sup) && e.cq && e.team !== 'native') e.cq.goal = gruntGoal(e);
   }
   for (const t of TEAMS) S.buffs[t] = {};
   for (const t of TEAMS) for (const e of S.aces[t]) if (e.alive) loStat(e).t += dt;
@@ -770,6 +780,32 @@ function stopOutpost(c, by = null) {
   c.body = null;
   note(by ? `${TEAM_NAME[by]}打掉${TEAM_NAME[T]}的增援信標・增援停止` : `${TEAM_NAME[T]}的增援據點時間到・增援停止`);
 }
+// 階段進度（權重）：滿了升階；3 階再滿 → 超級小兵、歸零
+function addProg(team, w) {
+  S.tprog[team] += w;
+  for (let need = CQ.tierNeed[S.tier[team]]; S.tprog[team] >= need; need = CQ.tierNeed[S.tier[team]]) {
+    S.tprog[team] -= need;
+    if (S.tier[team] < 3) {
+      S.tier[team]++;
+      note(`${TEAM_NAME[team]}升到第 ${S.tier[team]} 階・開放${ACE_POOL.filter(lo => lo.tier === S.tier[team]).map(lo => lo.name).join('、')}・增援換成${S.tier[team] === 3 ? '次世代' : '現行'}機種`);
+    } else superWave(team);
+  }
+}
+// 超級小兵：3 台 1 階的主力機配裝（可重複）、耐久 ×0.75，從大本營出發去搶巢（跟雜魚一樣的目標）
+function superWave(team) {
+  const T1 = ACE_POOL.filter(lo => (lo.tier ?? 1) === 1), F = front(team, 5), taken = [];
+  for (let i = 0; i < 3; i++) {
+    const lo = T1[Math.floor(Math.random() * T1.length)], at = spreadAt(F.x, F.z, taken, 1, 5); taken.push(at);
+    const e = spawnEnemy(ANCHOR, lo, at, { team, colors: COLORS[team + 'grunt'], diff: DIFFS.normal });
+    for (const q of Object.values(e.parts)) { q.max *= CQ.supHpK; q.hp = q.max; }
+    tagUnit(e, team, { sup: true, lo });
+    addRing(e, team);
+    faceCenter(e, team);
+    e.cq.goal = gruntGoal(e);
+  }
+  S.supers = (S.supers ?? 0) + 1;
+  note(`${TEAM_NAME[team]}的階段進度又滿了・出動一波超級小兵`);
+}
 // 機體損毀（main.js AI.onEnemyDeath）：大本營 → 敗北；營地清空 → 獎勵；主力機 → 戰績、排重組
 export function conquestDeath(e) {
   if (!S) return;
@@ -799,6 +835,7 @@ export function conquestDeath(e) {
   }
   if (by?.cq.ace && (e.grunt || e.team === 'native')) loStat(by)[e.grunt && e.team !== 'native' ? 'gk' : 'bk']++;
   if (e.grunt && e.cq?.team && by) { S.team[by.cq.team].grunts++; return; }
+  if (e.cq?.sup) { addProg(foeTeam(e.cq.team), (e.cq.lo.pw ?? 1) * CQ.supW); return; }   // 超級小兵：給對面一點權重
   if (!e.cq?.ace) return;
   const team = e.cq.team, k = e.cq.k;
   S.kills[foeTeam(team)]++;
@@ -806,15 +843,11 @@ export function conquestDeath(e) {
   if (by?.cq.ace) { S.stats[by.cq.team][by.cq.k].k++; loStat(by).k++; }
   // 階段：對面累積擊墜 → 升階（開放下一階主力機、增援換世代）
   const FT = foeTeam(team);
-  S.tprog[FT]++;
-  while (S.tier[FT] < 3 && S.tprog[FT] >= CQ.tierAt[S.tier[FT]]) {
-    S.tier[FT]++;
-    note(`${TEAM_NAME[FT]}升到第 ${S.tier[FT]} 階・開放${ACE_POOL.filter(lo => lo.tier === S.tier[FT]).map(lo => lo.name).join('、')}・增援換成${S.tier[FT] === 3 ? '次世代' : '現行'}機種`);
-  }
+  addProg(FT, e.cq.lo.pw ?? 1);
   if (S.aces[team][k] !== e) return;
   const n = (S.deaths.get(`${team}${k}`) ?? 0) + 1;
   S.deaths.set(`${team}${k}`, n);
-  const t = Math.min(CQ.respawnMax, CQ.respawn + CQ.respawnAdd * (n - 1)) * (behind(team) ? CQ.behindK : 1);
+  const t = Math.min(CQ.respawnMax, CQ.respawn + CQ.respawnAdd * (n - 1)) * (behind(team) ? CQ.behindK : 1) * (0.6 + 0.4 * (e.cq.lo.pw ?? 1));   // 強的機體重組比較久
   const lo = counterPick(team, k);
   if (lo.name !== e.cq.lo.name) note(`${TEAM_NAME[team]} ${(team === 'red' ? 4 : 1) + k} 號改裝成${lo.name}`);
   S.respawns.push({ team, k, lo, t });
@@ -833,7 +866,16 @@ export function conquestHud() {
   const chip = n => { const c = CSS[n.owner]; return `<span title="${n.name}：${HIVES[n.type].desc}" style="display:inline-block;width:30px;margin:1px;border-radius:4px;border:1px solid ${c};color:${c};font-size:12px${n.contested ? ';opacity:.5' : ''}">${HIVES[n.type].short}${n.capturing ? `<small>${Math.round(Math.abs(n.prog) * 100)}</small>` : ''}</span>`; };
   return S.nodes.map(chip).join('');
 }
-const tierChip = team => { const t = S.tier[team], nx = CQ.tierAt[t]; return `<span class="wt" style="--c:#e0c070">第 ${t} 階${nx != null ? `・${S.tprog[team]}/${nx}` : ''}</span>`; };
+const tierChip = team => `<span class="wt" style="--c:#e0c070">第 ${S.tier[team]} 階・${S.tprog[team].toFixed(1)}/${CQ.tierNeed[S.tier[team]]}</span>`;
+// 螢幕上緣的兩條階段進度條（像血條）：藍的往左長、紅的往右長；3 階的條滿 = 超級小兵
+export function tierBars() {
+  if (!S) return '';
+  const bar = t => {
+    const need = CQ.tierNeed[S.tier[t]], k = Math.min(1, S.tprog[t] / need);
+    return `<div class="tb ${t}"><div class="lab">${TEAM_NAME[t]}・第 ${S.tier[t]} 階${S.tier[t] === 3 ? '・滿了出動超級小兵' : ''}</div><div class="bar"><div class="fill" style="width:${(k * 100).toFixed(1)}%"></div></div></div>`;
+  };
+  return bar('blue') + bar('red');
+}
 export function teamList(team) {
   if (!S) return '';
   const B = S.buffs[team], buff = ['armor', 'attack', 'speed', 'energy'].filter(k => B[k]).map(k => `${HIVES[k].short}×${B[k]}`).join(' ');
@@ -878,10 +920,17 @@ export function drawOverview(cv, cam) {
   }
   // 營地
   for (const c of S.camps) {
-    const hc = c.outpost ? c.owner : c.holder && S.t < c.until ? c.holder : null;
-    ctx.strokeStyle = hc ? CSS[hc] : c.respawn > 0 ? '#555' : CAMPS[c.kind].css; ctx.lineWidth = c.outpost ? 3 : 2;
-    ctx.beginPath(); ctx.arc(X(c.x), Z(c.z), 9, 0, 7); ctx.stroke();
-    if (c.respawn > 0) { ctx.fillStyle = '#888'; ctx.font = '10px sans-serif'; ctx.textAlign = 'center'; ctx.fillText(Math.ceil(c.respawn), X(c.x), Z(c.z) + 4); }
+    const cd = campCountdown(c), r = c.outpost ? 12 : 9;
+    ctx.strokeStyle = c.ph.kind === 'held' ? CSS[c.ph.team] : CSS.native; ctx.lineWidth = c.outpost ? 3 : 2;
+    ctx.beginPath(); ctx.arc(X(c.x), Z(c.z), r, 0, 7); ctx.stroke();
+    if (cd) {   // 倒數：圈上照比例畫一段 + 秒數
+      const P = c.ph, frac = P.kind === 'held' ? cd.t / P.T : 1 - cd.t / P.T;
+      ctx.strokeStyle = cd.css; ctx.lineWidth = 4;
+      ctx.beginPath(); ctx.arc(X(c.x), Z(c.z), r + 3, -Math.PI / 2, -Math.PI / 2 + Math.PI * 2 * Math.max(0, Math.min(1, frac))); ctx.stroke();
+      ctx.fillStyle = cd.css; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center';
+      ctx.fillText(Math.ceil(cd.t), X(c.x), Z(c.z) + 4);
+    }
+    if (c.outpost) { ctx.fillStyle = '#ffd060'; ctx.font = '9px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('增援', X(c.x), Z(c.z) - r - 6); }
   }
   // 巢穴
   ctx.textAlign = 'center'; ctx.textBaseline = 'middle';

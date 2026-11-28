@@ -202,6 +202,16 @@ html, body {
 #wScore { font-size: 30px; font-weight: 900; letter-spacing: 6px; }
 #wScore .blue { color: #6aaaff; } #wScore .red { color: #ff7a40; }
 #wNext { font-size: 12px; color: #ffd060; min-height: 16px; }
+/* 據點戰的階段進度條（螢幕上緣，像血條）：藍在左、往左長；紅在右、往右長 */
+#wTier { display: flex; justify-content: center; gap: 28px; margin: -6px 0 4px; pointer-events: none; }
+#wTier:empty { display: none; }
+#wTier .tb { width: min(280px, 34vw); }
+#wTier .lab { font-size: 11px; letter-spacing: 1px; opacity: .85; margin-bottom: 2px; }
+#wTier .bar { position: relative; height: 10px; background: rgba(10,14,20,.6); border: 1px solid rgba(255,255,255,.25); border-radius: 3px; overflow: hidden; }
+#wTier .fill { position: absolute; top: 0; bottom: 0; transition: width .3s; }
+#wTier .blue .lab { text-align: right; color: #6aaaff; } #wTier .blue .fill { right: 0; background: linear-gradient(90deg, #2a6ad8, #8ac0ff); }
+#wTier .red .lab { text-align: left; color: #ff7a40; } #wTier .red .fill { left: 0; background: linear-gradient(90deg, #ff9a60, #d8401a); }
+@media (max-width: 700px) { #wTier { gap: 12px; } }
 .wside { position: absolute; bottom: 16px; display: flex; gap: 12px; align-items: flex-end; padding: 10px 14px; border-radius: 10px; background: rgba(8,10,14,.55); }
 .wside.blue { left: 16px; border: 1px solid rgba(106,170,255,.45); }
 .wside.red { right: 16px; border: 1px solid rgba(255,122,64,.45); text-align: right; }
