@@ -53,6 +53,7 @@
   <div id="cqCamBar" class="hidden"><button id="cqPrev">◀</button><span id="cqFocus"></span><button id="cqNext">▶</button><button id="cqViewBtn">視角：俯視</button><button id="cqFreeBtn">自由鏡頭</button></div>
   <div class="whint">Esc 暫停 / 下一場 / 回主選單</div>
 </div>
+<div id="lobby" class="hidden"><div class="mpanel wide"><h2>線上據點戰・選座位</h2><p class="sub">大家在同一場：坐上 AI 的座位就當場接手那台，離開後還給 AI・Esc 暫停選單可以換座位</p><label class="lbname">暱稱 <input id="lbName" maxlength="16"></label><div id="lbPw" class="hidden lbname">坐上座位要密碼（觀戰不用）<input id="lbPwIn" type="password" autocomplete="current-password" placeholder="密碼"><button class="btn primary" id="lbPwGo">確定</button></div><div id="lbSeats"></div><div class="row"><button class="btn" id="lbWatch">先觀戰</button><button class="btn" id="lbBack">回主選單</button></div></div></div>
 <div id="cqPick" class="hidden"><div class="mpanel wide"><h2 id="cqPickTitle">選擇出擊機體</h2><p id="cqPickInfo" class="sub"></p><div id="cqPickCards" class="cards"></div><div class="row"><button class="btn primary" id="cqGo">出擊</button></div><small class="cqhint">Tab 地圖與戰績・Esc 暫停</small></div></div>
 <div id="cqOver" class="hidden"><canvas id="cqMap"></canvas><div id="cqStats"></div><div class="cqhint">Tab 關閉・點地圖移動鏡頭</div></div>
 <div id="toast"></div>
@@ -63,6 +64,7 @@
     <div id="mMain">
       <button class="btn primary" id="mDuel">對戰<small>一對一・選對手和難度</small></button>
       <button class="btn" id="mExplore">遠征<small>從機槍和飛彈出發：撿武器、花零件開補給箱、清掉小隊後啟動傳送門打頭目，一關比一關難・可以直接選關</small></button>
+      <button class="btn primary hidden" id="mLogin">輸入密碼<small>坐上線上座位、玩其他模式要密碼；觀戰不用</small></button>
       <button class="btn primary" id="mOnline">據點戰・線上<small>同樣的 3 對 3，但遊戲在伺服器上跑（之後多人連線用的版本）・你是藍隊 1 號機</small></button>
       <button class="btn" id="mConquest">據點戰<small>3 對 3・你是藍隊 1 號機，跟兩台 AI 隊友搶蟲巢；照隊伍指揮的指令行動・被擊墜後重選機體・Tab 地圖</small></button>
       <button class="btn" id="mWatchMenu">觀戰<small>王牌 vs 三波雜魚小隊</small></button>

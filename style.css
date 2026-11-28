@@ -360,3 +360,15 @@ body.killcam::before, body.killcam::after { height: 9vh; transition: height .12s
 .cqplay #watch .wside { top: 12px; bottom: auto; max-width: 25vw; padding: 6px 10px; }
 .cqplay #watch .wside b { font-size: 12px; }
 .cqplay #cqOver .cqhint { display: none; }
+
+/* 線上據點戰的大廳（座位） */
+#lobby { position: fixed; inset: 0; z-index: 9; display: flex; justify-content: flex-end; pointer-events: none; }
+#lobby.hidden { display: none; }
+#lobby .mpanel { width: min(640px, 60vw); }
+#lbSeats { display: grid; grid-template-columns: 1fr 1fr 1fr; gap: 8px; }
+#lbSeats .card.blue { border-color: rgba(106,170,255,.45); } #lbSeats .card.red { border-color: rgba(255,122,64,.45); }
+#lbSeats .card.taken { opacity: .45; cursor: not-allowed; } #lbSeats .card.mine { border-color: #7fe08a; background: rgba(127,224,138,.12); }
+.lbname { display: flex; gap: 8px; align-items: center; font-size: 13px; }
+.lbname input { flex: 1; padding: 8px 10px; border-radius: 8px; border: 1px solid rgba(255,255,255,.18); background: rgba(0,0,0,.35); color: #e8ecf2; font: inherit; }
+@media (max-width: 900px) { #lobby .mpanel { width: 100vw; padding-left: 20px; } #lbSeats { grid-template-columns: 1fr 1fr; } }
+#lbPw.hidden, #mLogin.hidden, #mMain .btn.locked { display: none; }

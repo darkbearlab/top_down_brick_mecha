@@ -704,6 +704,7 @@ export function updateConquest(dt) {
   if (!S || S.result) return S?.result;
   S.t += dt;
   if (S.prespawn) S.prespawn.t = Math.max(0, S.prespawn.t - dt);
+  tickSeats(dt);
   if ((S.cmdT -= dt) <= 0) {
     S.cmdT = 2;
     for (const t of TEAMS) command(t);
@@ -926,7 +927,8 @@ export function conquestDeath(e) {
   const n = (S.deaths.get(`${team}${k}`) ?? 0) + 1;
   S.deaths.set(`${team}${k}`, n);
   const t = Math.min(CQ.respawnMax, CQ.respawn + CQ.respawnAdd * (n - 1)) * (behind(team) ? CQ.behindK : 1) * (0.6 + 0.4 * (e.cq.lo.pw ?? 1));   // 強的機體重組比較久
-  if (e.cq.player) { S.prespawn = { t, T: t, last: e.cq.lo, hint: counterPick(team, k) }; return; }   // 玩家：開選機體畫面（main.js）
+  if (e.cq.player) { S.prespawn = { t, T: t, last: e.cq.lo, hint: counterPick(team, k) }; return; }
+  if (e.cq.seat && S.seats?.get(seatKey(team, k)) === e.cq.seat) { e.cq.seat.prespawn = { t, T: t, last: e.cq.lo, hint: counterPick(team, k) }; return; }   // 線上座位：那位玩家自己選   // 玩家：開選機體畫面（main.js）
   const lo = counterPick(team, k);
   if (lo.name !== e.cq.lo.name) note(`${TEAM_NAME[team]} ${(team === 'red' ? 4 : 1) + k} 號改裝成${lo.name}`);
   S.respawns.push({ team, k, lo, t });
@@ -961,7 +963,7 @@ export function teamList(team) {
   return S.aces[team].map((e, k) => {
     const R = S.respawns.find(r => r.team === team && r.k === k);
     const P = e.cq.player && S.prespawn;
-    return `<span class="wt" style="--c:${CSS[team]}${e.alive ? '' : ';opacity:.45'}">${e.cq.player ? '你・' : ''}${e.cq.lo?.name ?? '選擇機體中'}${R ? ` 重組 ${Math.ceil(R.t)}s` : P ? ` 重組 ${Math.ceil(P.t)}s` : ''}</span>`;
+    return `<span class="wt" style="--c:${CSS[team]}${e.alive ? '' : ';opacity:.45'}">${e.cq.player ? '你・' : e.cq.pname ? `${e.cq.pname}・` : ''}${e.cq.lo?.name ?? '選擇機體中'}${R ? ` 重組 ${Math.ceil(R.t)}s` : P ? ` 重組 ${Math.ceil(P.t)}s` : ''}</span>`;
   }).join('') + tierChip(team) + teamBuffs(team).map(kd => `<span class="wt" style="--c:${CAMPS[kd].css}">${CAMPS[kd].name} ${Math.ceil(S.cbuff[team][kd] - S.t)}s</span>`).join('') +
     S.camps.filter(c => c.outpost && c.owner === team).map(c => `<span class="wt" style="--c:${CAMPS.outpost.css}">增援據點 ${Math.ceil(c.until - S.t)}s</span>`).join('') + (S.forts[team] ? `<span class="wt" style="--c:${CSS[team]}">大本營 ${S.forts[team].alive ? Math.round(S.forts[team].parts.torso.hp / S.forts[team].parts.torso.max * 100) : 0}%</span>` : '') + `<span class="wt" style="--c:#8a96a6">增援 ${Math.round(S.bar[team] * 100)}%・雜魚 ${enemies.filter(e => e.alive && e.grunt && e.team === team).length}</span>` + (buff ? `<span class="wt" style="--c:#c8d070">${buff}</span>` : '');
 }
@@ -1037,7 +1039,7 @@ export function overviewStats() {
   const held = t => S.nodes.filter(n => n.owner === t).map(n => HIVES[n.type].short).join('') || '—';
   const row = (t, k) => {
     const e = S.aces[t][k], s = S.stats[t][k], R = S.respawns.find(r => r.team === t && r.k === k), bk = teamBuffs(t), P = bk.length ? CAMPS[bk[0]] : null;
-    return `<tr><td style="color:${CSS[t]}">${(t === 'red' ? 4 : 1) + k}</td><td>${e.cq.player ? '<b>你</b>・' : ''}${e.cq.lo?.name ?? '選擇機體中'}</td><td>${s.k}</td><td>${s.d}</td><td>${s.cap}</td><td>${s.camp}</td><td>${R ? `重組 ${Math.ceil(R.t)}s` : e.alive ? `${Math.round(e.parts.torso.hp / e.parts.torso.max * 100)}%${e.cq.retreat ? '・回營整備' : ''}${P ? `・<span style="color:${P.css}">${P.name}</span>` : ''}` : '—'}</td></tr>`;
+    return `<tr><td style="color:${CSS[t]}">${(t === 'red' ? 4 : 1) + k}</td><td>${e.cq.player ? '<b>你</b>・' : e.cq.pname ? `<b>${e.cq.pname}</b>・` : ''}${e.cq.lo?.name ?? '選擇機體中'}</td><td>${s.k}</td><td>${s.d}</td><td>${s.cap}</td><td>${s.camp}</td><td>${R ? `重組 ${Math.ceil(R.t)}s` : e.alive ? `${Math.round(e.parts.torso.hp / e.parts.torso.max * 100)}%${e.cq.retreat ? '・回營整備' : ''}${P ? `・<span style="color:${P.css}">${P.name}</span>` : ''}` : '—'}</td></tr>`;
   };
   const team = t => `<tr class="th"><td colspan="7" style="color:${CSS[t]}"><b>${TEAM_NAME[t]}</b>　${Math.floor(S.score[t])} 分・第 ${S.tier[t]} 階・巢穴 ${held(t)}・大本營 ${S.forts[t]?.alive ? Math.round(S.forts[t].parts.torso.hp / S.forts[t].parts.torso.max * 100) : 0}%・增援 ${Math.round(S.bar[t] * 100)}%・空投 ${S.drops[t]}・雜魚擊破 ${S.team[t].grunts}・營地 ${S.team[t].camps}</td></tr>` + [0, 1, 2].map(k => row(t, k)).join('');
   const log = S.log.slice(-8).reverse().map(l => `<div>${Math.floor(l.t / 60)}:${String(Math.floor(l.t % 60)).padStart(2, '0')}　${l.msg}</div>`).join('');
@@ -1058,12 +1060,15 @@ function holdSlot(p) {
 // 選機體畫面要的資料：開放的配裝（階段夠、2 階以上不跟隊友重複）、AI 建議、重組倒數
 export function cqPickInfo() {
   if (!S?.prespawn) return null;
-  const P = S.prespawn, tier = S.tier.blue, mates = new Set(S.aces.blue.filter((e, j) => j !== 0 && e?.cq?.lo).map(e => e.cq.lo.name));
+  return pickInfoFor(S.prespawn, S.myTeam ?? 'blue', S.myK ?? 0);
+}
+function pickInfoFor(P, team, k) {
+  const tier = S.tier[team], mates = new Set(S.aces[team].filter((e, j) => j !== k && e?.cq?.lo).map(e => e.cq.lo.name));
   const options = ACE_POOL.map(lo => {
     const t = lo.tier ?? 1, lock = t > tier ? `第 ${t} 階開放` : t > 1 && mates.has(lo.name) ? '隊友正在用' : '';
     return { lo, tier: t, lock, hint: P.hint?.name === lo.name, last: P.last?.name === lo.name };
   }).sort((a, b) => !!a.lock - !!b.lock || b.tier - a.tier);   // 能選的排前面（高階的先），鎖住的放後面
-  return { t: P.t, T: P.T, first: !!P.first, tier, options, prog: S.tprog.blue, need: CQ.tierNeed[tier] };
+  return { t: P.t, T: P.T, first: !!P.first, tier, options, prog: S.tprog[team], need: CQ.tierNeed[tier], team, k };
 }
 // 重組的位置（大本營前面）
 export function cqSpawnAt() { const F = front('blue', 5); const at = spreadAt(F.x, F.z, [], 0, 3); return { x: at.x, z: at.z, yaw: Math.atan2(-baseOf('blue').x, -baseOf('blue').z) }; }
@@ -1078,21 +1083,24 @@ export function cqJoin(p, lo) {
 // 給玩家的指令（隊伍指揮挑的目標）：文字、位置、路線 key
 export function cqOrder() {
   if (S?.mirror) return S.netOrder ?? null;   // 線上客戶端：伺服器算好的指令
-  const p = S?.player;
+  return cqOrderFor(S?.player);
+}
+// 隊伍指揮給這台機體的目標 → 指令文字（照它的隊伍；線上的每個座位各算各的）
+function cqOrderFor(p) {
   if (!p?.alive || !p.cq) return null;
-  const C = p.cq, g = C.goal, foe = 'red';
-  if (C.retreat) return { text: '回大本營整備（修理、補彈）', x: S.homes.blue.x, z: S.homes.blue.z, key: S.homes.blue.key, kind: 'retreat' };
+  const team = p.team, C = p.cq, g = C.goal, foe = foeTeam(team), H = S.homes[team];
+  if (C.retreat) return { text: '回大本營整備（修理、補彈）', x: H.x, z: H.z, key: H.key, kind: 'retreat' };
   if (!g) return null;
   let text;
-  if (g.follow) text = `支援 ${g.follow.cq.k + 1} 號（${g.follow.cq.lo.name}）・跟著它打`;
-  else if (g.siege) text = '攻擊紅隊大本營';
-  else if (g.outpost) text = g.owner === foe ? '打掉紅隊的增援信標' : '清掉增援據點的蟲・拿下增援';
+  if (g.follow) text = `支援 ${(team === 'red' ? 4 : 1) + g.follow.cq.k} 號（${g.follow.cq.lo.name}）・跟著它打`;
+  else if (g.siege) text = `攻擊${TEAM_NAME[foe]}大本營`;
+  else if (g.outpost) text = g.owner === foe ? `打掉${TEAM_NAME[foe]}的增援信標` : '清掉增援據點的蟲・拿下增援';
   else if (g.camp) text = `清掉野怪營地・全隊${CAMPS[g.kind].name}`;
   else if (g.owner === 'native') text = `壓制${g.name}・打掉蟲族守衛`;
-  else if (g.owner === 'blue') text = `防守${g.name}`;
+  else if (g.owner === team) text = `防守${g.name}`;
   else if (g.owner === foe) text = `奪取${g.name}・站進圈裡讀條`;
   else text = `佔領${g.name}・站進圈裡讀條`;
-  if (g.i != null && !g.camp && g.capturing === 'blue') text += `（${Math.round(Math.abs(g.prog) * 100)}%）`;
+  if (g.i != null && !g.camp && g.capturing === team) text += `（${Math.round(Math.abs(g.prog) * 100)}%）`;
   return { text, x: g.x, z: g.z, key: g.key, kind: 'goal' };
 }
 // 場上的指令標示：目標位置一道光柱 + 圈，玩家腳邊一個箭頭照路線指（離目標 6 格內收起來）
@@ -1143,8 +1151,70 @@ export function cqNetState() {
     aces: { blue: S.aces.blue.map(idOf), red: S.aces.red.map(idOf) }, acelo: { blue: S.aces.blue.map(e => e?.cq?.lo?.name ?? null), red: S.aces.red.map(e => e?.cq?.lo?.name ?? null) },
     forts: { blue: idOf(S.forts.blue), red: idOf(S.forts.red) },
     stats: S.stats, team: S.team, drops: S.drops, respawns: S.respawns.map(r => [r.team, r.k, r2(r.t)]), log: S.log.slice(-10),
+    seats: [...(S.seats ?? new Map()).values()].map(q => [q.team, q.k, q.name]),
   };
 }
+// ---------- 座位（線上多人，2026-11-28）：6 個主力機位置，真人坐上去就當場接手那台，離開就還給 AI ----------
+const seatKey = (team, k) => `${team}${k}`;
+// 大廳用：每個座位現在是誰
+export function cqSeats() {
+  if (!S) return [];
+  const out = [];
+  for (const team of TEAMS) for (let k = 0; k < 3; k++) {
+    const q = S.seats?.get(seatKey(team, k)), e = S.aces[team][k];
+    out.push({ team, k, name: q?.name ?? null, lo: e?.cq?.lo?.name ?? null, alive: !!e?.alive });
+  }
+  return out;
+}
+// 坐下：那台活著 → 控制器換成遠端（當場接手）；重組中 → AI 的重組取消，改成這位選機體
+export function cqSit(team, k, name) {
+  S.seats ??= new Map();
+  const key = seatKey(team, k);
+  if (!TEAMS.includes(team) || !(k >= 0 && k < 3) || S.seats.has(key)) return null;
+  const q = { team, k, name, prespawn: null };
+  S.seats.set(key, q);
+  const e = S.aces[team][k];
+  if (e?.alive) { setCtrl(e, 'remote'); e.isPlayer = true; e.cq.seat = q; e.cq.pname = name; e.hold = null; e.siegeAt = null; }
+  else {
+    const i = S.respawns.findIndex(r => r.team === team && r.k === k), t = i >= 0 ? S.respawns[i].t : 0;
+    if (i >= 0) S.respawns.splice(i, 1);
+    q.prespawn = { t, T: Math.max(1, t), last: e?.cq?.lo ?? null, hint: counterPick(team, k) };
+  }
+  note(`${name} 接手${TEAM_NAME[team]} ${(team === 'red' ? 4 : 1) + k} 號`);
+  return q;
+}
+// 離開：那台活著 → 還給內建 AI；重組中 → 照 AI 的方式重組
+export function cqLeave(team, k) {
+  const key = seatKey(team, k), q = S?.seats?.get(key);
+  if (!q) return;
+  S.seats.delete(key);
+  const e = S.aces[team][k];
+  if (e?.alive && e.cq?.seat === q) { setCtrl(e, 'ai'); e.isPlayer = false; e.cq.seat = null; e.cq.pname = null; }
+  else S.respawns.push({ team, k, lo: counterPick(team, k), t: Math.max(1, q.prespawn?.t ?? 1) });
+  note(`${q.name} 離開，${TEAM_NAME[team]} ${(team === 'red' ? 4 : 1) + k} 號交還給 AI`);
+}
+// 座位的選機體：倒數完、配裝開放 → 從大本營前面出擊（跟 AI 主力機同一個生法，之後交還給 AI 也接得上）
+export function cqSeatPick(team, k, name) {
+  const q = S?.seats?.get(seatKey(team, k));
+  if (!q?.prespawn || q.prespawn.t > 0) return null;
+  const o = pickInfoFor(q.prespawn, team, k).options.find(o => o.lo.name === name && !o.lock);
+  if (!o) return null;
+  const F = front(team, 5), e = spawnAce(team, o.lo, spreadAt(F.x, F.z, [], 0, 3), k);
+  setCtrl(e, 'remote'); e.isPlayer = true; e.cq.seat = q; e.cq.pname = q.name;
+  S.aces[team][k] = e; q.prespawn = null;
+  return e;
+}
+// 給坐在這個座位的人：自己的機體、選機體、指令
+export function cqNetSeat(team, k) {
+  const q = S?.seats?.get(seatKey(team, k)), e = S?.aces[team]?.[k];
+  if (!q) return null;
+  const P = q.prespawn, mine = e?.alive && e.cq?.seat === q, O = mine ? cqOrderFor(e) : null;
+  P && (P.t = Math.max(0, P.t));
+  return { team, k, id: mine ? e.id : 0, prespawn: P ? { t: r2(P.t), T: r2(P.T ?? 0), first: !!P.first, hint: P.hint?.name ?? null, last: P.last?.name ?? null } : null,
+    order: O ? { text: O.text, x: r2(O.x), z: r2(O.z), key: O.key, kind: O.kind } : null };
+}
+// 座位的重組倒數（updateConquest 每幀）
+function tickSeats(dt) { if (S.seats) for (const q of S.seats.values()) if (q.prespawn) q.prespawn.t = Math.max(0, q.prespawn.t - dt); }
 export function cqNetPlayer() {
   if (!S) return null;
   const P = S.prespawn, O = S.player?.alive ? cqOrder() : null;
@@ -1204,10 +1274,14 @@ export function cqApplyNet(st, me, byId) {
     S.respawns = st.respawns.map(([team, k, t]) => ({ team, k, t }));
     S.log = st.log;
   }
+  if (st?.seats) for (const [team, k, name] of st.seats) { const e = S.aces[team]?.[k]; if (e?.cq) e.cq.pname = name || null; }
   if (me) {
+    S.myTeam = me.team ?? null; S.myK = me.k ?? null;
     const P = me.prespawn;
     S.prespawn = P ? { t: P.t, T: P.T, first: P.first, hint: loByName(P.hint), last: loByName(P.last) } : null;
+    const was = S.player;
     S.player = me.id ? byId(me.id) ?? null : null;
+    if (was?.cq && was !== S.player) was.cq.player = false;   // 換座位 / 離開：舊的那台不再是「你」
     if (S.player?.cq) S.player.cq.player = true;
     S.netOrder = me.order;
   }

@@ -26,7 +26,7 @@ import { SLOW_K, clearHusks, clearWrecks, killCam, setHuskLayer, updateWrecks } 
 import { clearShots, makeGuns, updateGuns, updateShots } from './weapons.js';
 import { AI, DIFFS, clearEnemies, enemies, keepEnemies, parkEnemy, removeEnemy, spawnEnemy, stepMech, unparkEnemy, updateEnemy } from './ai.js';
 import { applyFrame, pushFrame, setCtrl } from './control.js';
-import { connectOnline, disconnectOnline, onlineInfo, onlineStep, sendPick } from './online.js';
+import { connectOnline, disconnectOnline, loginOnline, online, onlineInfo, onlineSpecTarget, onlineStep, reconnectOnline, sendPick, sitOnline, standOnline } from './online.js';
 import { burst, clearCasings, clearRubble, makeLaser, repairFx, setLaser, setRubbleLayer, smoke, updateParticles } from './fx.js';
 import { clearWarp, startWarp, updateWarp } from './warp.js';
 import { CHIPS, DEVICES, hasChip, smokeHides, techName } from './tech.js';
@@ -96,6 +96,7 @@ function resetWorld(map = null) {
   clearEnemies();
   clearConquest(); G.noKillCam = false; $('cqOver').classList.add('hidden');
   $('cqPick').classList.add('hidden'); document.body.classList.remove('cqplay'); cqPickKey = ''; cqOrderKey = '';
+  $('lobby').classList.add('hidden');
   disconnectOnline();
   clearHeavy();   // 重火力測試的數值覆蓋：任何模式重設場地都先還原（startStage 再視需要套上）
   const want = map ?? ARENA;
@@ -257,8 +258,63 @@ function startOnline() {
   $('wBName').textContent = '藍隊（你在這隊）'; $('wRName').textContent = '紅隊';
   startConquestMirror(CQ_ARENA, toast);
   connectOnline(toast);
-  toast('線上據點戰・連線到伺服器…');
+  online.onNewMatch = () => {   // 伺服器開了下一場：場地、建築、殘骸重來，連線和座位不變
+    clearEnemies(); clearShots(); clearWrecks(); resetBuildings(); clearDevices();
+    startConquestMirror(CQ_ARENA, toast);
+    MODE.result = null; MODE.endT = 0; hidePanel();
+    toast('下一場開始');
+  };
+  openLobby();
 }
+// 大廳（座位）：6 個主力機座位，誰坐著 / 哪台 AI；點了就坐（當場接手那台）
+let lobbyKey = '';
+function openLobby() { $('lobby').classList.remove('hidden'); $('lbName').value = online.name; lobbyKey = ''; G.paused = false; hidePanel(); }
+function renderLobby() {
+  const seats = online.seats, mine = online.seat;
+  const key = JSON.stringify(seats) + JSON.stringify(mine);
+  if (key === lobbyKey) return;
+  lobbyKey = key;
+  $('lbSeats').innerHTML = seats.map((q, i) => {
+    const me = mine && mine.team === q.team && mine.k === q.k, taken = !!q.name && !me;
+    return `<button class="card ${q.team} ${taken ? 'taken' : ''} ${me ? 'on mine' : ''}" data-i="${i}" ${taken ? 'disabled' : ''}><b>${q.team === 'blue' ? '藍' : '紅'} ${(q.team === 'red' ? 4 : 1) + q.k} 號</b>
+      <small>${me ? '<span class="wt" style="--c:#7fe08a">你</span> ' : q.name ? `<span class="wt" style="--c:#ffd060">${q.name}</span> ` : '<span class="wt" style="--c:#9aa0aa">AI</span> '}${q.lo ?? '重組中'}${q.alive ? '' : '（重組中）'}</small>
+      <small>${me ? '你在這裡' : taken ? '有人了' : '點一下接手'}</small></button>`;
+  }).join('') || '<p class="sub">連線中…</p>';
+  $('lbSeats').querySelectorAll('.card').forEach(b => b.onclick = () => {
+    const q = online.seats[+b.dataset.i];
+    if (!q || (q.name && !(online.seat?.team === q.team && online.seat?.k === q.k))) return;
+    unlockAudio(); sfx.click();
+    sitOnline(q.team, q.k, ($('lbName').value.trim() || online.name).slice(0, 16));
+    $('lobby').classList.add('hidden');
+  });
+}
+$('lbWatch').onclick = () => { sfx.click(); $('lobby').classList.add('hidden'); };
+// 沒登入就想坐：大廳跳出密碼欄；對了 → 網站發 cookie → 重新連線（帶登入狀態）→ 坐回那個座位
+online.onNeedPassword = (team, k) => { $('lobby').classList.remove('hidden'); $('lbPw').classList.remove('hidden'); $('lbPwIn').focus(); online.wantSeat = { team, k }; lobbyKey = ''; };
+$('lbPwGo').onclick = async () => {
+  unlockAudio(); sfx.click();
+  if (!(await loginOnline($('lbPwIn').value))) { toast('密碼不對'); return; }
+  $('lbPw').classList.add('hidden'); $('lbPwIn').value = ''; SITE_AUTH = true; applyMenuAuth();
+  reconnectOnline(online.wantSeat); $('lobby').classList.add('hidden');
+  toast('登入了・坐上座位');
+};
+// 網站登入狀態（觀戰不用密碼）：沒登入 → 主選單只放「輸入密碼」和線上據點戰（觀戰）；本機開發沒有這個網址 → 當成登入了
+let SITE_AUTH = true;
+function applyMenuAuth() {
+  for (const b of $('mMain').querySelectorAll('.btn')) if (b.id !== 'mOnline' && b.id !== 'mLogin') b.classList.toggle('locked', !SITE_AUTH);
+  $('mLogin').classList.toggle('hidden', SITE_AUTH);
+  $('mOnline').firstChild.textContent = SITE_AUTH ? '據點戰・線上' : '據點戰・線上（觀戰）';
+}
+fetch('/__auth', { cache: 'no-store' }).then(r => r.ok ? r.json() : { authed: true }).then(j => { SITE_AUTH = j.authed !== false; applyMenuAuth(); }).catch(() => {});
+$('mLogin').onclick = () => {
+  unlockAudio(); sfx.click();
+  showPanel('輸入密碼', '<input id="pwIn" type="password" autocomplete="current-password" style="width:100%;padding:10px;border-radius:8px;border:1px solid rgba(255,255,255,.2);background:rgba(0,0,0,.35);color:#e8ecf2;font:inherit">', [
+    { label: '確定', primary: true, run: async () => { if (await loginOnline($('pwIn').value)) { SITE_AUTH = true; applyMenuAuth(); hidePanel(); toast('登入了'); } else toast('密碼不對'); } },
+    { label: '取消', run: hidePanel },
+  ]);
+  setTimeout(() => $('pwIn')?.focus(), 50);
+};
+$('lbBack').onclick = () => { sfx.click(); showMenu(); };
 // 選機體畫面：開放的配裝卡片（階段不夠 / 隊友在用 → 鎖住）、AI 建議、重組倒數；倒數完按出擊（或選好後再等 8 秒自動出擊）
 let cqPickSel = null, cqPickKey = '', cqPickWait = 0, cqPickSent = 0;   // cqPickSent：線上送出選擇的時間（等伺服器回之前不要再跳出來）
 function renderCqPick(I) {
@@ -1188,13 +1244,21 @@ function pause() {
     { label: '繼續', primary: true, run: () => { hidePanel(); G.paused = false; } },
     { label: MODE.name === 'watch' ? '下一場' : '重新開始', run: restart },
     ...(MODE.name === 'duel' ? [{ label: '換對手', run: openDuelSetup }] : []),
+    ...(MODE.name === 'online' ? [{ label: '換座位', run: openLobby }, { label: '離開座位（觀戰）', run: () => { standOnline(); hidePanel(); G.paused = false; } }] : []),
     { label: '設定', run: () => openSettings() },
     { label: '回主選單', run: showMenu },
   ]);
 }
 function showCqResult(r) {
+  if (MODE.name === 'online') {   // 線上：大家同一場，15 秒後伺服器自動開下一場（座位保留）
+    showPanel(r === 'blue' ? '藍隊勝利' : r === 'red' ? '紅隊勝利' : '平手', overviewStats() + '<p>15 秒後自動開始下一場，座位保留</p>', [
+      { label: '留下來', primary: true, run: hidePanel },
+      { label: '換座位', run: openLobby },
+      { label: '回主選單', run: showMenu },
+    ]);
+    return;
+  }
   G.paused = true;
-  if (MODE.name === 'online') disconnectOnline();
   sfx.click();
   showPanel(r === 'blue' ? '藍隊勝利' : r === 'red' ? '紅隊勝利' : '平手', overviewStats(), [
     { label: '再一場', primary: true, run: () => MODE.name === 'online' ? startOnline() : startConquestPlay() },
@@ -1533,10 +1597,12 @@ function step(t) {
   if (!turning()) view.yaw = 0;
   updatePointerLock(playing && !watching && !garage.open && !G.paused && !panelOpen() && !settingsOpen() && player.alive && !MODE.result && input.source === 'mouse');
   if (playing && !watching && !garage.open) updateAim(raw);
+  if (MODE.name === 'online' && !$('lobby').classList.contains('hidden')) renderLobby();
   if (dt > 0 && MODE.name === 'online') {
     // 線上據點戰（src/online.js）：規則在伺服器跑；這裡送操作、預測自己的移動、對上其他機體、畫子彈 / 殘骸 / 建築
     const me = onlineStep(dt, localFrame());
-    if (me && me !== player) { player = me; }
+    const cam = me ?? onlineSpecTarget();   // 沒坐座位 = 觀戰：鏡頭跟一台主力機
+    if (cam && cam !== player) player = cam;
     updateShots(dt); updateWrecks(dt, raw); updateBuildings(dt);
     if (player.alive) drawSensors(player);
     if (sensors.locks.length > lastLocks) sfx.lock();
